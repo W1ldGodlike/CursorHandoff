@@ -72,13 +72,12 @@ def is_server_listening(result: HealthResult) -> bool:
 
 
 def cursor_handoff_ready(result: HealthResult) -> bool:
-    """CursorHandoff ready — CDP + connected; with TG enabled, live long-poll too."""
-    if not is_healthy(result):
-        return False
-    health = result.raw_health or {}
-    if health.get("telegramEnabled") is False:
-        return True
-    return health.get("telegramPoll") is True
+    """Hand off Telegram long-poll to CursorHandoff when CDP + server connected.
+
+    Do not wait for telegramPoll: that flag is set only after Handoff wins getUpdates.
+    Wake polls message-only; inline buttons need callback_query on the server.
+    """
+    return is_healthy(result)
 
 
 def kill_process_on_port(port: int) -> None:

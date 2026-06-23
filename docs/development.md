@@ -66,7 +66,7 @@ Run after `npm test` is green and before tagging a release.
 ### CursorWake (Windows)
 
 - [ ] Message with Cursor off → queued → runs after start
-- [ ] Handoff without 409; Wake stops at `connected` + `telegramPoll`
+- [ ] Handoff without 409; Wake stops when `connected: true` (do not wait for `telegramPoll` first)
 - [ ] `/pause` / `/resume` match tray checkbox
 
 ### Cloudflare quick tunnel
@@ -126,7 +126,7 @@ Target: `CursorWake.exe` installed with CursorHandoff **1.0.0+**.
 
 **Clean handoff (no 409)**
 
-- [ ] Wake stops when `health.connected` and (`telegramEnabled === false` or `telegramPoll === true`)
+- [ ] Wake stops when `health.connected` is true (releases poll so Handoff can set `telegramPoll`)
 - [ ] Server log free of repeating `409 Conflict`
 
 ### Where to read logs

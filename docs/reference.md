@@ -147,4 +147,4 @@ The sidebar **Status** tree is read-mostly (server, CDP, agent, clients, windows
 | `webTunnelUrl` | Cloudflare URL when tunnel is running |
 | `sessionValid` | Authenticated web client — full state exposed |
 
-CursorWake releases the bot token when `connected: true` and (`telegramEnabled: false` or `telegramPoll: true`).
+CursorWake releases the bot token when Handoff reports `connected: true` (CDP + server). Do not wait for `telegramPoll` first — that flag is set only after Handoff wins `getUpdates`.
