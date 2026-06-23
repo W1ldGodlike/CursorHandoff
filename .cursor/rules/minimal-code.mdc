@@ -1,0 +1,80 @@
+---
+description: Minimal code — no enterprise wrappers, no duplicate verification, no “for later” abstractions
+alwaysApply: true
+---
+
+# Minimal code
+
+CursorHandoff is a **small** project (extension + local server + optional transports). Write **exactly** what the **current** task needs.
+
+## Principle
+
+1. **Simplest path first** — one action, one short settle, one state read, one API call.
+2. **Extend only on a real break** — with logs or repro, not “just in case”.
+3. **Delete dead code immediately** — no poll, slot, or fallback “might be useful later”.
+
+## Forbidden without explicit user request
+
+- Extra layers: routers, managers, health probes, generic pipelines, strategy patterns.
+- Long waits (multi-second poll chains), retry stacks, dedup + in-flight + queue **for one user action**.
+- Workaround fields in persisted state (`placeholderSlot`, `preferNewest`, duplicate indices).
+- One-off e2e/sync/verify/busy scripts, “check” utilities, extra npm scripts.
+- Immediate second check after a successful create (e.g. create → probe “still alive?”).
+- Duplicate **acceptance** paths for the same outcome (see below).
+- Long user-facing walls of text and double welcome messages.
+
+## Acceptance — one path per outcome
+
+**Synonym (forbidden duplicate):** the same user-visible outcome checked again through a **different channel only** — e.g. live UI vs automation script, chat submit vs scripted keypress.
+
+**Not a synonym:** a genuinely different scenario (runtime active vs app closed, online vs offline companion, unit logic vs integration).
+
+| Already verified | Do not add or re-run |
+|------------------|----------------------|
+| Live E2E (UI, transport, manual smoke) for a flow | Automation script for the same submit/paste/click flow |
+| Unit test for pure logic | Manual repeat of the same input with no new integration risk |
+| Feature with active runtime | Offline or companion-only path — only when that path is in scope |
+
+**When automation / probe is appropriate**
+
+- **Before implementation** — target behavior unknown (e.g. which modifier a shortcut uses).
+- **After live E2E passed** — do not re-run probe for the same flow; mark checklist item `[~] not needed` with one-line reason.
+
+**Checklists**
+
+- One item = one feature outcome, not a nearby similar path.
+- Out of scope → `[~]` + reason; do not leave `[ ]` as fake debt.
+- Do not inflate “items left” with synonyms or unrelated offline cases.
+
+## Minimum patterns
+
+| Situation | Minimum |
+|-----------|---------|
+| New entity from a UI command | Run command → short settle → read active state → save mapping |
+| Switch context | Stable id if present, else unique label; ambiguous → error, no guessing |
+| Send through a bridge | Select target → send → short settle → refresh mapping |
+| Error | One clear user message + one `console.log` |
+
+## Before adding code
+
+- Can this be **shorter** and still work?
+- Does this fix a **concrete bug now**, or “might be needed”?
+- Is there **already** a similar function — extend it, do not add a parallel one?
+
+## Code shape
+
+```typescript
+// ❌ BAD — poll chain + fallback flags + follow-up probe
+await pollUntilMatch(deps, 25_000, before, after);
+await switchTarget(..., { preferNewest: true, placeholderSlot: slot });
+if (!(await probeReachable(...))) { /* second API */ }
+
+// ✅ GOOD
+await runCommand(deps);
+await sleep(1200);
+const active = deps.stateManager.getCurrentState().items.find((x) => x.isActive);
+```
+
+## Refactoring
+
+If you over-built — **simplify**, do not add another layer. A simple flow beats a third fallback.

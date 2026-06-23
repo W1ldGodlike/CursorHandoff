@@ -1,0 +1,290 @@
+{
+  "name": "cursor-handoff",
+  "displayName": "CursorHandoff",
+  "version": "1.0.0",
+  "description": "Control your local Cursor agent from a phone — web UI and Telegram bridge, no cloud runtime.",
+  "publisher": "cursor-handoff",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/W1ldGodlike/CursorHandoff.git"
+  },
+  "type": "module",
+  "main": "./dist/extension.cjs",
+  "extensionKind": [
+    "ui"
+  ],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "icon": "media/icon.png",
+  "categories": [
+    "Machine Learning",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "cursorHandoff.start",
+        "title": "CursorHandoff: Start server"
+      },
+      {
+        "command": "cursorHandoff.stop",
+        "title": "CursorHandoff: Stop server"
+      },
+      {
+        "command": "cursorHandoff.restart",
+        "title": "CursorHandoff: Restart server"
+      },
+      {
+        "command": "cursorHandoff.restartWake",
+        "title": "CursorHandoff: Restart CursorWake"
+      },
+      {
+        "command": "cursorHandoff.openWebClient",
+        "title": "CursorHandoff: Open web client"
+      },
+      {
+        "command": "cursorHandoff.showLogs",
+        "title": "CursorHandoff: Show logs"
+      },
+      {
+        "command": "cursorHandoff.openHandoffSettings",
+        "title": "CursorHandoff: Open Handoff settings"
+      },
+      {
+        "command": "cursorHandoff.openDoc",
+        "title": "CursorHandoff: Open documentation"
+      },
+      {
+        "command": "cursorHandoff.installWake",
+        "title": "CursorHandoff: Install CursorWake"
+      },
+      {
+        "command": "cursorHandoff.installCloudflared",
+        "title": "CursorHandoff: Install cloudflared"
+      },
+      {
+        "command": "cursorHandoff.installAgentSkills",
+        "title": "CursorHandoff: Install agent skills"
+      }
+    ],
+    "configuration": {
+      "title": "CursorHandoff",
+      "properties": {
+        "cursorHandoff.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Start the local server automatically when Cursor opens."
+        },
+        "cursorHandoff.cdpUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:9222",
+          "markdownDescription": "Cursor CDP URL. Cursor must launch with `--remote-debugging-port=9222`. [Remote debugging setup](docs/guide.md#enable-cdp)."
+        },
+        "cursorHandoff.serverPort": {
+          "type": "number",
+          "default": 3000,
+          "markdownDescription": "TCP port for the web UI and socket.io (default 3000)."
+        },
+        "cursorHandoff.serverHost": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "markdownDescription": "Interface to bind. `127.0.0.1` = this PC only; `0.0.0.0` = LAN (web password required). Tailscale: [Tailscale guide](docs/guide.md#tailscale)."
+        },
+        "cursorHandoff.dataDir": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Folder for runtime state (topics, queue, Wake). Empty uses `<repo>/data/`."
+        },
+        "cursorHandoff.locale": {
+          "type": "string",
+          "default": "en",
+          "enum": [
+            "en",
+            "ru"
+          ],
+          "markdownDescription": "Language for Handoff settings, sidebar, web client, and Telegram (`en` or `ru`)."
+        },
+        "cursorHandoff.pollIntervalMs": {
+          "type": "number",
+          "default": 500,
+          "markdownDescription": "How often the server polls Cursor DOM (milliseconds)."
+        },
+        "cursorHandoff.debounceMs": {
+          "type": "number",
+          "default": 300,
+          "markdownDescription": "Debounce before broadcasting state changes to clients (milliseconds)."
+        },
+        "cursorHandoff.webappPassword": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Password for the phone web UI. Generated on first install if empty. [Settings reference](docs/reference.md)."
+        },
+        "cursorHandoff.webTunnel.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Start a Cloudflare quick tunnel with the server (Windows, macOS, Linux). URL in `data/web-tunnel-url.json`; `/web_url` in Telegram # General."
+        },
+        "cursorHandoff.wake.startupEnabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Add CursorWake to Windows Startup (run at logon). Toggle in Handoff settings after install."
+        },
+        "cursorHandoff.windowTitleQualifier": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Append remote hints (WSL, SSH) to Cursor window titles for routing."
+        },
+        "cursorHandoff.telegram.enabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Turn on the Telegram forum bridge. [Telegram bridge guide](docs/telegram.md)."
+        },
+        "cursorHandoff.telegram.botToken": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Token from [@BotFather](https://t.me/BotFather)."
+        },
+        "cursorHandoff.telegram.allowedUsers": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Comma-separated Telegram user IDs allowed to use the bot."
+        },
+        "cursorHandoff.telegram.impl": {
+          "type": "string",
+          "default": "raw",
+          "enum": [
+            "grammy",
+            "raw"
+          ],
+          "markdownDescription": "`raw` (recommended, fetch Bot API) or `grammy`. See [Telegram guide](docs/telegram.md#bot-wont-connect) if the bot never connects."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "cursorHandoff",
+          "title": "CursorHandoff",
+          "icon": "$(device-mobile)"
+        }
+      ]
+    },
+    "views": {
+      "cursorHandoff": [
+        {
+          "type": "webview",
+          "id": "cursorHandoff.status",
+          "name": " "
+        }
+      ]
+    },
+    "walkthroughs": [
+      {
+        "id": "cursorHandoff.gettingStarted",
+        "title": "Getting started with CursorHandoff",
+        "description": "Monitor sessions, approve steps, and task from phone or Telegram.",
+        "steps": [
+          {
+            "id": "cursorHandoff.walkthrough.cdp",
+            "title": "Verify CDP",
+            "description": "Launch Cursor with `--remote-debugging-port=9222` and start the server.\n\n[Start server](command:cursorHandoff.start) · [Remote debugging setup](command:cursorHandoff.openDoc?%22docs%2Fguide.md%23enable-cdp%22)",
+            "media": {
+              "markdown": "extension/media/walkthrough/cdp.md"
+            },
+            "completionEvents": [
+              "onCommand:cursorHandoff.start"
+            ]
+          },
+          {
+            "id": "cursorHandoff.walkthrough.networking",
+            "title": "Web access",
+            "description": "By default the server listens on localhost only. Open Handoff settings → Web access for phone use.\n\n[Open Handoff settings](command:cursorHandoff.openHandoffSettings) · [Remote access guide](command:cursorHandoff.openDoc?%22docs%2Fguide.md%23remote-access%22)",
+            "media": {
+              "markdown": "extension/media/walkthrough/networking.md"
+            },
+            "completionEvents": [
+              "onCommand:cursorHandoff.openHandoffSettings"
+            ]
+          },
+          {
+            "id": "cursorHandoff.walkthrough.telegram",
+            "title": "Telegram bot (optional)",
+            "description": "Telegram for notifications and commands.\n\n[Configure Telegram](command:cursorHandoff.openHandoffSettings) · [Telegram bridge guide](command:cursorHandoff.openDoc?%22docs%2Ftelegram.md%22)",
+            "media": {
+              "markdown": "extension/media/walkthrough/telegram.md"
+            },
+            "completionEvents": [
+              "onSettingChanged:cursorHandoff.telegram.botToken"
+            ]
+          },
+          {
+            "id": "cursorHandoff.walkthrough.addons",
+            "title": "Optional add-ons",
+            "description": "CursorWake (Windows), Cloudflare quick tunnel (all platforms), and global agent skills.\n\n[Install CursorWake](command:cursorHandoff.installWake) · [Install cloudflared](command:cursorHandoff.installCloudflared) · [Install agent skills](command:cursorHandoff.installAgentSkills)\n\n[Cloudflare guide](command:cursorHandoff.openDoc?%22docs%2Fguide.md%23cloudflare%22) · Handoff settings → **Add-ons**.",
+            "media": {
+              "markdown": "extension/media/walkthrough/addons.md"
+            },
+            "completionEvents": [
+              "onCommand:cursorHandoff.installWake",
+              "onCommand:cursorHandoff.installAgentSkills"
+            ]
+          },
+          {
+            "id": "cursorHandoff.walkthrough.done",
+            "title": "Open web client",
+            "description": "Ready! Open the web client on your phone.\n\n[Open web client](command:cursorHandoff.openWebClient)\n\nQuick reference:\n- Status bar — connection state (click to start/stop the server)\n- Activity bar — CursorHandoff panel: windows, model, pending approvals\n- Command Palette — commands prefixed with `CursorHandoff:`\n- Output — CursorHandoff channel for server logs\n\nDocs: [Getting started guide](command:cursorHandoff.openDoc?%22docs%2Fguide.md%22) · [Telegram bridge guide](command:cursorHandoff.openDoc?%22docs%2Ftelegram.md%22) · [Settings reference](command:cursorHandoff.openDoc?%22docs%2Freference.md%22)",
+            "completionEvents": [
+              "onCommand:cursorHandoff.openWebClient"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "dev": "tsx scripts/dev/dev-wrapper.ts",
+    "build": "tsc && node scripts/build/copy-client.mjs && node extension/esbuild.js --production && node scripts/build/stage-extension-bundled.mjs",
+    "build:ext": "node extension/esbuild.js --production",
+    "watch:ext": "node extension/esbuild.js --watch",
+    "package": "node scripts/build/package-vsix.mjs",
+    "package:standard": "node scripts/build/package-vsix.mjs standard",
+    "package:complete": "node scripts/build/package-vsix.mjs complete",
+    "vscode:prepublish": "npm run build",
+    "release": "tsx scripts/release/release.ts",
+    "release:github": "tsx scripts/release/publish-github.ts",
+    "start": "node dist/core/main.js",
+    "discover": "tsx src/discovery/discover-dom.ts",
+    "redeploy": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/redeploy/redeploy-restart-cursor.ps1",
+    "redeploy:check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/redeploy/redeploy-restart-cursor.ps1 -SkipCursorRestart",
+    "redeploy:restart": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/redeploy/redeploy-restart-cursor.ps1 -RestartOnly",
+    "pretest": "node scripts/dev/kill-stale-test-runners.mjs",
+    "test": "npx tsx --test --test-timeout=120000 tests/**/*.test.ts",
+    "test:web": "node scripts/dev/kill-stale-test-runners.mjs && npx tsx --test --test-timeout=120000 tests/web/web-client.test.ts"
+  },
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "express": "^4.21.0",
+    "grammy": "^1.43.0",
+    "mermaid": "^11.15.0",
+    "node-html-parser": "^7.1.0",
+    "socket.io": "^4.8.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/jsdom": "^28.0.1",
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.24.0",
+    "jsdom": "^29.0.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,0 +1,91 @@
+{
+  "chatContainer": {
+    "strategies": [
+      "div.composer-bar.editor",
+      ".composer-messages-container",
+      ".virtualized-composer-messages-scroll-container",
+      "[class*='composer-panel']",
+      "#workbench\\.parts\\.auxiliarybar"
+    ]
+  },
+  "approveButton": {
+    "strategies": [
+      "button.ui-shell-tool-call__run-btn",
+      "button.ui-shell-tool-call__allowlist-button",
+      "button[aria-label*='Accept']",
+      "button[aria-label*='Approve']",
+      "button[aria-label*='Run']",
+      "button[aria-label*='Allow']"
+    ],
+    "textMatch": ["Accept", "Approve", "Run", "Allow", "Accept All"]
+  },
+  "rejectButton": {
+    "strategies": [
+      "button.ui-shell-tool-call__skip-btn",
+      "button[aria-label*='Reject']",
+      "button[aria-label*='Deny']",
+      "button[aria-label*='Cancel']"
+    ],
+    "textMatch": ["Reject", "Deny", "Cancel", "Skip"]
+  },
+  "chatInput": {
+    "strategies": [
+      "#workbench\\.parts\\.auxiliarybar [contenteditable='true']",
+      "#workbench\\.parts\\.auxiliarybar textarea",
+      "#workbench\\.parts\\.auxiliarybar [role='textbox']",
+      ".composer-bar [contenteditable='true']",
+      ".composer-bar textarea",
+      "[contenteditable='true']",
+      "textarea"
+    ]
+  },
+  "composerAttachmentPreview": {
+    "strategies": [
+      ".composer-bar img.image-pill-img",
+      "img.image-pill-img",
+      "[class*='composer-bar'] img[src]"
+    ]
+  },
+  "agentStatus": {
+    "strategies": [
+      "span.auxiliary-bar-chat-title",
+      "[class*='auxiliary-bar-chat-title']",
+      "[class*='status']",
+      "[class*='thinking']",
+      "[class*='spinner']",
+      "[class*='loading']"
+    ]
+  },
+  "chatTabList": {
+    "strategies": [
+      ".agent-sidebar-cell",
+      ".glass-sidebar-agent-list-container li.ui-sidebar-menu-item > div.glass-sidebar-agent-menu-btn"
+    ]
+  },
+  "newChatButton": {
+    "strategies": [
+      "[data-command-id='composer.createNewComposerTab']",
+      "a.codicon-add-two",
+      "[aria-label*='New Chat']"
+    ]
+  },
+  "closeChatTab": {
+    "strategies": [
+      ".tabs-container .tab.active .tab-actions .codicon-close",
+      ".tabs-container .tab.selected .tab-actions .codicon-close",
+      "[role=\"tab\"].active .tab-actions .codicon-close"
+    ]
+  },
+  "modeDropdown": {
+    "strategies": [
+      ".composer-unified-dropdown[data-mode]",
+      ".composer-bar-input-buttons[data-mode]"
+    ]
+  },
+  "modelDropdown": {
+    "strategies": [
+      ".ui-model-picker__trigger",
+      ".composer-unified-dropdown-model"
+    ]
+  }
+}

@@ -1,0 +1,235 @@
+# Architecture
+
+How CursorHandoff is put together — for contributors and curious maintainers. End-user setup lives in the [Getting started guide](guide.md); keys and paths in the [Settings reference](reference.md).
+
+---
+
+## System picture
+
+Three runtimes, two outward bridges:
+
+```mermaid
+flowchart LR
+  subgraph phone["Phone"]
+    WEB["Web browser"]
+    TG["Telegram"]
+  end
+
+  subgraph pc["Your PC"]
+    CUR["Cursor IDE\nCDP :9222"]
+    SRV["Handoff server\n:3000"]
+    WAKE["CursorWake\nWindows, optional"]
+    CF["cloudflared\noptional"]
+  end
+
+  CUR <-->|CDP WebSocket| SRV
+  WEB <-->|socket.io| SRV
+  TG <-->|Bot API HTTPS| SRV
+  WAKE -.->|queue while Cursor off| SRV
+  CF -.->|HTTPS tunnel| SRV
+```
+
+**Cursor** ships as Electron. Launch with `--remote-debugging-port=9222` and the server attaches over CDP — no patches to Cursor itself.
+
+**Handoff server** is a Node bundle (`dist/server/bundle.mjs`). It normalizes IDE state, serves the static web client, and drives the Telegram bot.
+
+**Phone browser** loads `src/client/` assets; realtime updates ride socket.io.
+
+**CursorWake** (Windows tray) holds the Telegram long-poll while Cursor is down, writes to `pending-telegram-queue.json`, and yields when `/health` shows `connected: true` plus (`telegramEnabled: false` or `telegramPoll: true`).
+
+---
+
+## Server wiring
+
+`src/core/main.ts` wires subsystems through EventEmitter subscriptions.
+
+### IDE layer (`src/ide/`)
+
+- **Session** — discover workbench targets on `:9222`, keep the WebSocket alive, hop between Cursor windows.
+- **Parse** — `tabs.ts`, `messages.ts`, `composer.ts`, `plan-widget.ts` evaluate DOM via `Runtime.callFunction`, keyed on `[data-message-index]` (Cursor 3.8+).
+- **Actions** — `navigation.ts`, `composer.ts`, `approval.ts`, `agent-controls.ts` turn remote intents into CDP input. The ProseMirror composer needs the Input domain; assigning `.value` on DOM nodes is not enough.
+
+### State (`src/state/`)
+
+- Diff successive `CursorState` snapshots, debounce ~300 ms, emit `state:patch`.
+- **Window monitor** — background polls for inactive windows (5 s when active, 10 s when idle).
+- **Hang monitor** — if one window stops responding while siblings are fine, `Target.closeTarget` on the stuck target.
+
+### Web (`src/web/`)
+
+- `/health` — always answers liveness; full payload only with a valid web session. Exposes `build.compatVersion`, `telegramPoll`, tunnel URL.
+- Static assets, socket.io hub, auth gate when listening off-loopback without a password.
+
+### Telegram (`src/telegram/`)
+
+Pluggable transport via `TELEGRAM_IMPL` (default **`raw`**):
+
+| `raw` | Native `fetch` long-poll + outbound client — bundled default |
+| `grammy` | Grammy handlers; polling may still use native fetch in hybrid paths |
+
+Shared loop: `transport/poll-loop.ts` — mappings, inbound routing, outbound diff/edit, send queue (~300 ms send / ~100 ms edit), reply keyboards, bridge commands.
+
+**Inbound path:** forum message → resolve window/tab (`composerId` first) → switch tab → paste text/images or stage other files with paths → submit. Keyboard tiles never become agent prompts.
+
+```mermaid
+flowchart TD
+  MSG["Forum message in topic"]
+  MAP["Resolve mapping\ncomposerId → tab"]
+  SW["Switch Cursor tab"]
+  TYPE{"Content?"}
+  PASTE["Paste text / images\ninto composer"]
+  FILES["Save to file-relay/inbound\npaths in message text"]
+  SUB{"Prefix $ ?"}
+  FORCE["Force submit Ctrl+Enter"]
+  QUEUE["Queue until agent idle"]
+  AGENT["Agent runs in Cursor"]
+
+  MSG --> MAP --> SW --> TYPE
+  TYPE -->|text / images| PASTE --> SUB
+  TYPE -->|video, voice, doc…| FILES --> SUB
+  SUB -->|yes| FORCE --> AGENT
+  SUB -->|no| QUEUE --> AGENT
+```
+
+**Outbound path:** per-window snapshots → HTML in `format/html.ts` → `editMessageText` with 4096-char chunking; approvals and plans get inline keyboards.
+
+**Commands:** `commands/registry.ts` — bridge lifecycle (`/bridge`, `/bridge_all`, `/unbridge`, `/merge_threads`, `/flush`) plus chat and diagnostics helpers.
+
+### Routing rules
+
+Topic key: `windowTitle::tabTitle`, optionally scoped by `composerId`.
+
+- **`composerId` beats title** when several tabs look alike (“New Chat”).
+- **Outbound is window-local** — snapshots cannot post into another window’s thread.
+- **`lastInboundAt`** picks the winner on ambiguous matches.
+- Cursor’s unified agent UI may show multiple projects in one sidebar; extraction ties tabs to the window title ↔ project cell. An empty `composerId` must not scan the whole document for unrelated tabs.
+
+User-facing probes: `/whereami`, `/thread_status` ([Telegram bridge guide](telegram.md)).
+
+### Offline queue (`src/workspace/offline-queue.ts`)
+
+Wake and the server coordinate through `pending-telegram-queue.json`. After CDP connect, the server calls `processPendingQueue()`. Queue v2 retains Telegram `file_id` for photos and documents (including video, voice, GIF); files are downloaded when the server is up.
+
+```mermaid
+sequenceDiagram
+  participant TG as Telegram
+  participant Wake as CursorWake
+  participant Q as pending-telegram-queue.json
+  participant Cursor as Cursor IDE
+  participant Srv as Handoff server
+
+  Note over Cursor: Cursor closed
+  TG->>Wake: message in mapped topic
+  Wake->>Q: enqueue
+  Wake->>Cursor: launch IDE
+
+  Cursor->>Srv: CDP connected
+  Srv->>Q: processPendingQueue
+  Srv->>Cursor: deliver + submit FIFO
+  Note over Wake: stops when health OK
+```
+
+### Media (`src/media/`)
+
+- Inbound: `inbound/media-resolve.ts`, `inbound/photos.ts`, `clipboard-win.ts` — images via clipboard; video/voice/GIF/documents saved under `file-relay/` with paths in message text.
+- Outbound: `outbox-watch.ts` watches `.cursor-handoff/outbox/`, splits photo vs document albums (≤10 each), sends after idle + debounce; purges stale outbox files after 1 h; `resolveOutboundTarget` uses workspace + `composerId` + `lastInboundAt`.
+- Web: `inbound-images.ts` — same split for browser uploads (≤10 attachments, 20 MB Bot API cap).
+- Redeploy: `flushOutboxForWorkspace` drains pending sends.
+
+### Compatibility fingerprint
+
+`src/core/fingerprint.ts` stamps `compatVersion: 1` into `/health` and the bundle manifest. Extension and server must agree.
+
+---
+
+## VS Code extension (`extension/src/`)
+
+Spawns `dist/server/bundle.mjs` as a child process — never imports server code.
+
+| Module | Responsibility |
+|--------|----------------|
+| `extension.ts` | Activation, commands, auto-start, password generation |
+| `server-process.ts` | Owner/observer singleton, health poll, takeover |
+| `config-bridge.ts` | Settings → environment |
+| `handoff-settings.ts` / `handoff-settings-view.ts` | Handoff settings webview |
+| `ui-sidebar.ts` | Status tree |
+| `wake-launcher.ts` | Start `CursorWake.exe` (Windows) |
+| `tunnel-launcher.ts` | Spawn cloudflared quick tunnel (`scripts/tunnel/run-cloudflared-quick.ps1` or `.sh`) |
+| `install-cloudflared.ts` | Install cloudflared (winget / Homebrew / GitHub binary to `~/.local/bin`) |
+
+**Owner/observer:** the first window with a healthy CDP session spawns the server; if it exits, another window takes over within ~15 s.
+
+```mermaid
+flowchart TB
+  subgraph winA["Cursor window A"]
+    A["Extension A"]
+  end
+
+  subgraph winB["Cursor window B"]
+    B["Extension B"]
+  end
+
+  SRV["One Handoff server\n:3000"]
+  CDP["CDP session\nactive window"]
+
+  A -->|owner: spawns server| SRV
+  B -->|observer: health poll| SRV
+  SRV --> CDP
+  A -.->|A closes| B
+  B -->|takeover ~15s| SRV
+```
+
+Build pipeline: esbuild → `dist/extension.cjs` + `dist/server/bundle.mjs`; client assets copied to `dist/client/`.
+
+---
+
+## Failure modes
+
+| Situation | Response |
+|-----------|----------|
+| CDP drops | Exponential backoff reconnect; clients show disconnected |
+| Extraction returns null | Hold last good state; run `npm run discover` if persistent |
+| Command error | Up to two retries |
+| Telegram 409 | Only one poller per token; Wake backs off on handoff |
+| Redeploy | Graceful shutdown; suppress false disconnect for ~90 s after startup |
+| Hung window | Close one CDP target; notify the mapped thread |
+
+---
+
+## Repository map
+
+```
+src/
+├── core/           entry, config, paths, fingerprint
+├── ide/            CDP session, parse/*, actions/*
+├── state/          broadcast, window monitor, hang recovery
+├── web/            routes, socket hub, tunnel, plans
+├── telegram/       service, transport, commands, topics, format
+├── media/          outbox watcher, lifecycle, inbound attachments
+├── workspace/      offline queue, project dirs, launcher
+├── client/         web UI
+├── discovery/      DOM selector tool
+└── i18n/           t.ts + locales/
+extension/src/      VS Code extension host
+wake/               CursorWake sources (Windows)
+scripts/            build/, dev/, install/, release/, redeploy/, tunnel/
+locales/            en.json, ru.json
+data/               runtime (gitignored)
+```
+
+---
+
+## External dependencies
+
+Express, socket.io, `ws`, grammy, node-html-parser, mermaid (client bundle). No Puppeteer. CursorWake ships as Python sources built to `CursorWake.exe`.
+
+---
+
+## Implementation notes
+
+- Tab switch: prefer `composerId`, then title.
+- Mode/model menus: synthetic `.click()` — synthetic mouse events miss Cursor’s React controls.
+- Web and Telegram formatters consume `codeBlocks` / `diffBlock`, not Monaco HTML dumps.
+- Plan “View Plan” reads `~/.cursor/plans/<label>` through `src/web/plans.ts`.
+
+Developer workflows: [Development guide](development.md).

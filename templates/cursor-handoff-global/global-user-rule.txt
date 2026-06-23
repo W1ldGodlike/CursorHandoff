@@ -1,0 +1,44 @@
+Project file storage
+
+For any repository or workspace you work in (current and future projects):
+
+- EVERYTHING project-related stays inside that workspace root: sources, dev builds, production/release builds, `dist/`, packaging artifacts (.vsix, .zip), generated files, temp data, caches, logs, exports, local configs.
+- One place per project; git tracks only what belongs in the repo; everything else goes in the root `.gitignore` (create or extend idempotently).
+- Do not write project data to system Temp, Desktop, Downloads, `%APPDATA%` — unless the user explicitly names another path.
+- Service subfolders inside the project: `data/`, `dist/`, `releases/`, `temp/`, `.cursor-handoff/`, `.cache/` — as appropriate; each in `.gitignore` if not for git.
+- Exception: installed IDE extensions (`~/.cursor/extensions/`) and global User Rules/skills — do not duplicate into the repo.
+- New project: define artifact layout inside the repo immediately, not “later on C:”.
+
+---
+
+CursorHandoff — this product vs other projects
+
+CursorHandoff repository (bot, server, extension development): runtime bot state, Telegram mapping, queue, STT cache, Wake logs — in `data/` at this repo root, not AppData. Builds — `dist/`, releases — `releases/`; all in this repo’s `.gitignore`.
+
+In other workspaces (user projects): TG File Relay outbox, temp files/voice — only `<workspace>/.cursor-handoff/`.
+
+Telegram delivery — skill `cursor-handoff-telegram-send` and `.cursor-handoff/outbox/`.
+
+---
+
+=== 3. CursorHandoff — send to Telegram ===
+
+If the user asks for a screenshot, photo, image, or file in Telegram, “to tg”, “here”, or similar — follow skill `cursor-handoff-telegram-send`.
+
+Put deliverable files for Telegram only in `.cursor-handoff/outbox/` at the current project root.
+
+Layout files, references, mockups, and assets — not in outbox unless the user explicitly asked to send them to Telegram.
+
+Write explanation and analysis in the Cursor chat reply — Telegram text goes in a separate message after images.
+
+---
+
+=== 4. Plan mode and plan in TG (global) ===
+
+Skill **plan-widget-tg** — full algorithm. Summary:
+
+**Draft / refine plan:** Plan mode, stay in Plan; edit `.plan.md` only. Implementation — **Build button only**, not from “do it”/“+”/“continue”.
+
+**Send plan to tg:** take **existing** `.plan.md` (path, name, context, or newest in `workspace/.cursor/plans/`) → publish **widget** (CreatePlan = UI, not a new plan) → server sends to TG. Not Bot API, not a wall of text.
+- Already Plan: widget only, do not change mode.
+- Agent: plan → widget → agent.

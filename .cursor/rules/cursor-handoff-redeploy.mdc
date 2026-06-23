@@ -1,0 +1,50 @@
+---
+description: How to rebuild and redeploy CursorHandoff — the agent does it, no manual steps
+alwaysApply: true
+---
+
+# CursorHandoff — redeploy
+
+**Never** ask the user to Reload Window, Restart Server, Stop Server, “rebuild yourself”, or “run build”. After changes to **server** (`src/`) or **extension** (`extension/src/`) — **run redeploy yourself**.
+
+## Scripts (single canonical path)
+
+| Command | When |
+|---------|------|
+| `data/redeploy-requested` | **Default** after `src/` or `extension/src/` edits — stop-hook runs full redeploy |
+| `npm run build` | Compile check only; **does not** touch `:3000` |
+| `npm run redeploy:check` | Rare: build + install extension; **kills server** on `:3000` (not Cursor). Not during TG acceptance |
+| `npm run redeploy:restart` | Cursor restart only (`-RestartOnly`), no build |
+
+Script: `scripts/redeploy/redeploy-restart-cursor.ps1`. Do not add e2e/sync/verify scripts.
+
+## How to run
+
+**Full redeploy — via flag, NOT directly.** A direct run kills Cursor mid-iteration and cuts off the summary. Instead:
+
+1. Finish all edits.
+2. Set the flag: `New-Item data/redeploy-requested -Force`
+3. Write the user a full summary (what changed and why).
+4. End the iteration. Stop-hook (`.cursor/hooks/redeploy-on-stop.ps1`) runs `scripts/redeploy/redeploy-restart-cursor.ps1` after the iteration ends.
+
+**After any server/extension edits** → flag (above), summary to user, end iteration.
+
+**Do not run `redeploy:check` during a live transport test session** (acceptance, active thread, inbound/outbound) — `:3000` goes down. Flag only at the end.
+
+**Compile check without deploy** → `npm run build`, not `redeploy:check`.
+
+## After Cursor restarts
+
+When the user is back — verify briefly yourself (not instructions to them):
+
+- `http://127.0.0.1:3000/health` → `connected: true`, `build.compatVersion: 1`
+- Wake > 0 (2 processes on Windows is normal)
+- Extension log: `Starting server` (owner), not orphan attach; Wake: already running, **not** stopped
+
+## Forbidden
+
+- `npm run redeploy` / `redeploy:check` **directly** instead of the flag (unless the user explicitly asks)
+- `redeploy:check` during a live transport test session or while the user is in an active thread
+- Orphan fallback spawn, redeploy-busy, sync-ui, POLL/e2e loops
+- “Dedup” Wake via taskkill (2 processes = OK)
+- Asking the user to restart anything manually

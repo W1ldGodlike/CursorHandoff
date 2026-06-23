@@ -1,0 +1,19 @@
+node_modules/
+dist/
+wake/build/
+wake/dist/
+cloudflared/dist/
+# Staging for Complete VSIX only (npm run package:complete)
+extension/media/wake/
+extension/media/cloudflared/
+__pycache__/
+*.pyc
+.env
+data/
+releases/
+temp/
+.cursor-handoff/
+local/
+.cursor/plans/
+# Optional local copy of global tone rule — not part of repo policy
+.cursor/rules/tone-pacan.mdc

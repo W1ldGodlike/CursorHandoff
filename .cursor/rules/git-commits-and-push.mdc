@@ -1,0 +1,16 @@
+---
+description: Local git commits and pushes — skill git-commits-and-push (not contributor policy)
+alwaysApply: true
+---
+
+# Git commits and pushes (local only)
+
+**Not shared project policy** — for this workspace’s agent sessions only. External contributors are not bound by this rule.
+
+Project skill **`git-commits-and-push`**. Workflow, templates, and examples live there.
+
+**Always:**
+
+- **English only** (subject + body + PR text)
+- Commit or push **only** when the user explicitly asks
+- `type(scope): subject`; body with **what / why** for non-trivial changes

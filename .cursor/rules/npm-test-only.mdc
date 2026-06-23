@@ -1,0 +1,31 @@
+---
+description: Run tests only via npm test / test:web — never direct tsx --test
+alwaysApply: true
+---
+
+# Tests — npm only
+
+The `web-client.test.ts` suite can hang and consume 2–3 GB RAM if stale runners are left behind. Direct `npx tsx --test` / `node --test` **does not** run the stale-runner cleanup.
+
+## Commands
+
+| Task | Command |
+|------|---------|
+| Full suite | `npm test` (`pretest` kills stale runners first) |
+| Web client only | `npm run test:web` |
+| Before a rare manual run | `node scripts/dev/kill-stale-test-runners.mjs` |
+
+## Why not direct tsx/node --test
+
+- `pretest` → `scripts/dev/kill-stale-test-runners.mjs` terminates orphaned test processes from prior runs.
+- Skipping npm bypasses that hook; zombies keep RAM and can block ports or skew results.
+- CI and local acceptance assume the npm entry points above.
+
+## Forbidden
+
+- `npx tsx --test tests/…`
+- `node --test tests/…` without running the kill script first
+
+## When debugging one file
+
+Prefer `npm run test:web` if the file is in that subset. Otherwise run the kill script once, then use npm — not raw tsx against the full tree.

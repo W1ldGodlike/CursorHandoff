@@ -1,0 +1,17 @@
+---
+description: CursorHandoff TG File Relay — send photos and files to Telegram via outbox
+alwaysApply: true
+---
+
+# TG File Relay: outbox in this project
+
+This project delivers files to Telegram through CursorHandoff.
+
+When the user asks for a screenshot, photo, or file in Telegram / “here” / “send to TG”:
+
+1. Put deliverables only in `.cursor-handoff/outbox/` (**copy**, do not move originals).
+2. Use short meaningful filenames (Latin): `settings-panel.png`, not `out1.png`.
+3. Layout refs and assets — not in outbox unless the user explicitly asked to send them to TG.
+4. Write the explanation in the chat reply — Telegram text arrives after files. Mixed photos and documents are sent as separate albums; outbox files older than 1 h are purged.
+
+Full workflow: skill `cursor-handoff-telegram-send`.

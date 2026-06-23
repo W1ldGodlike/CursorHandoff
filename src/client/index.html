@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#1a1a2e">
+  <title>CursorHandoff</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="apple-touch-icon" href="favicon.png">
+  <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+  <div id="tunnel-wait-overlay" class="tunnel-wait-overlay hidden" aria-live="polite">
+    <div class="tunnel-wait-card">
+      <p class="tunnel-wait-title" data-i18n="web.tunnel.waitTitle">Starting cloudflared…</p>
+      <p class="tunnel-wait-hint" data-i18n="web.tunnel.waitHint">Link will appear in Telegram — command <code>/web_url</code></p>
+    </div>
+  </div>
+
+  <div id="app">
+    <div id="app-chrome">
+      <header id="header">
+        <div id="header-status" class="header-status" aria-live="polite"></div>
+        <button type="button" id="header-plan-bar" class="header-plan-bar hidden" data-i18n-aria-label="web.header.openPlan" aria-label="Open plan">
+          <span id="header-plan-label" class="header-plan-label"></span>
+          <span class="header-plan-progress">
+            <span class="header-plan-progress-track" aria-hidden="true"><span id="header-plan-progress-bar" class="header-plan-progress-bar"></span></span>
+            <span id="header-plan-progress-text" class="header-plan-progress-text"></span>
+          </span>
+        </button>
+        <div class="header-toolbar">
+          <div id="window-select-wrap" class="header-window-select-wrap hidden">
+            <button type="button" id="window-select-btn" class="header-window-btn" aria-haspopup="dialog" aria-expanded="false">
+              <span id="window-select-label" class="header-window-label">Cursor</span>
+              <span class="header-window-chevron" aria-hidden="true">&#9662;</span>
+            </button>
+          </div>
+          <div id="header-menu" class="header-menu">
+            <button type="button" id="header-settings-btn" class="header-settings-btn" data-i18n-aria-label="web.header.settings" aria-label="Settings" aria-haspopup="dialog" aria-expanded="false">&#9881;</button>
+            <button type="button" id="header-menu-btn" class="header-menu-btn" data-i18n-aria-label="web.header.menu" aria-label="Menu" aria-expanded="false" aria-haspopup="menu">⋮</button>
+            <div id="header-menu-panel" class="header-menu-panel hidden" role="menu" data-i18n-aria-label="web.header.menuActions" aria-label="Actions"></div>
+          </div>
+        </div>
+      </header>
+
+      <div id="composer-queue-bar" class="composer-queue-bar hidden" aria-live="polite">
+        <button type="button" class="composer-queue-header" aria-expanded="true">
+          <span class="composer-queue-chevron" aria-hidden="true">&#9660;</span>
+          <span id="composer-queue-label" class="composer-queue-label"></span>
+        </button>
+        <div id="composer-queue-items" class="composer-queue-items"></div>
+      </div>
+
+      <nav id="tab-bar" class="tab-bar hidden">
+        <div id="tab-list" class="tab-list"></div>
+        <div class="tab-bar-tools">
+          <a id="btn-open-telegram" class="tab-bar-tool tab-bar-tool-link hidden" href="#" target="_blank" rel="noopener noreferrer">TG</a>
+          <button type="button" id="btn-tab-all" class="tab-bar-tool hidden" aria-expanded="false" data-i18n="web.tabBar.allChats">all chats</button>
+          <div id="tab-all-panel" class="tab-all-panel hidden" role="menu" data-i18n-aria-label="web.header.allChatsMenu" aria-label="All chats"></div>
+          <button type="button" id="btn-tab-close-others" class="tab-bar-tool hidden" data-i18n="web.tabBar.closeOthers">close others</button>
+        </div>
+        <button id="btn-new-chat" class="tab-new-btn" data-i18n-aria-label="web.tabBar.newChat" aria-label="New chat">+</button>
+      </nav>
+    </div>
+
+    <div id="offline-banner" class="offline-banner hidden" role="status" aria-live="polite" data-i18n="web.connection.offline.banner">
+      No connection to CursorHandoff
+    </div>
+
+    <div id="message-filter-bar" class="message-filter-bar hidden" role="toolbar" data-i18n-aria-label="web.filter.toolbarLabel" aria-label="Feed filter">
+      <button type="button" class="message-filter-chip selected" data-filter="all" data-i18n="web.filter.all">All</button>
+      <button type="button" class="message-filter-chip" data-filter="human" data-i18n="web.filter.human">You</button>
+      <button type="button" class="message-filter-chip" data-filter="agent" data-i18n="web.filter.agent">Agent</button>
+      <button type="button" class="message-filter-chip" data-filter="tools" data-i18n="web.filter.tools">Tools</button>
+    </div>
+
+    <main id="messages" role="log" aria-live="polite">
+      <div id="history-load-indicator" class="history-load-indicator hidden" aria-live="polite" data-i18n="web.common.historyLoading">Loading history…</div>
+      <div id="empty-state" class="empty-state">
+        <p id="empty-state-primary" data-i18n="web.connection.initial.emptyPrimary">Connecting to server…</p>
+        <p id="empty-state-hint" class="hint" data-i18n="web.connection.initial.emptyHint">Checking CursorHandoff server and Cursor IDE.</p>
+      </div>
+    </main>
+    <button id="btn-new-below" class="btn-new-below hidden" type="button" data-i18n="web.newBelow">New below</button>
+
+    <div id="app-bottom">
+      <div id="approval-bar" class="approval-bar hidden">
+        <div id="approval-desc" class="approval-desc"></div>
+        <div class="approval-actions">
+          <button id="btn-approve" class="btn btn-approve" data-i18n="web.approve.accept">Accept</button>
+          <button id="btn-reject" class="btn btn-reject" data-i18n="web.approve.reject">Reject</button>
+        </div>
+      </div>
+
+      <div id="questionnaire-bar" class="questionnaire-bar hidden">
+        <div class="questionnaire-header">
+          <span class="questionnaire-icon">&#10067;</span>
+          <span class="questionnaire-title" data-i18n="web.questionnaire.title">Questions</span>
+          <span id="questionnaire-stepper" class="questionnaire-stepper"></span>
+        </div>
+        <div id="questionnaire-questions"></div>
+        <div class="questionnaire-actions">
+          <button id="btn-q-skip" class="btn btn-q-skip" data-i18n="web.questionnaire.skip">Skip</button>
+          <button id="btn-q-continue" class="btn btn-q-continue" data-i18n="web.questionnaire.continue">Continue</button>
+        </div>
+      </div>
+
+      <footer id="input-bar">
+        <div class="composer-toolbar">
+          <div id="mode-model-bar" class="mode-model-bar">
+            <button id="pill-mode" class="pill pill-compact" data-i18n-aria-label="web.input.modeSelect" aria-label="Select mode">
+              <span id="pill-mode-icon" class="pill-icon"></span>
+              <span id="pill-mode-text" data-i18n="web.mode.agent">Agent</span>
+              <span class="pill-chevron">&#9662;</span>
+            </button>
+            <button id="pill-model" class="pill pill-compact" data-i18n-aria-label="web.input.modelSelect" aria-label="Select model">
+              <span id="pill-model-text">Auto</span>
+              <span class="pill-chevron">&#9662;</span>
+            </button>
+          </div>
+          <div id="quick-phrases-bar" class="quick-phrases-bar hidden">
+            <div id="quick-phrases-list" class="quick-phrases-list"></div>
+          </div>
+        </div>
+        <div id="prompt-history-bar" class="prompt-history-bar hidden">
+          <button id="btn-repeat-last" class="prompt-history-repeat" type="button" data-i18n="web.repeatLast">Repeat last</button>
+          <div id="prompt-history-list" class="prompt-history-list"></div>
+        </div>
+        <div id="photo-compose-bar" class="photo-compose-bar hidden" aria-live="polite">
+          <div id="photo-compose-list" class="photo-compose-list"></div>
+        </div>
+        <div class="input-row">
+          <button type="button" id="btn-attach" class="btn-attach" data-i18n-aria-label="web.input.attachFile" aria-label="Attach file" disabled>
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+              <path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 13.5l2.5 3 3.5-4.5 4.5 6H5l3.5-4.5z"/>
+            </svg>
+          </button>
+          <input type="file" id="photo-file-input" class="photo-file-input" multiple hidden>
+          <div class="input-wrapper">
+          <textarea
+            id="message-input"
+            data-i18n-placeholder="web.input.placeholder"
+            placeholder="Message…"
+            rows="1"
+            disabled
+          ></textarea>
+          <button id="btn-send" class="btn btn-send" disabled data-i18n-aria-label="web.input.send" aria-label="Send">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+            </svg>
+          </button>
+        </div>
+        </div>
+      </footer>
+    </div>
+
+    <div id="sheet-overlay" class="sheet-overlay hidden"></div>
+    <div id="sheet-mode" class="bottom-sheet hidden">
+      <div class="sheet-header" data-i18n="web.mode.sheetTitle">Mode</div>
+      <div id="sheet-mode-list" class="sheet-list"></div>
+    </div>
+    <div id="sheet-model" class="bottom-sheet hidden">
+      <div class="sheet-header" data-i18n="web.mode.modelSheetTitle">Model</div>
+      <div id="sheet-model-list" class="sheet-list"></div>
+    </div>
+    <div id="sheet-plan-model" class="bottom-sheet hidden">
+      <div id="sheet-plan-model-header" class="sheet-header" data-i18n="web.mode.planModelSheetTitle">Plan model</div>
+      <div id="sheet-plan-model-list" class="sheet-list"></div>
+    </div>
+    <div id="sheet-window" class="bottom-sheet hidden">
+      <div class="sheet-header" data-i18n="web.sheet.windowTitle">Cursor window</div>
+      <div id="sheet-window-list" class="sheet-list"></div>
+    </div>
+  </div>
+
+  <div id="plan-modal-overlay" class="plan-modal-overlay hidden">
+    <div id="plan-modal" class="plan-modal" role="dialog" aria-modal="true" aria-labelledby="plan-modal-title">
+      <div class="plan-modal-header">
+        <div class="plan-modal-heading">
+          <div id="plan-modal-label" class="plan-modal-label"></div>
+          <div id="plan-modal-title" class="plan-modal-title"></div>
+        </div>
+        <button id="plan-modal-close" class="plan-modal-close" data-i18n-aria-label="web.plan.close" aria-label="Close plan">×</button>
+      </div>
+      <div id="plan-modal-body" class="plan-modal-body"></div>
+    </div>
+  </div>
+
+  <div id="onboarding-overlay" class="onboarding-overlay hidden" aria-hidden="true">
+    <div id="onboarding-card" class="onboarding-card" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+      <button type="button" id="onboarding-skip" class="onboarding-skip" data-i18n="web.onboarding.skip">Skip</button>
+      <h2 id="onboarding-title" class="onboarding-title"></h2>
+      <p id="onboarding-body" class="onboarding-body"></p>
+      <div id="onboarding-dots" class="onboarding-dots" aria-hidden="true"></div>
+      <div class="onboarding-actions">
+        <button type="button" id="onboarding-back" class="onboarding-btn onboarding-btn-secondary" data-i18n="web.onboarding.back">Back</button>
+        <button type="button" id="onboarding-next" class="onboarding-btn onboarding-btn-primary" data-i18n="web.onboarding.next">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings-overlay" class="settings-overlay hidden" aria-hidden="true">
+    <div id="settings-panel" class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="settings-header">
+        <h2 id="settings-title" class="settings-title" data-i18n="web.settings.title">Settings</h2>
+        <button type="button" id="settings-close" class="settings-close" data-i18n-aria-label="web.settings.close" aria-label="Close settings">×</button>
+      </div>
+      <div class="settings-body">
+        <section class="settings-section">
+          <h3 class="settings-section-title" data-i18n="web.settings.storage">Storage</h3>
+          <label class="settings-row settings-row-toggle">
+            <span class="settings-row-label" data-i18n="web.settings.storage.sync">Sync with this PC</span>
+            <input type="checkbox" id="setting-sync-to-server">
+          </label>
+          <p class="settings-row-hint" data-i18n="web.settings.storage.syncHint">Settings copy in data/web-settings.json on the machine running the server.</p>
+        </section>
+        <section class="settings-section">
+          <h3 class="settings-section-title" data-i18n="web.settings.appearance">Appearance</h3>
+          <label class="settings-row">
+            <span class="settings-row-label" data-i18n="web.settings.appearance.theme">Theme</span>
+            <select id="setting-theme" class="settings-select">
+              <option value="dark" data-i18n="web.settings.appearance.themeDark">Dark</option>
+              <option value="light" data-i18n="web.settings.appearance.themeLight">Light</option>
+            </select>
+          </label>
+        </section>
+        <section class="settings-section">
+          <h3 class="settings-section-title" data-i18n="web.settings.feed">Feed</h3>
+          <label class="settings-row settings-row-toggle">
+            <span class="settings-row-label" data-i18n="web.settings.feed.compact">Compact feed</span>
+            <input type="checkbox" id="setting-compact-feed">
+          </label>
+          <label class="settings-row settings-row-toggle">
+            <span class="settings-row-label" data-i18n="web.settings.feed.showTimes">Message timestamps</span>
+            <input type="checkbox" id="setting-show-message-times">
+          </label>
+          <label class="settings-row">
+            <span class="settings-row-label" data-i18n="web.settings.feed.timezone">Time zone</span>
+            <select id="setting-timezone" class="settings-select"></select>
+          </label>
+        </section>
+        <section class="settings-section">
+          <h3 class="settings-section-title" data-i18n="web.settings.quickPhrases">Quick phrases</h3>
+          <label class="settings-row settings-row-stack">
+            <span class="settings-row-label" data-i18n="web.settings.quickPhrases.label">Up to 6 lines — buttons above the input (tap inserts text)</span>
+            <textarea id="setting-quick-phrases" class="settings-textarea" rows="4" data-i18n-placeholder="web.settings.quickPhrases.placeholder" placeholder="continue&#10;status?"></textarea>
+          </label>
+        </section>
+        <section class="settings-section">
+          <h3 class="settings-section-title" data-i18n="web.settings.sound">Sound</h3>
+          <label class="settings-row settings-row-toggle">
+            <span class="settings-row-label" data-i18n="web.settings.sound.sendSound">Sound on send</span>
+            <input type="checkbox" id="setting-send-sound">
+          </label>
+        </section>
+        <section class="settings-section">
+          <h3 class="settings-section-title" data-i18n="web.settings.diagnostics">Diagnostics</h3>
+          <div id="settings-diagnostics" class="settings-diagnostics" data-i18n="web.settings.diagnostics.loading">Loading…</div>
+          <button type="button" id="btn-copy-diagnostics" class="settings-action-btn" data-i18n="web.settings.diagnostics.copyAll">Copy all</button>
+        </section>
+        <section class="settings-section">
+          <button type="button" id="btn-logout" class="settings-logout-btn" data-i18n="web.settings.logout">Log out</button>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script src="vendor-socket.io.min.js"></script>
+  <script src="vendor-mermaid.min.js"></script>
+  <script src="i18n.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
