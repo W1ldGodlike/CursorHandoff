@@ -251,10 +251,14 @@ export class CommandExecutor {
           if (!item) return { ok: false, error: 'Queue item not found' };
           const actions = item.querySelector('.composer-toolbar-queue-item-actions');
           if (!actions) return { ok: false, error: 'Queue buttons not found' };
-          let btn = actions.querySelector('.codicon-arrow-up-two')?.closest('button');
+          let btn = actions.querySelector('.codicon-arrow-up-two')?.closest(
+            'button, [role="button"], .anysphere-icon-button',
+          );
           if (!btn) {
-            const buttons = actions.querySelectorAll('button, [role="button"]');
-            btn = buttons.length ? buttons[0] : null;
+            const buttons = actions.querySelectorAll(
+              'button, [role="button"], .anysphere-icon-button',
+            );
+            btn = buttons.length >= 2 ? buttons[1] : buttons[0] || null;
           }
           if (!btn) return { ok: false, error: 'Send button not found' };
           btn.scrollIntoView({ block: 'center', behavior: 'instant' });
