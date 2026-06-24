@@ -105,7 +105,22 @@ flowchart TD
 - Leading **`$`** → force submit (Ctrl+Enter), even when the agent is working
 - No prefix → waits in queue while the agent is busy
 
-### Files and media
+### AskQuestion / questionnaires
+
+When the agent shows an **AskQuestion** panel in Cursor, Handoff mirrors it as **one inline message** in the mapped forum thread (A/B/C buttons plus **Other** when Cursor exposes a freeform row).
+
+| You do in Telegram | What happens |
+|--------------------|----------------|
+| Tap **A / B / C** | Clicks the matching option in Cursor |
+| Tap **Other** | Bot posts a **ForceReply** hint — **reply to that bot message** with your text |
+| Reply with freeform text | Text goes into the **survey textarea**, not the main composer prompt |
+| Send text without Reply while Other is pending | Bot nudges you to use Reply |
+| **Skip** / **Continue** | Clicks the matching toolbar control when Cursor enables it |
+
+**Multi-step surveys:** after a non-final **Other** answer, Handoff confirms the textarea and opens the next stepper question. **Continue** is only for submitting the full survey when Cursor enables it — not for moving one question at a time.
+
+**Do not** send ordinary prompts in the same thread while a questionnaire is open — unrelated text is treated as a normal inbound message and can dismiss the survey widget.
+
 
 In a **project thread**:
 

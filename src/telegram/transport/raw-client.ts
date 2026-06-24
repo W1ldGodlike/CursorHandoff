@@ -234,6 +234,9 @@ export class RawTelegramTransport extends BaseTelegramTransport {
         message_thread_id: msg.message_thread_id,
         message_id: msg.message_id,
         media_group_id: msg.media_group_id,
+        reply_to_message: msg.reply_to_message
+          ? { message_id: msg.reply_to_message.message_id }
+          : undefined,
         photo: msg.photo,
         document: msg.document,
         video: msg.video,

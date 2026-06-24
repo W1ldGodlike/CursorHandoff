@@ -298,7 +298,7 @@ npm run dev
 
 Environment variables: [Settings reference](reference.md). Telegram after `.env`: [Telegram bridge guide](telegram.md).
 
-Production build: `npm run build && npm start` · logs: `temp/server.log`
+Production build: `npm run build && npm start` · logs: `data/handoff-server.log`
 
 ---
 

@@ -126,6 +126,9 @@ function grammyCtxToBotCtx(ctx: import('grammy').Context, api: import('./types.j
       message_thread_id: ctx.message.message_thread_id,
       message_id: ctx.message.message_id,
       media_group_id: ctx.message.media_group_id,
+      reply_to_message: ctx.message.reply_to_message
+        ? { message_id: ctx.message.reply_to_message.message_id }
+        : undefined,
       photo: ctx.message.photo,
       document: ctx.message.document,
       video: ctx.message.video,

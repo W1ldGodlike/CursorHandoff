@@ -23,6 +23,13 @@ import {
   setPhotoBufferExpiryNotifier,
   stopAllPendingExpiryTimers,
 } from '../inbound/photos.js';
+import {
+  clearQuestionnaireFreeformPending,
+  expireQuestionnaireFreeformIfNeeded,
+  questionnaireFreeformExpiredMessage,
+  restoreQuestionnaireFreeformExpiryTimers,
+  tryConsumeQuestionnaireFreeformText,
+} from '../inbound/questionnaire-freeform.js';
 import type { OutboxWatcherDeps } from '../../media/outbox-watch.js';
 import {
   detectUnsupportedInboundType,
@@ -181,6 +188,13 @@ export function initPhotoBufferExpiry(deps: CommandDeps): void {
     await deps.api.sendMessage(chatId, photoExpiredMessage(), { message_thread_id: threadId });
   });
   restorePendingExpiryTimers();
+  restoreQuestionnaireFreeformExpiryTimers(async (chatId, threadId) => {
+    await deps.api.sendMessage(
+      chatId,
+      questionnaireFreeformExpiredMessage(),
+      { message_thread_id: threadId },
+    );
+  });
 }
 
 export function teardownPhotoBufferExpiry(): void {
@@ -300,6 +314,7 @@ export async function processInboundFileRelay(ctx: BotContext, deps: CommandDeps
   const chatAction = inboundKind === 'image' ? 'upload_photo' : 'upload_document';
   void deps.api.sendChatAction(chatId, chatAction, { message_thread_id: threadId }).catch(() => {});
 
+  clearQuestionnaireFreeformPending(chatId, threadId);
   await ingestPhoto({
     api: deps.api,
     chatId,
@@ -420,6 +435,126 @@ async function ensureMappingTabActive(
 
   // switchTab already checked data-active in DOM; stateManager may lag one poll.
   return { ok: true, domVerified: true };
+}
+
+function resolveFreeformSelectorPath(state: CursorState, letter: string): string | undefined {
+  const q = state.questionnaire;
+  if (!q?.questions.length) return undefined;
+  const activeQ = q.questions[q.activeIndex];
+  if (!activeQ) return undefined;
+  const want = letter.trim().toLowerCase();
+  const opt = activeQ.options.find((o) => o.letter.trim().toLowerCase() === want);
+  return opt?.freeformInputSelectorPath ?? q.freeformInputSelectorPath;
+}
+
+async function deliverQuestionnaireFreeformToCursor(
+  mapping: TopicMapping,
+  letter: string,
+  text: string,
+  deps: CommandDeps,
+  opts: { onStatus?: (statusText: string) => Promise<void> } = {},
+): Promise<{ ok: boolean; error?: string }> {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return { ok: false, error: t('tg.msg.questionnaireFreeform.empty', 'Answer is empty.') };
+  }
+
+  const commandId = genId();
+  const targetWin = await resolveTargetWindow(mapping, deps, { onStatus: opts.onStatus });
+  if (!targetWin) {
+    return {
+      ok: false,
+      error: t('tg.msg.err.windowNotFound', 'Window «{title}» not found', { title: mapping.windowTitle }),
+    };
+  }
+
+  if (deps.cdpBridge.activeTargetId !== targetWin.id) {
+    try {
+      await deps.cdpBridge.switchWindow(targetWin.id);
+      await sleep(1500);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  deps.windowMonitor.setHomeWindow(targetWin.id);
+
+  const tabReady = await ensureMappingTabActive(mapping, deps, commandId);
+  if (!tabReady.ok) {
+    return { ok: false, error: tabReady.error };
+  }
+
+  const clickResult = await deps.commandExecutor.clickQuestionnaire(commandId, { letter });
+  if (!clickResult.ok) {
+    return {
+      ok: false,
+      error: clickResult.error ?? t('tg.msg.questionnaireFreeform.clickFailed', 'Could not open Other field'),
+    };
+  }
+  await sleep(400);
+
+  let selectorPath = resolveFreeformSelectorPath(deps.stateManager.getCurrentState(), letter);
+  if (!selectorPath) {
+    await sleep(300);
+    selectorPath = resolveFreeformSelectorPath(deps.stateManager.getCurrentState(), letter);
+  }
+  if (!selectorPath) {
+    return {
+      ok: false,
+      error: t('tg.msg.questionnaireFreeform.noTextarea', 'Other textarea not found — tap Other again.'),
+    };
+  }
+
+  const setResult = await deps.commandExecutor.setQuestionnaireFreeform(commandId, selectorPath, trimmed);
+  if (!setResult.ok) {
+    return { ok: false, error: setResult.error ?? t('tg.msg.err.sendFailed', 'Could not send') };
+  }
+
+  console.log(
+    `[telegram] questionnaire freeform thread ${mapping.threadId} (${trimmed.length} chars)`,
+  );
+  await maybeAdvanceQuestionnaireAfterFreeform(mapping, deps);
+  return { ok: true };
+}
+
+async function maybeAdvanceQuestionnaireAfterFreeform(
+  mapping: TopicMapping,
+  deps: CommandDeps,
+): Promise<void> {
+  const before = deps.stateManager.getCurrentState().questionnaire;
+  if (!before?.questions.length || before.activeIndex >= before.questions.length - 1) return;
+
+  const beforeIdx = before.activeIndex;
+  await sleep(400);
+
+  const now = deps.stateManager.getCurrentState().questionnaire;
+  if (!now?.questions.length) return;
+  if (now.activeIndex > beforeIdx) {
+    console.log(
+      `[telegram] questionnaire step already ${beforeIdx + 1}→${now.activeIndex + 1} `
+      + `thread ${mapping.threadId}`,
+    );
+    return;
+  }
+
+  const commandId = genId();
+  const tabReady = await ensureMappingTabActive(mapping, deps, commandId);
+  if (!tabReady.ok) {
+    console.warn(
+      `[telegram] questionnaire step advance thread ${mapping.threadId}: ${tabReady.error}`,
+    );
+    return;
+  }
+
+  await deps.commandExecutor.advanceQuestionnaireStep(commandId);
+  await sleep(400);
+
+  const after = deps.stateManager.getCurrentState().questionnaire;
+  if (after && after.activeIndex > beforeIdx) {
+    console.log(
+      `[telegram] questionnaire step ${beforeIdx + 1}→${after.activeIndex + 1} `
+      + `thread ${mapping.threadId}`,
+    );
+  }
 }
 
 async function waitForAgentIdle(stateManager: StateManager, timeoutMs: number): Promise<void> {
@@ -640,6 +775,43 @@ export async function processPendingQueue(deps: CommandDeps): Promise<void> {
         continue;
       }
 
+      await expireQuestionnaireFreeformIfNeeded(item.chatId, item.threadId, async () => {
+        await deps.api.sendMessage(item.chatId, questionnaireFreeformExpiredMessage(), {
+          message_thread_id: item.threadId,
+        });
+      });
+
+      const freeformConsume = tryConsumeQuestionnaireFreeformText({
+        chatId: item.chatId,
+        threadId: item.threadId,
+        requireReplyToHint: false,
+      });
+      if (freeformConsume.kind === 'consumed') {
+        const freeformResult = await deliverQuestionnaireFreeformToCursor(
+          mapping,
+          freeformConsume.letter,
+          item.text,
+          deps,
+          { onStatus },
+        );
+        if (!freeformResult.ok) {
+          markFailed(dataDir, item.id, freeformResult.error ?? 'questionnaire freeform failed');
+          await deps.api.sendMessage(
+            item.chatId,
+            t('tg.msg.queue.itemFailed', '⚠️ Could not run: {error}', {
+              error: freeformResult.error ?? 'unknown',
+            }),
+            { message_thread_id: item.threadId },
+          );
+          continue;
+        }
+        markDone(dataDir, item.id);
+        completed++;
+        await waitForAgentIdle(deps.stateManager, AGENT_WAIT_TIMEOUT_MS);
+        await sleep(INTER_TASK_DELAY_MS);
+        continue;
+      }
+
       const textConsumed = await ingestFollowUpText({
         chatId: item.chatId,
         threadId: item.threadId,
@@ -731,9 +903,48 @@ export async function handleTextMessage(ctx: BotContext, deps: CommandDeps): Pro
   }
 
   if (chatId != null) {
+    await expireQuestionnaireFreeformIfNeeded(chatId, threadId, async () => {
+      await ctx.reply(questionnaireFreeformExpiredMessage());
+    });
     await expirePendingIfNeeded(chatId, threadId, async () => {
       await ctx.reply(photoExpiredMessage());
     });
+
+    const freeformConsume = tryConsumeQuestionnaireFreeformText({
+      chatId,
+      threadId,
+      replyToMessageId: ctx.message?.reply_to_message?.message_id,
+    });
+    if (freeformConsume.kind === 'wrong_reply') {
+      await ctx.reply(
+        t(
+          'tg.msg.questionnaireFreeform.replyToHint',
+          '↩️ Use <b>Reply</b> on the bot message above — your text goes into the survey, not the main prompt.',
+        ),
+        { parse_mode: 'HTML' },
+      );
+      return;
+    }
+    if (freeformConsume.kind === 'consumed') {
+      const result = await deliverQuestionnaireFreeformToCursor(
+        mapping,
+        freeformConsume.letter,
+        text,
+        deps,
+        {
+          onStatus: async (statusText) => {
+            await ctx.reply(statusText, { parse_mode: 'HTML' });
+          },
+        },
+      );
+      if (result.ok) {
+        await ctx.reply(t('tg.msg.questionnaireFreeform.sentOk', '✅ Answer added to the survey.'));
+      } else {
+        await ctx.reply(`⚠️ ${result.error ?? t('tg.msg.err.sendFailed', 'Could not send')}`);
+      }
+      return;
+    }
+
     const consumed = await ingestFollowUpText({
       chatId,
       threadId,

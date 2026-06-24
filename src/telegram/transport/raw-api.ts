@@ -269,6 +269,7 @@ export interface TgMessage {
   caption?: string;
   message_thread_id?: number;
   media_group_id?: string;
+  reply_to_message?: { message_id: number };
   photo?: Array<{ file_id: string; width: number; height: number }>;
   document?: { file_id: string; file_name?: string; mime_type?: string };
   video?: { file_id: string; file_name?: string; mime_type?: string };

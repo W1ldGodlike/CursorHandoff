@@ -7,6 +7,10 @@ import {
 } from '../../media/outbox-paths.js';
 import type { OutboxWatcherDeps } from '../../media/outbox-watch.js';
 import { shouldProcessCallbackAction } from '../inbound/dedup.js';
+import {
+  clearQuestionnaireFreeformPending,
+  setQuestionnaireFreeformPending,
+} from '../inbound/questionnaire-freeform.js';
 import { isGeneralChat } from '../ui/menus.js';
 import type { BotContext } from '../types.js';
 import { t } from '../../i18n/t.js';
@@ -255,6 +259,8 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
         await ctx.answerCallbackQuery({ text: t('tg.msg.callback.windowFailed', 'Could not switch window') });
         return;
       }
+      const threadId = getThreadIdFromContext(ctx);
+      const chatId = deps.chatId ?? ctx.chat?.id;
       const target = action === 'qsk' ? 'skip' as const
         : action === 'qco' ? 'continue' as const
         : { letter: hash };
@@ -268,11 +274,34 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
       await ctx.answerCallbackQuery({
         text: result.ok ? qNames[action] ?? action : t('tg.msg.callback.modeErr', 'Error: {error}', { error: result.error ?? 'unknown' }),
       });
-      if (result.ok && action === 'qff') {
-        await ctx.reply(
-          t('tg.msg.callback.freeformHint', '✏️ Send your answer as a <b>normal message</b> in this thread — it goes to Cursor like any other prompt.'),
-          { parse_mode: 'HTML' },
-        );
+      if (result.ok && chatId != null && threadId != null) {
+        if (action === 'qff') {
+          const hint = await ctx.reply(
+            t(
+              'tg.msg.callback.freeformHint',
+              '✏️ <b>Reply to this message</b> with your answer — it goes into the survey field, not the main prompt.',
+            ),
+            {
+              parse_mode: 'HTML',
+              reply_markup: {
+                force_reply: true,
+                selective: true,
+                input_field_placeholder: t(
+                  'tg.msg.questionnaireFreeform.placeholder',
+                  'Your answer…',
+                ),
+              },
+            },
+          );
+          setQuestionnaireFreeformPending({
+            chatId,
+            threadId,
+            letter: hash,
+            hintMessageId: hint.message_id,
+          });
+        } else {
+          clearQuestionnaireFreeformPending(chatId, threadId);
+        }
       }
       return;
     }

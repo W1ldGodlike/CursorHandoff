@@ -773,6 +773,52 @@ export class CommandExecutor {
     });
   }
 
+  /** After freeform on a non-final question: Enter in textarea, then click next stepper question (once). */
+  async advanceQuestionnaireStep(commandId: string): Promise<CommandResult> {
+    return this.withRetryOnce(commandId, async (client) => {
+      const hasTextarea = await client.evaluate(`
+        (() => {
+          const active = document.querySelector('.composer-questionnaire-toolbar-question-active');
+          const ta = active?.querySelector('.composer-questionnaire-toolbar-freeform-input');
+          if (!ta) return false;
+          ta.focus();
+          return true;
+        })()
+      `) as boolean;
+      if (hasTextarea) {
+        await client.pressKey('Enter', 'Enter', 13);
+        await sleep(250);
+      }
+
+      const result = await client.evaluate(`
+        (() => {
+          const toolbar = document.querySelector('.composer-questionnaire-toolbar');
+          if (!toolbar) return { ok: false, error: 'Questionnaire not open' };
+          const questions = Array.from(toolbar.querySelectorAll('.composer-questionnaire-toolbar-question'));
+          const activeIdx = questions.findIndex((q) => q.classList.contains('composer-questionnaire-toolbar-question-active'));
+          if (activeIdx < 0 || activeIdx >= questions.length - 1) {
+            return { ok: false, error: 'Already on last question' };
+          }
+          const next = questions[activeIdx + 1];
+          const hit = next.querySelector('.composer-questionnaire-toolbar-question-number') || next;
+          hit.scrollIntoView({ block: 'center', behavior: 'instant' });
+          const r = hit.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) return { ok: false, error: 'Next question not visible' };
+          return { ok: true, x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        })()
+      `) as { ok: boolean; error?: string; x?: number; y?: number };
+      if (!result?.ok || result.x == null || result.y == null) {
+        const err = result?.error ?? 'Questionnaire step advance failed';
+        if (err === 'Questionnaire not open' || err === 'Already on last question') {
+          return;
+        }
+        throw new Error(err);
+      }
+      await client.clickAtCoords(result.x, result.y);
+      console.log('[command-executor] Questionnaire advance: next question');
+    });
+  }
+
   async setQuestionnaireFreeform(
     commandId: string,
     selectorPath: string,

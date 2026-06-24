@@ -1,5 +1,6 @@
 import './bootstrap.js';
 import { createWriteStream, appendFileSync, readFileSync } from 'fs';
+import { join } from 'path';
 import { loadConfig, loadSelectors } from './config.js';
 import { CDPBridge } from '../ide/cdp-session.js';
 import { DOMExtractor } from '../ide/parse/tabs.js';
@@ -21,7 +22,8 @@ import {
   runStartupAudit,
 } from './fingerprint.js';
 
-const logStream = createWriteStream('./temp/server.log', { flags: 'a' });
+const serverLogPath = join(getDataDir(), 'handoff-server.log');
+const logStream = createWriteStream(serverLogPath, { flags: 'a' });
 const origLog = console.log;
 const origWarn = console.warn;
 const origError = console.error;
@@ -70,7 +72,7 @@ process.on('uncaughtException', (err) => {
   if (err instanceof Error && (err as NodeJS.ErrnoException).code === 'EPIPE') return;
   const msg = `[CRASH] Uncaught exception: ${err.message}\n${err.stack ?? ''}`;
   try {
-    appendFileSync('./temp/server.log', `${ts()} ${msg}\n`);
+    appendFileSync(serverLogPath, `${ts()} ${msg}\n`);
   } catch {
     /* ignore */
   }

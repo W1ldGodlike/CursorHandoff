@@ -132,7 +132,7 @@ Target: `CursorWake.exe` installed with CursorHandoff **1.0.0+**.
 ### Where to read logs
 
 - CursorWake: `data/cursor-wake.log`
-- Server: **CursorHandoff: Show logs** or `temp/server.log`
+- Handoff server: `data/handoff-server.log` (or **CursorHandoff: Show logs** in the extension Output channel)
 
 ---
 

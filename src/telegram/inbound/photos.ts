@@ -116,6 +116,13 @@ function clearPending(chatId: number, threadId: number): void {
   if (existsSync(path)) rmSync(path, { force: true });
 }
 
+/** Drop photo+caption wait (e.g. questionnaire Other takes over the thread). */
+export function cancelPhotoPending(chatId: number, threadId: number): void {
+  const state = loadPending(chatId, threadId);
+  if (state) deleteLocalFiles(state.localPaths);
+  clearPending(chatId, threadId);
+}
+
 export function getPending(chatId: number, threadId: number): PendingPhotoState | null {
   const state = loadPending(chatId, threadId);
   if (!state) return null;

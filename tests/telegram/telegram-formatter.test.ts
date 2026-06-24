@@ -315,7 +315,7 @@ describe('formatQuestionnaire', () => {
 
   it('shows freeform hint when Other option is present', () => {
     const { html } = formatQuestionnaire(sampleQuestionnaire);
-    assert.match(html, /normal message/i);
+    assert.match(html, /reply to the bot message/i);
   });
 
   it('marks answered questions with check icon', () => {

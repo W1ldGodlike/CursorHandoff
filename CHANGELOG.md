@@ -13,11 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Telegram inline buttons (Build, approvals)** — CursorWake yields long-poll when Handoff is healthy (`connected` + CDP), not after `telegramPoll` (that caused a 409 fight where neither side polled). Raw transport retries `409 Conflict` instead of exiting.
 - **CursorWake cold start** — Launch `Cursor.exe` and `.cmd` via `ShellExecuteW` (desktop-shortcut path) instead of `Popen` from frozen tray; while **Raise Cursor** is on and Cursor is down, retry launch every **5 min** (`autostartIntervalSec`, default 300); TG queue messages still launch immediately.
 - **Wake launch config** — Prefer `%LOCALAPPDATA%\Programs\cursor\Cursor.exe` over `CursorHandoff-Debug.cmd`; extension stops force-killing Wake on every redeploy when the process is already healthy.
-- **Telegram questionnaires** — Option/skip/continue use native CDP `clickAtCoords` on the full option row (not the letter span); **Other** uses `qff:` callback with a hint to reply in the topic thread.
+- **Telegram questionnaires** — Option/skip/continue use native CDP `clickAtCoords` on the full option row (not the letter span). **Other** (`qff:`) opens a ForceReply hint in the topic; your **reply** to that message fills the survey textarea via `setQuestionnaireFreeform` (not the main composer). Plain text without Reply gets a nudge. Multi-step surveys auto-advance to the next question after freeform (Enter + stepper click); benign advance skips are quiet in logs.
+- **Server logging** — Handoff server appends to `data/handoff-server.log` (under `DATA_DIR`), not the extension working directory.
 - **Web questionnaires** — Mobile `questionnaire-bar` shows all AskQuestion steps at once; per-question **Other** textarea syncs via `selectorPath` and `command:questionnaire_freeform`; **Continue** enables when every question is answered locally (`questionnaireForceContinue`); session-scoped drafts prevent stale Other text after a new survey; 43 web client tests.
 
 ### Documentation
 
+- **Telegram questionnaires** — `docs/telegram.md` documents AskQuestion mirroring, **Other** + ForceReply freeform, and multi-step advance behavior.
+- **Server logs** — `docs/development.md`, `docs/guide.md`, and `docs/reference.md` point to `data/handoff-server.log`.
 - **Cursor compatibility** — `docs/development.md` records minimum Cursor 3.8 and last verified **3.8.22** (2026-06-23).
 - **CursorWake** — `docs/guide.md`, `docs/telegram.md`, `docs/architecture.md`, `docs/reference.md`, and `docs/development.md` describe handoff, 409 retry, `autostartIntervalSec`, and message-triggered launch.
 

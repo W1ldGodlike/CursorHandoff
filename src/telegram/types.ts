@@ -22,7 +22,14 @@ export interface TgRemoveKeyboard {
   selective?: boolean;
 }
 
-export type TgReplyMarkup = TgKeyboard | TgReplyKeyboard | TgRemoveKeyboard;
+/** Force user to reply to a specific message (questionnaire Other). */
+export interface TgForceReply {
+  force_reply: true;
+  selective?: boolean;
+  input_field_placeholder?: string;
+}
+
+export type TgReplyMarkup = TgKeyboard | TgReplyKeyboard | TgRemoveKeyboard | TgForceReply;
 
 /** Telegram rejects empty text, NBSP and ZWSP — need a visible character. */
 export const KEYBOARD_PLACEHOLDER_TEXT = '⌨';
@@ -79,6 +86,7 @@ export interface BotMessage {
   message_thread_id?: number;
   message_id?: number;
   media_group_id?: string;
+  reply_to_message?: { message_id: number };
   photo?: TgPhotoSize[];
   document?: TgDocument;
   video?: TgFileRef;

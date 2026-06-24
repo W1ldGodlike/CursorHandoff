@@ -492,7 +492,7 @@ export function formatQuestionnaire(questionnaire: Questionnaire): FormattedMess
   }
   if (hasFreeform) {
     lines.push('');
-    lines.push(`<i>${t('tg.fmt.questionnaireFreeformHint', 'For “Other”: tap the button, then send your answer as a normal message in this thread.')}</i>`);
+    lines.push(`<i>${t('tg.fmt.questionnaireFreeformHint', 'For “Other”: tap the button, then <b>reply to the bot message</b> with your answer.')}</i>`);
   }
   if (questionnaire.skipSelectorPath) {
     kb.text(t('tg.fmt.skip', '⏭ Skip'), 'qsk:_');
