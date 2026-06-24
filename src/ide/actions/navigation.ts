@@ -697,35 +697,59 @@ export class CommandExecutor {
       const result = await client.evaluate(`
         (() => {
           const target = ${targetJson};
+          function normLetter(s) {
+            return (s || '').trim().toLowerCase().replace(/[).:\\s]+$/g, '');
+          }
+          function center(el) {
+            if (!el) return null;
+            el.scrollIntoView({ block: 'center', behavior: 'instant' });
+            const r = el.getBoundingClientRect();
+            if (r.width === 0 || r.height === 0) return null;
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+          }
           const toolbar = document.querySelector('.composer-questionnaire-toolbar');
-          if (!toolbar) return 'Questionnaire already closed';
+          if (!toolbar) return { ok: false, error: 'Questionnaire already closed' };
           if (target === 'skip' || target === 'continue') {
-            const sel = target === 'skip' ? '.composer-skip-button' : '.composer-run-button';
-            const btn = toolbar.querySelector('.composer-questionnaire-toolbar-actions ' + sel);
-            if (!btn) return 'Button not found';
-            if (target === 'continue' && btn.getAttribute('data-disabled') === 'true') {
-              return 'Continue button unavailable';
+            const actions = toolbar.querySelector('.composer-questionnaire-toolbar-actions');
+            if (!actions) return { ok: false, error: 'Actions not found' };
+            const classSel = target === 'skip' ? '.composer-skip-button' : '.composer-run-button';
+            let btn = actions.querySelector(classSel);
+            if (!btn) {
+              const buttons = actions.querySelectorAll(
+                'button, [role="button"], .anysphere-icon-button',
+              );
+              btn = target === 'skip' ? buttons[0] : buttons[buttons.length - 1] || null;
             }
-            btn.click();
-            return '';
+            if (!btn) return { ok: false, error: 'Button not found' };
+            if (target === 'continue' && btn.getAttribute('data-disabled') === 'true') {
+              return { ok: false, error: 'Continue button unavailable' };
+            }
+            const pt = center(btn);
+            if (!pt) return { ok: false, error: 'Button not visible' };
+            return { ok: true, ...pt };
           }
           const active = toolbar.querySelector('.composer-questionnaire-toolbar-question-active')
             || toolbar.querySelector('.composer-questionnaire-toolbar-question');
-          if (!active) return 'Active question not found';
-          const want = (target.letter || '').trim().toLowerCase();
+          if (!active) return { ok: false, error: 'Active question not found' };
+          const want = normLetter(target.letter);
           for (const opt of Array.from(active.querySelectorAll('.composer-questionnaire-toolbar-option'))) {
             const letterBtn = opt.querySelector('.composer-questionnaire-toolbar-option-letter');
-            const letter = (letterBtn ? letterBtn.textContent : '').trim().toLowerCase();
+            const letter = normLetter(letterBtn ? letterBtn.textContent : '');
             if (letter === want) {
-              (letterBtn || opt).click();
-              return '';
+              const pt = center(opt);
+              if (!pt) return { ok: false, error: 'Option not visible' };
+              return { ok: true, ...pt };
             }
           }
-          return 'Option "' + target.letter + '" not found — question may have changed';
+          return { ok: false, error: 'Option "' + target.letter + '" not found — question may have changed' };
         })()
-      `) as string;
-      if (result) throw new Error(result);
-      console.log(`[command-executor] Questionnaire click: ${typeof target === 'string' ? target : target.letter}`);
+      `) as { ok: boolean; error?: string; x?: number; y?: number };
+      if (!result?.ok || result.x == null || result.y == null) {
+        throw new Error(result?.error ?? 'Questionnaire click failed');
+      }
+      await client.clickAtCoords(result.x, result.y);
+      const label = typeof target === 'string' ? target : target.letter;
+      console.log(`[command-executor] Questionnaire click: ${label}`);
     });
   }
 

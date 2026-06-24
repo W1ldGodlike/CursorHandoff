@@ -104,8 +104,8 @@ export function parseCallbackData(data: string): { action: string; id: string; h
     return { action, id: rest, hash: '' };
   }
 
-  // Questionnaire: hash only — `qan:<hash>`.
-  if (action === 'qan' || action === 'qsk' || action === 'qco') {
+  // Questionnaire: hash only — `qan:<letter>`, `qff:<letter>`, `qsk:_`, `qco:_`.
+  if (action === 'qan' || action === 'qff' || action === 'qsk' || action === 'qco') {
     return { action, id: '', hash: rest };
   }
 
@@ -249,9 +249,8 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
       return;
     }
 
-    // Questionnaire — live DOM click: `qan:<letter>`, `qsk:_`, `qco:_`.
-    // Do not use CSS path from snapshot — stale after re-render.
-    if (action === 'qan' || action === 'qsk' || action === 'qco') {
+    // Questionnaire — live DOM click: `qan:<letter>`, `qff:<letter>`, `qsk:_`, `qco:_`.
+    if (action === 'qan' || action === 'qff' || action === 'qsk' || action === 'qco') {
       if (!(await ensureTopicWindow(ctx, deps))) {
         await ctx.answerCallbackQuery({ text: t('tg.msg.callback.windowFailed', 'Could not switch window') });
         return;
@@ -262,10 +261,19 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
       const result = await deps.commandExecutor.clickQuestionnaire(commandId, target);
       const qNames: Record<string, string> = {
         qan: t('tg.msg.callback.answer', 'Answer {letter}', { letter: hash }),
+        qff: t('tg.msg.callback.answer', 'Answer {letter}', { letter: hash }),
         qsk: t('tg.msg.callback.qSkip', 'Skip'),
         qco: t('tg.msg.callback.qContinue', 'Continue'),
       };
-      await ctx.answerCallbackQuery({ text: result.ok ? qNames[action] ?? action : t('tg.msg.callback.modeErr', 'Error: {error}', { error: result.error ?? 'unknown' }) });
+      await ctx.answerCallbackQuery({
+        text: result.ok ? qNames[action] ?? action : t('tg.msg.callback.modeErr', 'Error: {error}', { error: result.error ?? 'unknown' }),
+      });
+      if (result.ok && action === 'qff') {
+        await ctx.reply(
+          t('tg.msg.callback.freeformHint', '✏️ Send your answer as a <b>normal message</b> in this thread — it goes to Cursor like any other prompt.'),
+          { parse_mode: 'HTML' },
+        );
+      }
       return;
     }
 

@@ -483,9 +483,16 @@ export function formatQuestionnaire(questionnaire: Questionnaire): FormattedMess
   // Buttons by option letter; click resolved on live DOM at press time,
   // snapshot CSS path stale after re-render.
   const kb = tgKeyboard();
+  let hasFreeform = false;
   for (const opt of activeQ.options) {
-    kb.text(`${opt.letter}) ${opt.label}`, `qan:${opt.letter}`);
+    if (opt.isFreeform) hasFreeform = true;
+    const cb = opt.isFreeform ? `qff:${opt.letter}` : `qan:${opt.letter}`;
+    kb.text(`${opt.letter}) ${opt.label}`, cb);
     kb.row();
+  }
+  if (hasFreeform) {
+    lines.push('');
+    lines.push(`<i>${t('tg.fmt.questionnaireFreeformHint', 'For “Other”: tap the button, then send your answer as a normal message in this thread.')}</i>`);
   }
   if (questionnaire.skipSelectorPath) {
     kb.text(t('tg.fmt.skip', '⏭ Skip'), 'qsk:_');

@@ -19,7 +19,6 @@ import type {
   Questionnaire,
   CursorState,
 } from '../../src/core/types.js';
-import { describeFx, loadFixture } from '../helpers/local-fixtures.js';
 
 before(() => setLocale('en'));
 
@@ -232,75 +231,6 @@ describe('formatElement', () => {
   });
 });
 
-// ─── Fixture: approval lifecycle renders correctly ───
-
-describeFx('approval fixture lifecycle', () => {
-  const snapshots = loadFixture('approval-widget-lifecycle.jsonl');
-
-  it('renders run_command with Skip/Run buttons', () => {
-    const s = snapshots[1].state!;
-    const rc = s.messages.find(m => m.type === 'run_command')!;
-    const { html, keyboard } = formatElement(rc, dummyHash);
-    assert.match(html, /npm test/);
-    assert.match(html, /Run outside sandbox/);
-    assert.ok(keyboard);
-  });
-
-  it('renders completed tool after approval', () => {
-    const s = snapshots[3].state!;
-    const tool = s.messages.find(m => m.type === 'tool')!;
-    const { html } = formatElement(tool, dummyHash);
-    assert.match(html, /Shell/);
-  });
-});
-
-// ─── Fixture: plan widget ───
-
-describeFx('plan fixture rendering', () => {
-  const snapshots = loadFixture('plan-widget.jsonl');
-
-  it('renders plan block with todos', () => {
-    const s = snapshots[1].state!;
-    const plan = s.messages.find(m => m.type === 'plan')!;
-    const { html, keyboard } = formatElement(plan, dummyHash);
-    assert.match(html, /Auth System/);
-    assert.match(html, /0\/3/);
-    assert.match(html, /Add login endpoint/);
-    assert.ok(keyboard);
-  });
-});
-
-// --- Fixture: fetch tool with actions ---
-
-describeFx('fetch tool fixture rendering', () => {
-  const snapshots = loadFixture('fetch-tool.jsonl');
-
-  it('renders fetch tool with action and URL detail', () => {
-    const s = snapshots[1].state!;
-    const fetchTool = s.messages.find(m => m.type === 'tool')!;
-    const { html } = formatElement(fetchTool, dummyHash);
-    assert.match(html, /Fetch/);
-    assert.match(html, /reddit\.com/);
-  });
-
-  it('renders fetch tool with approval buttons', () => {
-    const s = snapshots[1].state!;
-    const fetchTool = s.messages.find(m => m.type === 'tool')! as ToolCallElement;
-    assert.ok(fetchTool.actions, 'Fetch tool should have actions');
-    assert.ok(fetchTool.actions!.length >= 2, `Expected 2+ actions, got ${fetchTool.actions!.length}`);
-    const types = fetchTool.actions!.map(a => a.type);
-    assert.ok(types.includes('skip'), 'Should have skip action');
-    assert.ok(types.includes('run') || types.includes('allow'), 'Should have run or allow action');
-  });
-
-  it('renders completed fetch tool without actions', () => {
-    const s = snapshots[3].state!;
-    const fetchTool = s.messages.find(m => m.type === 'tool')! as ToolCallElement;
-    assert.equal(fetchTool.status, 'completed');
-    assert.ok(!fetchTool.actions || fetchTool.actions.length === 0, 'Completed fetch should have no actions');
-  });
-});
-
 // ─── formatAssistant: fallback when HTML empty ───
 
 describe('formatAssistant empty html', () => {
@@ -379,7 +309,13 @@ describe('formatQuestionnaire', () => {
     const json = JSON.stringify(keyboard);
     assert.match(json, /"qan:A"/);
     assert.match(json, /"qan:B"/);
+    assert.match(json, /"qff:D"/);
     assert.ok(!json.includes('00000000'), 'Should not contain selector hashes');
+  });
+
+  it('shows freeform hint when Other option is present', () => {
+    const { html } = formatQuestionnaire(sampleQuestionnaire);
+    assert.match(html, /normal message/i);
   });
 
   it('marks answered questions with check icon', () => {

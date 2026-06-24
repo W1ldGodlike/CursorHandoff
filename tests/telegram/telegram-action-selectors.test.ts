@@ -80,8 +80,12 @@ describe('parseCallbackData', () => {
 
   it('handles questionnaire actions as hash-only', () => {
     assert.deepEqual(
-      parseCallbackData('qan:abc12345'),
-      { action: 'qan', id: '', hash: 'abc12345' }
+      parseCallbackData('qan:A'),
+      { action: 'qan', id: '', hash: 'A' }
+    );
+    assert.deepEqual(
+      parseCallbackData('qff:D'),
+      { action: 'qff', id: '', hash: 'D' }
     );
   });
 

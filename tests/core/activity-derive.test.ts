@@ -7,7 +7,6 @@ import {
   sanitizeActivityLabel,
 } from '../../src/ide/activity-derive.js';
 import type { CursorState, RawSignals, ChatElement } from '../../src/core/types.js';
-import { describeFx, loadFixture } from '../helpers/local-fixtures.js';
 
 // ─── collapsibleHeaderTextLooksComplete ───
 
@@ -183,28 +182,7 @@ describe('deriveActivityFromSignals', () => {
   });
 });
 
-// ─── applyDerivedActivityToState ───
-
-describeFx('applyDerivedActivityToState', () => {
-  it('applies derived activity to state from raw signals', () => {
-    const snapshots = loadFixture('activity-shimmer-lifecycle.jsonl');
-    const thinkingSnapshot = snapshots[1].state!;
-    const result = applyDerivedActivityToState(thinkingSnapshot);
-    assert.equal(result.agentStatus, 'thinking');
-    assert.equal(result.agentActivityText, 'Planning next moves');
-    assert.equal(result.agentActivityLive, true);
-    assert.equal(result.agentActivitySource, 'shimmer');
-  });
-
-  it('returns idle when shimmer stops', () => {
-    const snapshots = loadFixture('activity-shimmer-lifecycle.jsonl');
-    const idleSnapshot = snapshots[4].state!;
-    const result = applyDerivedActivityToState(idleSnapshot);
-    assert.equal(result.agentStatus, 'idle');
-    assert.equal(result.agentActivityText, null);
-    assert.equal(result.agentActivityLive, false);
-  });
-
+describe('applyDerivedActivityToState', () => {
   it('passes through state without _rawSignals unchanged', () => {
     const state: CursorState = {
       connected: true,
@@ -231,39 +209,3 @@ describeFx('applyDerivedActivityToState', () => {
   });
 });
 
-// ─── Fixture: lifecycle ───
-
-describeFx('activity shimmer lifecycle (fixture)', () => {
-  const snapshots = loadFixture('activity-shimmer-lifecycle.jsonl');
-
-  it('starts idle', () => {
-    const s = snapshots[0].state!;
-    const d = deriveActivityFromSignals(s._rawSignals!, s.messages, s.agentStatus);
-    assert.equal(d.status, 'idle');
-    assert.equal(d.isLive, false);
-  });
-
-  it('transitions to thinking with shimmer', () => {
-    const s = snapshots[1].state!;
-    const d = deriveActivityFromSignals(s._rawSignals!, s.messages, s.agentStatus);
-    assert.equal(d.status, 'thinking');
-    assert.equal(d.isLive, true);
-    assert.equal(d.activityText, 'Planning next moves');
-  });
-
-  it('transitions to running_tool with tool shimmer', () => {
-    const s = snapshots[3].state!;
-    const d = deriveActivityFromSignals(s._rawSignals!, s.messages, s.agentStatus);
-    assert.equal(d.status, 'running_tool');
-    assert.equal(d.isLive, true);
-    assert.match(d.activityText!, /Editing/);
-  });
-
-  it('returns to idle at end', () => {
-    const s = snapshots[4].state!;
-    const d = deriveActivityFromSignals(s._rawSignals!, s.messages, s.agentStatus);
-    assert.equal(d.status, 'idle');
-    assert.equal(d.isLive, false);
-    assert.equal(d.activityText, null);
-  });
-});

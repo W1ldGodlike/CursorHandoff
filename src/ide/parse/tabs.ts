@@ -1832,9 +1832,9 @@ export function extractionFunction(
           const letterBtn = optEl.querySelector('.composer-questionnaire-toolbar-option-letter');
           const letter = (letterBtn?.textContent || '').trim();
           const isFreeform = optEl.classList.contains('composer-questionnaire-toolbar-option-freeform');
-          const label = isFreeform ? 'Other' : (optEl.querySelector('.composer-questionnaire-toolbar-option-label')?.textContent || '').trim();
-          const clickTarget = letterBtn || optEl;
-          options.push({ letter, label, isFreeform, selectorPath: buildSelectorPath(clickTarget as Element) });
+          const label = (optEl.querySelector('.composer-questionnaire-toolbar-option-label')?.textContent || '').trim()
+            || (isFreeform ? 'Other' : '');
+          options.push({ letter, label, isFreeform, selectorPath: buildSelectorPath(optEl as Element) });
         }
         questions.push({ number: num, text, options, isActive });
       }
