@@ -55,7 +55,7 @@ function main(): void {
   }
 
   execSync(
-    `git add package.json CHANGELOG.md README.md docs/guide.md`,
+    `git add package.json CHANGELOG.md README.md README.ru.md docs/guide.md docs/reference.md`,
     { stdio: 'inherit' },
   );
   execSync(`git commit -m "release: v${newVersion}"`, { stdio: 'inherit' });
