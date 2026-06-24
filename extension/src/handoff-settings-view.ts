@@ -1,4 +1,5 @@
 import { tr } from './extension-locale.js';
+import { HANDOFF_BRAND_ROOT_CSS } from './handoff-brand-css.js';
 
 export interface HandoffSettingsViewState {
   locale: 'en' | 'ru';
@@ -329,13 +330,12 @@ export function renderHandoffSettingsHtml(state: HandoffSettingsViewState, dict:
       --bg: var(--vscode-editor-background);
       --panel: var(--vscode-sideBar-background, var(--vscode-editor-background));
       --border: var(--vscode-panel-border, var(--vscode-widget-border, #444));
-      --ok: var(--vscode-testing-iconPassed, #89d185);
+      ${HANDOFF_BRAND_ROOT_CSS}
+      --ok: var(--ho-teal);
       --warn: var(--vscode-editorWarning-foreground, #cca700);
       --bad: var(--vscode-errorForeground, #f48771);
       --hover: var(--vscode-list-hoverBackground);
-      --link: var(--vscode-textLink-foreground);
-      --btn: var(--vscode-button-background);
-      --btn-fg: var(--vscode-button-foreground);
+      --link: var(--ho-teal);
       --input-bg: var(--vscode-input-background);
       --input-fg: var(--vscode-input-foreground);
       --mono: var(--vscode-editor-font-family, ui-monospace, monospace);
@@ -373,7 +373,7 @@ export function renderHandoffSettingsHtml(state: HandoffSettingsViewState, dict:
     }
     .rail-brand {
       font-size: 13px; font-weight: 600;
-      color: var(--fg); margin-bottom: 12px; padding: 0 8px;
+      color: var(--ho-teal); margin-bottom: 12px; padding: 0 8px;
     }
     .rail-a {
       display: block; padding: 6px 10px; border-radius: 4px;
@@ -381,7 +381,7 @@ export function renderHandoffSettingsHtml(state: HandoffSettingsViewState, dict:
       border-left: 2px solid transparent;
     }
     .rail-a:hover { color: var(--fg); background: var(--hover); }
-    .rail-a.on { color: var(--fg); border-left-color: var(--link); background: var(--hover); }
+    .rail-a.on { color: var(--fg); border-left-color: var(--ho-teal); background: var(--hover); }
 
     .main { padding: 20px 20px 40px; }
 
@@ -452,7 +452,7 @@ export function renderHandoffSettingsHtml(state: HandoffSettingsViewState, dict:
     }
     .mini:hover { background: var(--hover); }
     .save.mini { background: var(--btn); color: var(--btn-fg); border: none; }
-    .save.mini:hover { filter: brightness(1.08); }
+    .save.mini:hover { filter: brightness(1.06); background: var(--ho-teal-hover); }
 
     .field { display: block; margin: 10px 0; }
     .field span {
@@ -498,7 +498,7 @@ export function renderHandoffSettingsHtml(state: HandoffSettingsViewState, dict:
       border: 1px solid var(--border); color: var(--muted);
     }
     .tg-step.done .tg-n { border-color: var(--ok); color: var(--ok); }
-    .tg-body h3 { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+    .tg-body h3 { font-size: 13px; font-weight: 600; margin-bottom: 6px; white-space: nowrap; }
     .tg-transport { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
     .tg-foot { margin-top: 12px; }
     .ticks { list-style: none; }
@@ -542,14 +542,14 @@ export function renderHandoffSettingsHtml(state: HandoffSettingsViewState, dict:
       border: none; border-radius: 2px; cursor: pointer;
       background: var(--btn); color: var(--btn-fg);
     }
-    .save:hover { filter: brightness(1.08); }
+    .save:hover { filter: brightness(1.06); background: var(--ho-teal-hover); }
 
     .impl-sw { display: flex; margin: 10px 0; border: 1px solid var(--border); border-radius: 2px; overflow: hidden; }
     .impl-pick {
       flex: 1; padding: 8px; border: none; background: transparent;
       color: var(--muted); font: inherit; font-size: 12px; cursor: pointer;
     }
-    .impl-pick.on { background: var(--hover); color: var(--fg); font-weight: 600; }
+    .impl-pick.on { background: var(--btn); color: var(--btn-fg); font-weight: 600; }
 
     .ck { display: flex; gap: 8px; margin-top: 10px; font-size: 11px; color: var(--muted); cursor: pointer; }
     .ck.off { opacity: .4; pointer-events: none; }

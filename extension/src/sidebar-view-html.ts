@@ -4,6 +4,7 @@ import type { TunnelAddonStatus } from './tunnel-status.js';
 import type { HealthData } from './status-bar.js';
 import type { SidebarAccessMode } from './sidebar-access.js';
 import { tr } from './extension-locale.js';
+import { HANDOFF_BRAND_ROOT_CSS, handoffSidebarBrandHeaderHtml } from './handoff-brand-css.js';
 
 export interface SidebarViewState {
   locale: 'en' | 'ru';
@@ -110,7 +111,11 @@ function accessTone(state: SidebarViewState): 'ok' | 'warn' | 'bad' | 'muted' {
   return state.serverState === 'running' ? 'ok' : 'warn';
 }
 
-export function renderSidebarHtml(state: SidebarViewState, dict: Record<string, string>): string {
+export function renderSidebarHtml(
+  state: SidebarViewState,
+  dict: Record<string, string>,
+  assets: { logoUri: string; cspSource: string },
+): string {
   const t = (key: string, fb: string) => tr(dict, key, fb);
   const rows: string[] = [];
 
@@ -221,7 +226,7 @@ export function renderSidebarHtml(state: SidebarViewState, dict: Record<string, 
     }
   }
 
-  const versionLine = trParam(dict, 'ext.sidebar.version', 'CursorHandoff v{version}', { version: state.version });
+  const brandHeader = handoffSidebarBrandHeaderHtml(state.version, assets.logoUri, escapeHtml);
 
   const powerAction = state.serverState === 'stopped'
     ? actionRow('start', '▶', t('ext.sidebar.startServer', 'Start server'))
@@ -231,18 +236,19 @@ export function renderSidebarHtml(state: SidebarViewState, dict: Record<string, 
 <html lang="${state.locale}">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${assets.cspSource} https:; style-src 'unsafe-inline'; script-src 'unsafe-inline';" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     :root {
       --fg: var(--vscode-sideBar-foreground);
       --muted: var(--vscode-descriptionForeground);
       --border: var(--vscode-panel-border, var(--vscode-widget-border, #444));
-      --ok: var(--vscode-testing-iconPassed, #89d185);
+      ${HANDOFF_BRAND_ROOT_CSS}
+      --ok: var(--ho-teal);
       --warn: var(--vscode-editorWarning-foreground, #cca700);
       --bad: var(--vscode-errorForeground, #f48771);
       --hover: var(--vscode-list-hoverBackground);
-      --link: var(--vscode-textLink-foreground);
+      --link: var(--ho-teal);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -253,11 +259,29 @@ export function renderSidebarHtml(state: SidebarViewState, dict: Record<string, 
       padding: 4px 0 12px;
       line-height: 1.35;
     }
-    .version {
+    .brand-head {
+      text-align: center;
+      padding: 10px 16px 14px;
+    }
+    .brand-mark {
+      display: block;
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 10px;
+    }
+    .brand-title {
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+    }
+    .brand-cursor { color: var(--ho-white); }
+    .brand-handoff { color: var(--ho-teal); }
+    .brand-ver {
+      margin-top: 4px;
       font-size: 13px;
-      font-weight: 600;
-      padding: 0 16px 10px;
-      color: var(--fg);
+      font-weight: 500;
+      color: var(--muted);
     }
     .section { padding: 4px 0; }
     .divider {
@@ -289,14 +313,14 @@ export function renderSidebarHtml(state: SidebarViewState, dict: Record<string, 
       margin-top: 5px;
       background: var(--muted);
     }
-    .dot.ok { background: var(--ok); }
+    .dot.ok { background: var(--ho-teal); }
     .dot.warn { background: var(--warn); }
     .dot.bad { background: var(--bad); }
     .dot.muted { background: var(--muted); opacity: 0.55; }
     .body { min-width: 0; flex: 1; }
     .line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .status .lbl { color: var(--muted); }
-    .val.ok { color: var(--ok); }
+    .status .lbl { color: var(--ho-white); }
+    .val.ok { color: var(--ho-teal); }
     .val.warn { color: var(--warn); }
     .val.bad { color: var(--bad); }
     .val.muted { color: var(--muted); }
@@ -331,11 +355,11 @@ export function renderSidebarHtml(state: SidebarViewState, dict: Record<string, 
     }
     .act-lbl { color: var(--fg); }
     .action[data-action="stop"] .act-ico { color: var(--bad); }
-    .action[data-action="start"] .act-ico { color: var(--ok); }
+    .action[data-action="start"] .act-ico { color: var(--ho-teal); }
   </style>
 </head>
 <body>
-  <div class="version">${escapeHtml(versionLine)}</div>
+  ${brandHeader}
   <div class="section">${rows.join('')}</div>
   <div class="divider"></div>
   ${powerAction}

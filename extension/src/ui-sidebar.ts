@@ -92,6 +92,13 @@ export class StatusSidebarView implements vscode.WebviewViewProvider {
       showCloudflare: shouldShowCloudflareStatus(tunnel, webTunnelEnabled),
     };
 
-    this.view.webview.html = renderSidebarHtml(state, dict);
+    const logoUri = this.view.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'media', 'icon.png'),
+    ).toString();
+
+    this.view.webview.html = renderSidebarHtml(state, dict, {
+      logoUri,
+      cspSource: this.view.webview.cspSource,
+    });
   }
 }
