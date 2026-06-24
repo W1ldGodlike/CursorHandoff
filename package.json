@@ -1,7 +1,7 @@
 {
   "name": "cursor-handoff",
   "displayName": "CursorHandoff",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Control your local Cursor agent from a phone — web UI and Telegram bridge, no cloud runtime.",
   "publisher": "cursor-handoff",
   "license": "AGPL-3.0-or-later",
