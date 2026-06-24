@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import threading
@@ -27,7 +28,7 @@ from storage import (
     write_handoff,
     write_raise_cursor,
 )
-from subprocess_util import CREATE_NEW_PROCESS_GROUP, popen as hidden_popen
+from subprocess_util import CREATE_NEW_PROCESS_GROUP, popen as hidden_popen, shell_open_windows
 from telegram_client import TelegramPoller
 from single_instance import acquire_single_instance
 from tray import TrayApp
@@ -42,8 +43,7 @@ class CursorWakeApp:
         self._poller.set_launch_callback(self._launch_cursor)
         self._launch_started_at: float | None = None
         self._autostart_notified = False
-        self._wake_started_at = time.time()
-        self._autostart_attempted = False
+        self._last_autostart_at = time.time()
 
     def _notify(self, thread_id: int | None, text: str) -> None:
         chat_id = self._sync_chat_id()
@@ -78,15 +78,14 @@ class CursorWakeApp:
         log_line(self.cfg, f"[launch] Starting Cursor ({reason}): {cmd_path}")
         self._launch_started_at = time.time()
         try:
-            if cmd_path.suffix.lower() == ".exe":
-                hidden_popen(
-                    [str(cmd_path), "--remote-debugging-port=9222"],
-                    cwd=str(cmd_path.parent),
-                    hide_window=False,
-                    creationflags=CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+            if os.name == "nt" and cmd_path.suffix.lower() == ".exe":
+                shell_open_windows(
+                    str(cmd_path),
+                    str(cmd_path.parent),
+                    "--remote-debugging-port=9222",
                 )
+            elif os.name == "nt" and cmd_path.suffix.lower() in (".cmd", ".bat"):
+                shell_open_windows(str(cmd_path), str(cmd_path.parent))
             else:
                 hidden_popen(
                     ["cmd.exe", "/c", str(cmd_path)],
@@ -185,23 +184,30 @@ class CursorWakeApp:
         elif not proc:
             self._health_fails = 0
             self._ensure_poller()
-            grace_sec = 60
-            if (
-                not self.cfg.launch_lock_path.exists()
-                and self._launch_started_at is None
-                and not self._autostart_attempted
-                and (time.time() - self._wake_started_at) >= grace_sec
+            pending = count_pending(self.cfg)
+            if pending > 0 and not launching:
+                self._launch_cursor(reason="queue")
+            elif (
+                pending == 0
+                and not launching
+                and (time.time() - self._last_autostart_at) >= self.cfg.autostart_interval_sec
             ):
-                self._autostart_attempted = True
+                self._last_autostart_at = time.time()
+                before = self._launch_started_at
                 self._launch_cursor(reason="autostart")
-                if not self._autostart_notified:
-                    chat_id = self._sync_chat_id()
-                    if chat_id:
-                        self._poller.send_message(chat_id, "🟢 CursorWake: started Cursor")
-                    self._autostart_notified = True
+                if self._launch_started_at is not None and self._launch_started_at != before:
+                    if not self._autostart_notified:
+                        chat_id = self._sync_chat_id()
+                        if chat_id:
+                            self._poller.send_message(chat_id, "🟢 CursorWake: started Cursor")
+                        self._autostart_notified = True
         else:
             self._health_fails = 0
-            self._ensure_poller()
+            if is_healthy(result):
+                if self._poller.running:
+                    self._poller.stop()
+            else:
+                self._ensure_poller()
 
         self._wait_launch_result()
 

@@ -72,10 +72,10 @@ def is_server_listening(result: HealthResult) -> bool:
 
 
 def cursor_handoff_ready(result: HealthResult) -> bool:
-    """Hand off Telegram long-poll to CursorHandoff when CDP + server connected.
+    """Yield long-poll once CursorHandoff CDP + server are up.
 
-    Do not wait for telegramPoll: that flag is set only after Handoff wins getUpdates.
-    Wake polls message-only; inline buttons need callback_query on the server.
+    Do not wait for telegramPoll — Wake and Handoff would fight getUpdates (409)
+    and neither side would ever set telegramPoll. Handoff raw transport retries 409.
     """
     return is_healthy(result)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -17,7 +18,7 @@ _lock = threading.Lock()
 def _read_json(path: Path, default: Any) -> Any:
     try:
         if path.exists():
-            return json.loads(path.read_text(encoding="utf-8"))
+            return json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError):
         pass
     return default
@@ -140,25 +141,34 @@ def append_queue_item(
 
 def acquire_launch_lock(cfg: Config) -> bool:
     with _lock:
-        if cfg.launch_lock_path.exists():
+        lock_path = cfg.launch_lock_path
+        if lock_path.exists():
             try:
-                raw = _read_json(cfg.launch_lock_path, {})
+                raw = _read_json(lock_path, {})
                 started = raw.get("startedAt")
                 if isinstance(started, str):
                     started_dt = datetime.fromisoformat(started)
                     age_sec = (datetime.now(timezone.utc) - started_dt).total_seconds()
                     if age_sec < cfg.launch_timeout_sec:
                         return False
-                else:
-                    return False
             except (ValueError, OSError, TypeError):
                 pass
             try:
-                cfg.launch_lock_path.unlink(missing_ok=True)
+                lock_path.unlink(missing_ok=True)
             except OSError:
                 return False
-        _write_json(cfg.launch_lock_path, {"startedAt": datetime.now(timezone.utc).isoformat()})
-        return True
+
+        try:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = json.dumps({"startedAt": datetime.now(timezone.utc).isoformat()})
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, payload.encode("utf-8"))
+            os.close(fd)
+            return True
+        except FileExistsError:
+            return False
+        except OSError:
+            return False
 
 
 def release_launch_lock(cfg: Config) -> None:

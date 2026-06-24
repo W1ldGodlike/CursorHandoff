@@ -136,9 +136,9 @@ export class RawTelegramTransport extends BaseTelegramTransport {
         if (msg.includes('abort')) break;
         const code = (err as Record<string, unknown>).error_code;
         if (code === 409) {
-          console.error('[telegram-raw] 409 Conflict — another bot instance took over polling');
-          this.running = false;
-          break;
+          console.warn('[telegram-raw] 409 Conflict — retry in 3s (often CursorWake during handoff)');
+          await sleep(3000);
+          continue;
         }
         console.warn(`[telegram-raw] Poll error: ${msg}`);
         await sleep(POLL_ERROR_BACKOFF_MS);

@@ -4,6 +4,7 @@
   "pollIntervalSec": 30,
   "pollIntervalFastSec": 10,
   "heartbeatIntervalSec": 300,
+  "autostartIntervalSec": 300,
   "healthFailThreshold": 3,
   "healthTimeoutSec": 5,
   "launchTimeoutSec": 120,

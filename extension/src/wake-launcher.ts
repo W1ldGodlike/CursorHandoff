@@ -68,33 +68,6 @@ export async function getCursorWakeStatus(dataDir: string): Promise<CursorWakeSt
   };
 }
 
-function readLockPid(lockPath: string): number | null {
-  try {
-    const pid = parseInt(readFileSync(lockPath, 'utf-8').trim(), 10);
-    return Number.isFinite(pid) && pid > 0 ? pid : null;
-  } catch {
-    return null;
-  }
-}
-
-async function isProcessRunning(pid: number): Promise<boolean> {
-  try {
-    const { stdout } = await execAsync(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`, { windowsHide: true });
-    return stdout.includes(`"${pid}"`);
-  } catch {
-    return false;
-  }
-}
-
-/** True when exactly one Wake process holds the lock in this data dir. */
-async function wakeHealthyForDataDir(dataDir: string): Promise<boolean> {
-  if (process.platform !== 'win32') return false;
-  if ((await countCursorWakeProcesses()) !== 1) return false;
-  const pid = readLockPid(join(dataDir, 'cursor-wake-instance.lock'));
-  if (!pid) return false;
-  return isProcessRunning(pid);
-}
-
 function spawnWake(exe: string, dataDir: string, log?: (msg: string) => void): void {
   const child = spawn(exe, [], {
     detached: true,
@@ -124,14 +97,14 @@ export async function ensureCursorWakeRunning(
 
   syncWakeConfig(dataDir);
 
-  if (await wakeHealthyForDataDir(dataDir)) {
-    log?.('already running');
+  const count = await countCursorWakeProcesses();
+  if (count > 2) {
+    log?.('too many instances — restarting');
+    await restartCursorWake(dataDir, log);
     return;
   }
-
-  if ((await countCursorWakeProcesses()) > 0) {
-    log?.('stale instance — restarting');
-    await restartCursorWake(dataDir, log);
+  if (count > 0) {
+    log?.('already running');
     return;
   }
 

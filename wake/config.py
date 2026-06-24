@@ -53,21 +53,30 @@ def _default_cursor_exe() -> str:
     return ""
 
 
+def _bundled_launch_cmd() -> Path:
+    return _install_dir() / "CursorHandoff-Debug.cmd"
+
+
 def _default_launch_cmd() -> str:
     exe = _default_cursor_exe()
     if exe:
         return exe
-    desktop_cmd = Path.home() / "Desktop" / "CursorHandoff Debug.cmd"
-    if desktop_cmd.exists():
-        return str(desktop_cmd)
+    bundled = _bundled_launch_cmd()
+    if bundled.is_file():
+        return str(bundled)
+    desktop = Path.home() / "Desktop"
+    for name in ("Cursor Remote Debug.cmd", "CursorHandoff Debug.cmd"):
+        cmd = desktop / name
+        if cmd.is_file():
+            return str(cmd)
     return ""
 
 
 def _load_json(path: Path) -> dict[str, Any]:
     try:
         if path.exists():
-            return json.loads(path.read_text(encoding="utf-8"))
-    except OSError:
+            return json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
         pass
     return {}
 
@@ -79,6 +88,7 @@ class Config:
     poll_interval_sec: int
     poll_interval_fast_sec: int
     heartbeat_interval_sec: int
+    autostart_interval_sec: int
     health_fail_threshold: int
     health_timeout_sec: int
     launch_timeout_sec: int
@@ -190,6 +200,11 @@ def load_config() -> Config:
         poll_interval_sec=int(repo_config.get("pollIntervalSec", 30)),
         poll_interval_fast_sec=int(repo_config.get("pollIntervalFastSec", 10)),
         heartbeat_interval_sec=int(repo_config.get("heartbeatIntervalSec", 300)),
+        autostart_interval_sec=int(
+            repo_config.get("autostartIntervalSec")
+            or repo_config.get("autostartGraceSec")
+            or 300
+        ),
         health_fail_threshold=int(repo_config.get("healthFailThreshold", 3)),
         health_timeout_sec=int(repo_config.get("healthTimeoutSec", 5)),
         launch_timeout_sec=int(repo_config.get("launchTimeoutSec", 120)),

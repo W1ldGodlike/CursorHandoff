@@ -205,9 +205,11 @@ Same rules as Telegram: up to **10** attachments per message; JPEG/PNG/WebP past
 
 Telegram allows **one** long-polling client per bot token.
 
-1. While Cursor is off, CursorWake polls and appends to `pending-telegram-queue.json`.
-2. When `/health` reports `connected: true` and (`telegramEnabled: false` or `telegramPoll: true`), Wake stops polling.
+1. While Cursor is off, CursorWake polls and appends to `pending-telegram-queue.json`. Inbound messages launch Cursor **immediately** (when **Raise Cursor** is on).
+2. When `/health` reports CDP + `connected: true`, Wake stops polling so Handoff can own `getUpdates` (`telegramPoll` becomes true after the first successful server poll).
 3. The server drains the queue.
+
+While Cursor stays off with an empty queue, Wake retries launch every **`autostartIntervalSec`** (default **300** = 5 min) if **Raise Cursor** is enabled.
 
 **`/pause`** / **`/resume`** (or the tray checkbox) control whether Wake launches Cursor on new messages.
 
@@ -250,7 +252,7 @@ Regenerate at [@BotFather](https://t.me/BotFather), update Handoff settings or `
 Only one long-poll per token.
 
 - Kill extra CursorHandoff or `node` processes
-- With **CursorWake**, Wake must release when `telegramPoll` becomes true
+- With **CursorWake**, Wake yields the token when Handoff is healthy (`connected` + CDP); brief 409 lines during handoff are normal — Handoff retries
 - After a crash, wait 30–60 s before restarting
 
 ### 5. Bot never reaches “connected”

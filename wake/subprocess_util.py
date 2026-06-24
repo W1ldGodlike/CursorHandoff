@@ -50,3 +50,12 @@ def popen(args: list[str], *, hide_window: bool = True, **kwargs: Any) -> subpro
         kwargs["creationflags"] = flags | CREATE_NO_WINDOW
         kwargs.setdefault("startupinfo", _startupinfo())
     return subprocess.Popen(args, **kwargs)
+
+
+def shell_open_windows(path: str, cwd: str, args: str | None = None) -> None:
+    """Open a file like Explorer double-click (works from frozen tray apps)."""
+    import ctypes
+
+    ret = ctypes.windll.shell32.ShellExecuteW(None, "open", path, args, cwd, 1)
+    if ret <= 32:
+        raise OSError(f"ShellExecuteW failed ({ret})")

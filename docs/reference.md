@@ -147,4 +147,17 @@ The sidebar **Status** tree is read-mostly (server, CDP, agent, clients, windows
 | `webTunnelUrl` | Cloudflare URL when tunnel is running |
 | `sessionValid` | Authenticated web client — full state exposed |
 
-CursorWake releases the bot token when Handoff reports `connected: true` (CDP + server). Do not wait for `telegramPoll` first — that flag is set only after Handoff wins `getUpdates`.
+CursorWake releases the bot token when Handoff reports healthy CDP + `connected: true` (server takes over `getUpdates`; `telegramPoll` flips true after the first successful poll).
+
+### CursorWake install config
+
+`%LOCALAPPDATA%\CursorWake\cursor-wake.config.json` (written by `install-handoff-wake.ps1`):
+
+| Key | Default | Meaning |
+|------|---------|---------|
+| `dataDir` | from `cursorHandoff.dataDir` | Queue, offset, Wake state |
+| `cursorLaunchCmd` | `%LOCALAPPDATA%\Programs\cursor\Cursor.exe` | IDE launch path (`ShellExecuteW` on Windows) |
+| `autostartIntervalSec` | `300` | While **Raise Cursor** is on, Cursor is down, and the queue is empty — retry launch every N seconds |
+| `pollIntervalSec` | `30` | Health loop interval when Handoff is healthy |
+| `pollIntervalFastSec` | `10` | Health loop interval when Cursor is down |
+| `launchTimeoutSec` | `120` | Max wait for Cursor/CDP after spawn |

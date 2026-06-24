@@ -243,7 +243,7 @@ Install from Handoff settings → **Add-ons** → Wake, **CursorHandoff: Install
 
 It reads the same `cursorHandoff.telegram.*` settings; state lives under `<repo>/data/` (or `cursorHandoff.dataDir`).
 
-- Tray **Raise Cursor** — autostart plus wake-on-message.
+- Tray **Raise Cursor** — periodic autostart while Cursor is down (default every 5 min) plus **immediate** launch on Telegram messages.
 - **`/pause`** and **`/resume`** mirror the tray checkbox.
 - Log file: `data/cursor-wake.log`.
 

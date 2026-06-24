@@ -20,6 +20,11 @@ if ($running) {
 }
 
 Copy-Item -Path $BuiltExe -Destination $Exe -Force
+$BundledCmd = Join-Path $Root "wake\CursorHandoff-Debug.cmd"
+$InstallCmd = Join-Path $InstallDir "CursorHandoff-Debug.cmd"
+if (Test-Path $BundledCmd) {
+    Copy-Item -Path $BundledCmd -Destination $InstallCmd -Force
+}
 Write-Host "Installed: $Exe"
 
 $dataDir = Join-Path $Root "data"
@@ -36,17 +41,29 @@ if (Test-Path $settingsPath) {
     }
 }
 $wakeConfigPath = Join-Path $InstallDir "cursor-wake.config.json"
+$launchCmd = ""
+$cursorExe = Join-Path $env:LOCALAPPDATA "Programs\cursor\Cursor.exe"
+if (Test-Path $cursorExe) {
+    $launchCmd = ($cursorExe -replace '\\', '/')
+} elseif (Test-Path $InstallCmd) {
+    $launchCmd = ($InstallCmd -replace '\\', '/')
+}
 $wakeConfig = @{
     dataDir = ($dataDir -replace '\\', '/')
-    cursorLaunchCmd = ""
+    cursorLaunchCmd = $launchCmd
     pollIntervalSec = 30
+    pollIntervalFastSec = 10
+    heartbeatIntervalSec = 300
+    autostartIntervalSec = 300
     healthFailThreshold = 3
     healthTimeoutSec = 5
     launchTimeoutSec = 120
     telegramPollTimeoutSec = 50
 }
-$wakeConfig | ConvertTo-Json -Depth 5 | Set-Content $wakeConfigPath -Encoding UTF8
+$json = $wakeConfig | ConvertTo-Json -Depth 5
+[System.IO.File]::WriteAllText($wakeConfigPath, $json, [System.Text.UTF8Encoding]::new($false))
 Write-Host "Wake config dataDir -> $dataDir"
+if ($launchCmd) { Write-Host "Wake launch -> $launchCmd" }
 
 $Startup = [Environment]::GetFolderPath("Startup")
 $Shortcut = Join-Path $Startup "CursorWake.lnk"
@@ -60,6 +77,4 @@ $Link.Save()
 
 Write-Host "Startup shortcut: $Shortcut"
 
-Start-Sleep -Milliseconds 500
-Start-Process -FilePath $Exe -WorkingDirectory $InstallDir
-Write-Host "Started CursorWake"
+Write-Host "Installed (start via Cursor extension or Startup shortcut)"

@@ -35,7 +35,7 @@ flowchart LR
 
 **Phone browser** loads `src/client/` assets; realtime updates ride socket.io.
 
-**CursorWake** (Windows tray) holds the Telegram long-poll while Cursor is down, writes to `pending-telegram-queue.json`, and yields when `/health` shows `connected: true` plus (`telegramEnabled: false` or `telegramPoll: true`).
+**CursorWake** (Windows tray) holds the Telegram long-poll while Cursor is down, writes to `pending-telegram-queue.json`, launches Cursor on inbound messages (or on a periodic timer when **Raise Cursor** is on), and yields the bot token when `/health` shows CDP + `connected: true` so Handoff can take over `getUpdates`.
 
 ---
 
@@ -190,7 +190,7 @@ Build pipeline: esbuild → `dist/extension.cjs` + `dist/server/bundle.mjs`; cli
 | CDP drops | Exponential backoff reconnect; clients show disconnected |
 | Extraction returns null | Hold last good state; run `npm run discover` if persistent |
 | Command error | Up to two retries |
-| Telegram 409 | Only one poller per token; Wake backs off on handoff |
+| Telegram 409 | Only one poller per token; Wake yields on handoff; Handoff raw transport retries 409 during the race |
 | Redeploy | Graceful shutdown; suppress false disconnect for ~90 s after startup |
 | Hung window | Close one CDP target; notify the mapped thread |
 

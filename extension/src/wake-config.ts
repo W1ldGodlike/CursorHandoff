@@ -14,12 +14,35 @@ function writeWakeConfig(installDir: string, dataDir: string, cursorLaunchCmd = 
     dataDir: dataDir.replace(/\\/g, '/'),
     cursorLaunchCmd,
     pollIntervalSec: 30,
+    pollIntervalFastSec: 10,
+    heartbeatIntervalSec: 300,
+    autostartIntervalSec: 300,
     healthFailThreshold: 3,
     healthTimeoutSec: 5,
     launchTimeoutSec: 120,
     telegramPollTimeoutSec: 50,
   };
-  writeFileSync(join(installDir, 'cursor-wake.config.json'), JSON.stringify(config, null, 2), 'utf-8');
+  writeFileSync(
+    join(installDir, 'cursor-wake.config.json'),
+    JSON.stringify(config, null, 2),
+    { encoding: 'utf-8' },
+  );
+}
+
+function resolveLaunchCmd(installDir: string, _preserved: string): string {
+  const cursorExe = join(process.env.LOCALAPPDATA ?? '', 'Programs', 'cursor', 'Cursor.exe');
+  if (existsSync(cursorExe)) {
+    return cursorExe.replace(/\\/g, '/');
+  }
+  const bundled = join(installDir, 'CursorHandoff-Debug.cmd');
+  if (existsSync(bundled)) {
+    return bundled.replace(/\\/g, '/');
+  }
+  const trimmed = _preserved.trim();
+  if (trimmed) {
+    return trimmed.replace(/\\/g, '/');
+  }
+  return '';
 }
 
 /** Keep cursorLaunchCmd; refresh dataDir (e.g. after workspace dataDir change). */
@@ -37,9 +60,9 @@ export function syncWakeConfig(dataDir: string): void {
       /* ignore */
     }
   }
-  writeWakeConfig(installDir, dataDir, cursorLaunchCmd);
+  writeWakeConfig(installDir, dataDir, resolveLaunchCmd(installDir, cursorLaunchCmd));
 }
 
 export function writeWakeInstallConfig(installDir: string, dataDir: string): void {
-  writeWakeConfig(installDir, dataDir, '');
+  writeWakeConfig(installDir, dataDir, resolveLaunchCmd(installDir, ''));
 }
