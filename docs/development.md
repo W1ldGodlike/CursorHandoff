@@ -11,7 +11,7 @@ Manual verification and dev tooling for people shipping CursorHandoff.
 | | Version |
 |---|---------|
 | **Minimum** | Cursor **3.8** (`data-message-index`, thinking messages, unified composer) |
-| **Last verified** | **3.8.22** (2026-06-23) |
+| **Last verified** | **3.8.23** (2026-06-24) |
 
 DOM parsing (`src/ide/parse/tabs.ts`) and TG action clicks (`register-callbacks.ts`) are tuned to this build. After a Cursor upgrade: run `npm run discover`, re-check queue / plan Build / questionnaire / approve, then bump **Last verified** here.
 

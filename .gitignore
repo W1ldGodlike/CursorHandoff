@@ -15,5 +15,8 @@ temp/
 .cursor-handoff/
 local/
 .cursor/plans/
+# Local dev DOM probe — not public (tooling in local/, playbook in .cursor/)
+.cursor/skills/cursor-dom-probe/
+.cursor/rules/cursor-dom-update.mdc
 # Optional local copy of global tone rule — not part of repo policy
 .cursor/rules/tone-pacan.mdc
