@@ -5,6 +5,7 @@ import * as socketState from './socket-state.js';
 import * as tabs from './tabs-messages.js';
 import * as planUi from './plan-widget.js';
 import * as approve from './approve-ui.js';
+import * as questionnaireLocal from './questionnaire-local.js';
 
 export async function init() {
   if (window.HandoffI18n) {
@@ -64,12 +65,23 @@ ctx.$approvalDesc = document.getElementById('approval-desc');
 ctx.$btnApprove = document.getElementById('btn-approve');
 ctx.$btnReject = document.getElementById('btn-reject');
 ctx.questionnaireSelections = {};
+ctx.questionnaireFreeformDraft = '';
+ctx.questionnaireFreeformDrafts = {};
+ctx.questionnaireFreeformQuestionNumber = '';
+ctx.questionnaireFreeformPending = false;
+ctx.questionnaireFreeformFocused = false;
+ctx._questionnaireStructureKey = '';
+ctx._questionnaireSessionKey = '';
+ctx._questionnaireNotifySent = false;
 ctx.$questionnaireBar = document.getElementById('questionnaire-bar');
 ctx.$questionnaireStepper = document.getElementById('questionnaire-stepper');
 ctx.$questionnaireQuestions = document.getElementById('questionnaire-questions');
 ctx.$btnQSkip = document.getElementById('btn-q-skip');
 ctx.$btnQContinue = document.getElementById('btn-q-continue');
 ctx.$input = document.getElementById('message-input');
+if (ctx.$input && !ctx.$input.dataset.defaultPlaceholder) {
+  ctx.$input.dataset.defaultPlaceholder = ctx.$input.getAttribute('placeholder') || '';
+}
 ctx.$promptHistoryBar = document.getElementById('prompt-history-bar');
 ctx.$btnRepeatLast = document.getElementById('btn-repeat-last');
 ctx.$promptHistoryList = document.getElementById('prompt-history-list');
@@ -178,20 +190,102 @@ ctx.$btnReject.addEventListener('click', () => {
 
 ctx.$btnQSkip.addEventListener('click', () => {
   if (!ctx.state.questionnaire) return;
-  ctx.socket.emit('command:click_action', {
+  ctx.socket.emit('command:questionnaire_click', {
     commandId: socketState.newCommandId(),
-    selectorPath: ctx.state.questionnaire.skipSelectorPath,
+    questionnaireTarget: 'skip',
   });
   socketState.showToast(t('web.toast.skipSent', 'Skip sent'), 'success');
 });
 
-ctx.$btnQContinue.addEventListener('click', () => {
-  if (!ctx.state.questionnaire || ctx.state.questionnaire.continueDisabled) return;
-  ctx.socket.emit('command:click_action', {
-    commandId: socketState.newCommandId(),
-    selectorPath: ctx.state.questionnaire.continueSelectorPath,
-  });
-  socketState.showToast(t('web.toast.continueSent', 'Continue sent'), 'success');
+ctx.$btnQContinue.addEventListener('click', async () => {
+  const q = ctx.state.questionnaire;
+  if (!q?.continueSelectorPath) return;
+  ctx.questionnaireFreeformDrafts = questionnaireLocal.syncFreeformDraftsFromDom(
+    ctx.$questionnaireQuestions, ctx.questionnaireFreeformDrafts,
+  );
+  const canContinue = questionnaireLocal.shouldEnableContinue(
+    q, ctx.questionnaireSelections, ctx.questionnaireFreeformDrafts,
+  );
+  if (!canContinue) {
+    const missing = questionnaireLocal.getUnansweredQuestions(
+      q, ctx.questionnaireSelections, ctx.questionnaireFreeformDrafts,
+    );
+    const nums = missing.map((qq) => qq.number.replace(/\.$/, '')).join(', ');
+    socketState.showToast(
+      nums
+        ? tp('web.toast.questionnaireIncomplete', 'Answer question(s): {nums}', { nums })
+        : t('web.toast.commandFailed', 'Command failed'),
+      'error',
+    );
+    approve.renderQuestionnaire();
+    return;
+  }
+  ctx.$btnQContinue.disabled = true;
+  try {
+    for (const question of q.questions) {
+      const letter = questionnaireLocal.getLetterForSync(question, ctx.questionnaireSelections);
+      if (!letter) continue;
+      const opt = questionnaireLocal.findOption(question, letter);
+      if (!opt?.selectorPath) continue;
+      if (!questionnaireLocal.isOptionSelectedInState(question, letter)) {
+        const picked = await socketState.sendCommandAwaitResult('command:questionnaire_click', {
+          commandId: socketState.newCommandId(),
+          questionnaireTarget: opt.letter,
+          selectorPath: opt.selectorPath,
+        });
+        if (!picked.ok) {
+          socketState.showToast(picked.error || t('web.toast.commandFailed', 'Command failed'), 'error');
+          return;
+        }
+      }
+    }
+    for (const question of q.questions) {
+      const letter = questionnaireLocal.getLetterForSync(question, ctx.questionnaireSelections);
+      const opt = letter ? questionnaireLocal.findOption(question, letter) : null;
+      if (!opt?.isFreeform) continue;
+      const draft = (ctx.questionnaireFreeformDrafts?.[question.number] || '').trim();
+      if (!draft) continue;
+      const path = opt.freeformInputSelectorPath
+        || (question.isActive ? q.freeformInputSelectorPath : '');
+      if (!opt.selectorPath || !path) continue;
+      const activate = await socketState.sendCommandAwaitResult('command:questionnaire_click', {
+        commandId: socketState.newCommandId(),
+        questionnaireTarget: opt.letter,
+        selectorPath: opt.selectorPath,
+      });
+      if (!activate.ok) {
+        socketState.showToast(activate.error || t('web.toast.commandFailed', 'Command failed'), 'error');
+        return;
+      }
+      const synced = await socketState.sendCommandAwaitResult('command:questionnaire_freeform', {
+        commandId: socketState.newCommandId(),
+        selectorPath: path,
+        text: draft,
+      });
+      if (!synced.ok) {
+        socketState.showToast(synced.error || t('web.toast.commandFailed', 'Command failed'), 'error');
+        return;
+      }
+    }
+    const result = await socketState.sendCommandAwaitResult('command:questionnaire_click', {
+      commandId: socketState.newCommandId(),
+      questionnaireTarget: 'continue',
+      questionnaireForceContinue: true,
+    });
+    if (result.ok) {
+      socketState.showToast(t('web.toast.continueSent', 'Continue sent'), 'success');
+    } else {
+      socketState.showToast(result.error || t('web.toast.commandFailed', 'Command failed'), 'error');
+    }
+  } finally {
+    ctx.$btnQContinue.disabled = !ctx.state.questionnaire?.continueSelectorPath;
+    if (ctx.state.questionnaire) {
+      const ready = questionnaireLocal.shouldEnableContinue(
+        ctx.state.questionnaire, ctx.questionnaireSelections, ctx.questionnaireFreeformDrafts,
+      );
+      ctx.$btnQContinue.classList.toggle('questionnaire-continue-ready', ready);
+    }
+  }
 });
 
 ctx.$btnNewChat.addEventListener('click', () => {

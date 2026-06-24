@@ -2645,6 +2645,33 @@ html[data-theme="light"] .markdown-body .md-diagram-wrap svg .cluster rect {
   color: var(--accent-blue);
 }
 
+.questionnaire-freeform-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
+.questionnaire-freeform-input {
+  width: 100%;
+  min-height: 56px;
+  margin-top: 4px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent-blue);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.4;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.questionnaire-freeform-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(55, 148, 255, 0.25);
+}
+
 .questionnaire-actions {
   display: flex;
   gap: 10px;
@@ -2665,11 +2692,19 @@ html[data-theme="light"] .markdown-body .md-diagram-wrap svg .cluster rect {
   height: 40px;
   background: var(--accent-blue);
   color: #fff;
+  opacity: 0.35;
 }
+
+.btn-q-continue.questionnaire-continue-ready { opacity: 1; }
 
 .btn-q-continue:disabled { opacity: 0.35; }
 .btn-q-skip:hover:not(:disabled) { border-color: var(--text-secondary); }
-.btn-q-continue:hover:not(:disabled) { opacity: 0.85; }
+.btn-q-continue:hover:not(:disabled).questionnaire-continue-ready { opacity: 0.85; }
+
+.questionnaire-question-incomplete {
+  outline: 1px dashed var(--accent-orange, #e8a838);
+  outline-offset: 2px;
+}
 
 /* --- Buttons --- */
 

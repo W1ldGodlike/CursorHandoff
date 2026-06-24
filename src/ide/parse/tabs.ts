@@ -1803,7 +1803,14 @@ export function extractionFunction(
     }
 
     // --- Questionnaire widget ---
-    type QOption = { letter: string; label: string; isFreeform: boolean; selectorPath: string };
+    type QOption = {
+      letter: string;
+      label: string;
+      isFreeform: boolean;
+      selectorPath: string;
+      freeformInputSelectorPath?: string;
+      selected: boolean;
+    };
     type QQuestion = { number: string; text: string; options: QOption[]; isActive: boolean };
     let questionnaire: {
       questions: QQuestion[];
@@ -1812,6 +1819,9 @@ export function extractionFunction(
       skipSelectorPath: string;
       continueSelectorPath: string;
       continueDisabled: boolean;
+      freeformActive: boolean;
+      freeformInputSelectorPath: string;
+      freeformValue: string;
     } | null = null;
     const qToolbar = document.querySelector('.composer-questionnaire-toolbar');
     if (qToolbar) {
@@ -1832,9 +1842,22 @@ export function extractionFunction(
           const letterBtn = optEl.querySelector('.composer-questionnaire-toolbar-option-letter');
           const letter = (letterBtn?.textContent || '').trim();
           const isFreeform = optEl.classList.contains('composer-questionnaire-toolbar-option-freeform');
+          const selected = letterBtn?.classList.contains('composer-questionnaire-toolbar-option-letter-selected') ?? false;
           const label = (optEl.querySelector('.composer-questionnaire-toolbar-option-label')?.textContent || '').trim()
             || (isFreeform ? 'Other' : '');
-          options.push({ letter, label, isFreeform, selectorPath: buildSelectorPath(optEl as Element) });
+          let freeformInputSelectorPath: string | undefined;
+          if (isFreeform) {
+            const textarea = optEl.querySelector('.composer-questionnaire-toolbar-freeform-input');
+            if (textarea) freeformInputSelectorPath = buildSelectorPath(textarea as Element);
+          }
+          options.push({
+            letter,
+            label,
+            isFreeform,
+            selectorPath: buildSelectorPath(optEl as Element),
+            ...(freeformInputSelectorPath ? { freeformInputSelectorPath } : {}),
+            selected,
+          });
         }
         questions.push({ number: num, text, options, isActive });
       }
@@ -1842,6 +1865,9 @@ export function extractionFunction(
       let skipPath = '';
       let continuePath = '';
       let continueDisabled = false;
+      let freeformActive = false;
+      let freeformInputSelectorPath = '';
+      let freeformValue = '';
       const actionsContainer = qToolbar.querySelector('.composer-questionnaire-toolbar-actions');
       if (actionsContainer) {
         const skipBtn = actionsContainer.querySelector('.composer-skip-button');
@@ -1853,6 +1879,20 @@ export function extractionFunction(
         }
       }
 
+      const activeQEl = questionEls.find((el) => el.classList.contains('composer-questionnaire-toolbar-question-active'));
+      if (activeQEl) {
+        const freeformOpt = activeQEl.querySelector('.composer-questionnaire-toolbar-option-freeform');
+        const ffLetter = freeformOpt?.querySelector('.composer-questionnaire-toolbar-option-letter');
+        if (freeformOpt && ffLetter?.classList.contains('composer-questionnaire-toolbar-option-letter-selected')) {
+          freeformActive = true;
+          const textarea = freeformOpt.querySelector('.composer-questionnaire-toolbar-freeform-input') as HTMLTextAreaElement | null;
+          if (textarea) {
+            freeformInputSelectorPath = buildSelectorPath(textarea);
+            freeformValue = textarea.value ?? '';
+          }
+        }
+      }
+
       questionnaire = {
         questions,
         activeIndex: activeIdx,
@@ -1860,6 +1900,9 @@ export function extractionFunction(
         skipSelectorPath: skipPath,
         continueSelectorPath: continuePath,
         continueDisabled,
+        freeformActive,
+        freeformInputSelectorPath,
+        freeformValue,
       };
     }
 

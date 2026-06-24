@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'fs';
+import { readFileSync, statSync, readdirSync } from 'fs';
 import { resolve, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { JSDOM } from 'jsdom';
@@ -25,11 +25,21 @@ const I18N_JS_PATH = join(REPO_ROOT, 'src/client/i18n.js');
 const CLIENT_ENTRY = join(REPO_ROOT, 'src/client/js/app.js');
 const CSS_PATH = join(REPO_ROOT, 'src/client/styles/main.css');
 
+const CLIENT_JS_DIR = join(REPO_ROOT, 'src/client/js');
+
+function getClientSourceMtime(): number {
+  return readdirSync(CLIENT_JS_DIR)
+    .filter((f) => f.endsWith('.js'))
+    .reduce((max, f) => Math.max(max, statSync(join(CLIENT_JS_DIR, f)).mtimeMs), 0);
+}
+
 let clientAppBundle: string | null = null;
+let clientAppBundleMtime = 0;
 
 /** Bundled IIFE for JSDOM (ES module graph → single script). */
 function getClientAppBundle(): string {
-  if (!clientAppBundle) {
+  const mtime = getClientSourceMtime();
+  if (!clientAppBundle || mtime !== clientAppBundleMtime) {
     const result = esbuild.buildSync({
       entryPoints: [CLIENT_ENTRY],
       bundle: true,
@@ -38,6 +48,7 @@ function getClientAppBundle(): string {
       write: false,
     });
     clientAppBundle = result.outputFiles![0].text;
+    clientAppBundleMtime = mtime;
   }
   return clientAppBundle;
 }
@@ -94,6 +105,17 @@ export async function createTestEnv(opts?: {
         },
         emit(event: string, ...args: unknown[]) {
           this.emitted.push({ event, args });
+          if (
+            event === 'command:questionnaire_freeform'
+            || event === 'command:questionnaire_click'
+          ) {
+            const payload = args[0] as { commandId?: string } | undefined;
+            if (payload?.commandId) {
+              queueMicrotask(() => {
+                this.fire('command:result', { commandId: payload.commandId, ok: true });
+              });
+            }
+          }
         },
         fire(event: string, ...args: unknown[]) {
           const handler = this.handlers.get(event);

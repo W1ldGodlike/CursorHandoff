@@ -1005,6 +1005,47 @@ export class Relay {
         socket.emit('command:result', result);
       });
 
+      socket.on('command:questionnaire_click', async (payload: CommandPayload) => {
+        if (!payload.commandId || (!payload.questionnaireTarget && !payload.selectorPath)) {
+          socket.emit('command:result', {
+            commandId: payload.commandId ?? 'unknown',
+            ok: false,
+            error: 'Missing commandId and questionnaire target',
+          } satisfies CommandResult);
+          return;
+        }
+        const t = payload.questionnaireTarget;
+        const target =
+          t === 'skip' || t === 'continue'
+            ? t
+            : (payload.selectorPath
+              ? { selectorPath: payload.selectorPath }
+              : { letter: t as string });
+        const result = await this.commandExecutor.clickQuestionnaire(
+          payload.commandId,
+          target,
+          { forceContinue: payload.questionnaireForceContinue === true },
+        );
+        socket.emit('command:result', result);
+      });
+
+      socket.on('command:questionnaire_freeform', async (payload: CommandPayload) => {
+        if (!payload.commandId || !payload.selectorPath || payload.text === undefined) {
+          socket.emit('command:result', {
+            commandId: payload.commandId ?? 'unknown',
+            ok: false,
+            error: 'Missing commandId, selectorPath, or text',
+          } satisfies CommandResult);
+          return;
+        }
+        const result = await this.commandExecutor.setQuestionnaireFreeform(
+          payload.commandId,
+          payload.selectorPath,
+          payload.text,
+        );
+        socket.emit('command:result', result);
+      });
+
       socket.on('command:switch_window', async (payload: CommandPayload) => {
         if (!payload.commandId || !payload.windowId) {
           socket.emit('command:result', {

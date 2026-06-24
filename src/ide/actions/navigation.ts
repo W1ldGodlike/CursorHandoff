@@ -690,9 +690,11 @@ export class CommandExecutor {
    *  stale after re-render. */
   async clickQuestionnaire(
     commandId: string,
-    target: 'skip' | 'continue' | { letter: string },
+    target: 'skip' | 'continue' | { letter: string } | { selectorPath: string },
+    options?: { forceContinue?: boolean },
   ): Promise<CommandResult> {
     const targetJson = JSON.stringify(target);
+    const forceContinue = options?.forceContinue === true;
     return this.withRetry(commandId, async (client) => {
       const result = await client.evaluate(`
         (() => {
@@ -721,11 +723,20 @@ export class CommandExecutor {
               btn = target === 'skip' ? buttons[0] : buttons[buttons.length - 1] || null;
             }
             if (!btn) return { ok: false, error: 'Button not found' };
-            if (target === 'continue' && btn.getAttribute('data-disabled') === 'true') {
+            if (target === 'continue' && btn.getAttribute('data-disabled') === 'true' && !${forceContinue}) {
               return { ok: false, error: 'Continue button unavailable' };
             }
             const pt = center(btn);
             if (!pt) return { ok: false, error: 'Button not visible' };
+            return { ok: true, ...pt };
+          }
+          if (target && typeof target.selectorPath === 'string' && target.selectorPath.trim()) {
+            const explicit = document.querySelector(target.selectorPath);
+            if (!explicit) {
+              return { ok: false, error: 'Questionnaire option not found by selectorPath' };
+            }
+            const pt = center(explicit);
+            if (!pt) return { ok: false, error: 'Questionnaire option not visible' };
             return { ok: true, ...pt };
           }
           const active = toolbar.querySelector('.composer-questionnaire-toolbar-question-active')
@@ -748,8 +759,46 @@ export class CommandExecutor {
         throw new Error(result?.error ?? 'Questionnaire click failed');
       }
       await client.clickAtCoords(result.x, result.y);
-      const label = typeof target === 'string' ? target : target.letter;
+      if (target === 'continue') {
+        await sleep(120);
+        await client.pressKey('Enter', 'Enter', 13);
+      }
+      const label =
+        typeof target === 'string'
+          ? target
+          : 'selectorPath' in target
+            ? target.selectorPath.slice(-40)
+            : target.letter;
       console.log(`[command-executor] Questionnaire click: ${label}`);
+    });
+  }
+
+  async setQuestionnaireFreeform(
+    commandId: string,
+    selectorPath: string,
+    text: string,
+  ): Promise<CommandResult> {
+    const pathJson = JSON.stringify(selectorPath);
+    const textJson = JSON.stringify(text);
+    return this.withRetry(commandId, async (client) => {
+      const ok = await client.evaluate(`
+        (() => {
+          const el = document.querySelector(${pathJson});
+          if (!el || el.tagName !== 'TEXTAREA') return false;
+          el.scrollIntoView({ block: 'center', behavior: 'instant' });
+          el.focus();
+          const setter = Object.getOwnPropertyDescriptor(
+            window.HTMLTextAreaElement.prototype, 'value',
+          )?.set;
+          if (setter) setter.call(el, ${textJson});
+          else el.value = ${textJson};
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        })()
+      `) as boolean;
+      if (!ok) throw new Error('Questionnaire freeform textarea not found');
+      console.log(`[command-executor] Questionnaire freeform (${text.length} chars)`);
     });
   }
 

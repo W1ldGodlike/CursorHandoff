@@ -48,6 +48,10 @@ export interface QuestionnaireOption {
   label: string;
   isFreeform: boolean;
   selectorPath: string;
+  /** Textarea path inside a freeform (Other) option — stable per question. */
+  freeformInputSelectorPath?: string;
+  /** True when Cursor marks this option selected in the questionnaire toolbar. */
+  selected?: boolean;
 }
 
 export interface QuestionnaireQuestion {
@@ -64,6 +68,10 @@ export interface Questionnaire {
   skipSelectorPath: string;
   continueSelectorPath: string;
   continueDisabled: boolean;
+  /** Active question has freeform (Other) selected and textarea visible. */
+  freeformActive?: boolean;
+  freeformInputSelectorPath?: string;
+  freeformValue?: string;
 }
 
 export interface CursorState {
@@ -334,6 +342,10 @@ export interface CommandPayload {
   submit?: 'enter' | 'ctrlEnter';
   /** id from data-queue-item-id in composer toolbar queue */
   queueItemId?: string;
+  /** Questionnaire: letter (A–Z) or `skip` / `continue`; selectorPath preferred for exact option click. */
+  questionnaireTarget?: string;
+  /** Web filled all answers locally; allow Continue even when Cursor stepper still shows disabled. */
+  questionnaireForceContinue?: boolean;
 }
 
 export interface CommandResult {
