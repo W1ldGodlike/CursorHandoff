@@ -21,6 +21,7 @@ import { isGeneralChat } from '../ui/menus.js';
 import { RawTelegramApiClient, type TgUpdate } from './raw-api.js';
 import { wrapTelegramApiWithQueue } from './api-queue.js';
 import { markTelegramPollEstablished, setTelegramPollActive } from '../../web/poll-status.js';
+import { isManualPollAbort } from './poll-errors.js';
 
 const POLL_TIMEOUT_S = 30;
 const POLL_ERROR_BACKOFF_MS = 5_000;
@@ -132,8 +133,8 @@ export class RawTelegramTransport extends BaseTelegramTransport {
         }
       } catch (err) {
         if (!this.running) break;
+        if (isManualPollAbort(err, this.pollAbort?.signal.aborted === true)) break;
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes('abort')) break;
         const code = (err as Record<string, unknown>).error_code;
         if (code === 409) {
           console.warn('[telegram-raw] 409 Conflict — retry in 3s (often CursorWake during handoff)');

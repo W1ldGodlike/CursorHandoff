@@ -27,6 +27,7 @@ import { isGeneralChat } from './ui/menus.js';
 import { wrapTelegramApiWithQueue } from './transport/api-queue.js';
 import { RawTelegramApiClient } from './transport/raw-api.js';
 import { markTelegramPollEstablished, setTelegramPollActive } from '../web/poll-status.js';
+import { isManualPollAbort } from './transport/poll-errors.js';
 
 const POLL_TIMEOUT_S = 30;
 const POLL_ERROR_BACKOFF_MS = 5_000;
@@ -276,8 +277,8 @@ export class TelegramTransport extends BaseTelegramTransport {
         }
       } catch (err) {
         if (!this.pollRunning) break;
+        if (isManualPollAbort(err, this.pollAbort?.signal.aborted === true)) break;
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes('abort')) break;
         const code = (err as { error_code?: number }).error_code;
         if (code === 409) {
           console.warn('[telegram] 409 Conflict — retry in 3s');
