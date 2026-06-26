@@ -5,6 +5,8 @@ import {
   normalizeComposerId,
 } from '../topics/guards.js';
 import { normalizeWindowTitle, type TopicManager, type TopicMapping } from '../topics/manager.js';
+import { logInfo, logWarn } from '../../core/log-event.js';
+import type { LogContext } from '../../core/log-event.js';
 
 export interface OutboundThreadResolution {
   threadId?: number;
@@ -13,6 +15,10 @@ export interface OutboundThreadResolution {
   mapping?: TopicMapping;
   skipWindow?: boolean;
   placeholderOnly?: boolean;
+}
+
+function outboundCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'telegram', op, ...extra };
 }
 
 function normPath(p: string): string {
@@ -71,10 +77,31 @@ export function shouldSkipGhostWindowSnapshot(
         migrateMappingWindowId(topicManager, owner, windowId, snapshot);
         continue;
       }
+      logWarn(
+        'TG_OUTBOUND_GHOST_SKIP',
+        `ghost window ${windowId}: composer ${stable.substring(0, 8)} owned by ${owner.windowId} (thread ${owner.threadId})`,
+        outboundCtx('ghost_skip', {
+          windowId,
+          windowTitle: snapshot.windowTitle,
+          threadId: owner.threadId,
+          composerId: stable,
+        }),
+      );
       return true;
     }
     if (owner.workspacePath && snapshot.workspacePath
       && normPath(owner.workspacePath) !== normPath(snapshot.workspacePath)) {
+      logWarn(
+        'TG_OUTBOUND_WORKSPACE_MISMATCH',
+        `window ${windowId}: composer ${stable.substring(0, 8)} workspace mismatch`,
+        outboundCtx('workspace_mismatch', {
+          windowId,
+          windowTitle: snapshot.windowTitle,
+          threadId: owner.threadId,
+          composerId: stable,
+          hint: `${normPath(owner.workspacePath)} ≠ ${normPath(snapshot.workspacePath)}`,
+        }),
+      );
       return true;
     }
   }
@@ -89,6 +116,10 @@ export function resolveOutboundThread(
   const activeTab = snapshot.chatTabs.find((t) => t.isActive)
     ?? (snapshot.chatTabs.length === 1 ? snapshot.chatTabs[0] : undefined);
   if (!activeTab) {
+    logWarn('TG_OUTBOUND_NO_ACTIVE_TAB', `window ${windowId}: no active chat tab`, outboundCtx('resolve_thread', {
+      windowId,
+      windowTitle: snapshot.windowTitle,
+    }));
     return { cleanedTab: '' };
   }
 
@@ -137,9 +168,15 @@ export function resolveOutboundThread(
       const m = topicManager.resolveThread(byTitle);
       const mappingComposer = normalizeComposerId(m?.composerId);
       if (mappingComposer && stableComposer && mappingComposer !== stableComposer) {
-        console.log(
-          `[telegram] outbound: title "${cleanedTab}" → thread ${byTitle} taken by composer `
-          + `${mappingComposer.substring(0, 8)}, ours ${stableComposer.substring(0, 8)} — not our thread`,
+        logWarn(
+          'TG_OUTBOUND_THREAD_CONFLICT',
+          `outbound: title "${cleanedTab}" → thread ${byTitle} taken by composer ${mappingComposer.substring(0, 8)}, ours ${stableComposer.substring(0, 8)} — not our thread`,
+          outboundCtx('resolve_thread', {
+            threadId: byTitle,
+            windowId,
+            windowTitle: snapshot.windowTitle,
+            composerId: stableComposer,
+          }),
         );
       } else {
         threadId = byTitle;
@@ -157,6 +194,15 @@ export function resolveOutboundThread(
   }
 
   if (!threadId && isPlaceholderTabTitle(cleanedTab)) {
+    logInfo(
+      'TG_OUTBOUND_PLACEHOLDER_HOLD',
+      `window ${windowId}: placeholder tab "${cleanedTab}" — wait for real title`,
+      outboundCtx('resolve_thread', {
+        windowId,
+        windowTitle: snapshot.windowTitle,
+        composerId: stableComposer,
+      }),
+    );
     return { cleanedTab, composerId: stableComposer, placeholderOnly: true };
   }
 
@@ -190,6 +236,17 @@ export function resolveOutboundThread(
   }
 
   const mapping = threadId ? topicManager.resolveThread(threadId) : undefined;
+  if (!threadId) {
+    logWarn(
+      'TG_OUTBOUND_ROUTE_MISS',
+      `window ${windowId}: no thread for tab "${cleanedTab}"${stableComposer ? ` composer ${stableComposer.substring(0, 8)}` : ''}`,
+      outboundCtx('resolve_thread', {
+        windowId,
+        windowTitle: snapshot.windowTitle,
+        composerId: stableComposer,
+      }),
+    );
+  }
   return {
     threadId,
     cleanedTab,
@@ -225,7 +282,18 @@ export function resolveOutboundTarget(opts: {
     return m.workspacePath.replace(/\\/g, '/').toLowerCase() === wsNorm;
   });
 
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) {
+    logWarn(
+      'TG_OUTBOUND_TARGET_MISS',
+      `no mapping for workspace ${wsNorm}${stable ? ` composer ${stable.substring(0, 8)}` : ''}`,
+      outboundCtx('resolve_target', {
+        windowId,
+        composerId: stable,
+        hint: workspacePath,
+      }),
+    );
+    return null;
+  }
 
   const score = (m: TopicMapping) =>
     (windowId && m.windowId === windowId ? 1e15 : 0) + (m.lastInboundAt ?? m.lastActive ?? 0);

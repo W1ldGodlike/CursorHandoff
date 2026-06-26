@@ -5,6 +5,8 @@ alwaysApply: true
 
 # CursorHandoff — redeploy
 
+**AUTO-REDEPLOY: PAUSED.** Сейчас **не** создавать `data/redeploy-requested` после правок — только если пользователь явно просит редеплой. Включить обратно: «включи авто редеплой» → убрать эту строку (+ зеркало в skill и AGENTS.md).
+
 **Never** ask the user to Reload Window, Restart Server, Stop Server, “rebuild yourself”, or “run build”. After changes to **server** (`src/`) or **extension** (`extension/src/`) — **run redeploy yourself**.
 
 ## Scripts (single canonical path)

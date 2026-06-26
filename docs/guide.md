@@ -245,7 +245,8 @@ It reads the same `cursorHandoff.telegram.*` settings; state lives under `<repo>
 
 - Tray **Raise Cursor** — periodic autostart while Cursor is down (default every 5 min) plus **immediate** launch on Telegram messages.
 - **`/pause`** and **`/resume`** mirror the tray checkbox.
-- Log file: `data/cursor-wake.log`.
+- Log file: `data/cursor-wake.log` — lines include stable `code=WAKE_*` tails (e.g. `WAKE_LAUNCH_START`, `WAKE_HEALTH_ZOMBIE_PORT`). Grep: `rg "code=WAKE_" data/cursor-wake.log`.
+- After changing Wake Python sources, rebuild before the tray picks up new logging: `.\scripts\install\build-cursor-wake.ps1` (Complete VSIX bundles the fresh exe).
 
 Acceptance scenarios: [Development guide](development.md).
 

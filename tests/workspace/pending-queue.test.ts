@@ -13,11 +13,6 @@ import {
   purgeOldDoneItems,
   resetStaleProcessing,
 } from '../../src/workspace/offline-queue.js';
-import {
-  readCursorWakeState,
-  writeCursorWakeState,
-  isRaiseCursorEnabled,
-} from '../../src/web/wake-status.js';
 
 describe('pending-queue', () => {
   let dir: string;
@@ -163,31 +158,5 @@ describe('pending-queue', () => {
     purgeOldDoneItems(dir);
     const after = JSON.parse(readFileSync(path, 'utf-8'));
     assert.equal(after.items.length, 0);
-  });
-});
-
-describe('cursor-wake-state', () => {
-  let dir: string;
-
-  beforeEach(() => {
-    dir = join(tmpdir(), `handoff-pending-queue-wake-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-    mkdirSync(dir, { recursive: true });
-  });
-
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it('defaults raiseCursor to true', () => {
-    const state = readCursorWakeState(dir);
-    assert.equal(state.raiseCursor, true);
-    assert.equal(isRaiseCursorEnabled(dir), true);
-  });
-
-  it('persists pause/resume', () => {
-    writeCursorWakeState(dir, { raiseCursor: false, updatedBy: 'telegram' });
-    assert.equal(isRaiseCursorEnabled(dir), false);
-    writeCursorWakeState(dir, { raiseCursor: true, updatedBy: 'tray' });
-    assert.equal(isRaiseCursorEnabled(dir), true);
   });
 });

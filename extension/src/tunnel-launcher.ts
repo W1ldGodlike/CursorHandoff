@@ -1,36 +1,30 @@
-import { spawn } from 'child_process';
 import * as vscode from 'vscode';
 import { resolveDataDir } from './paths-settings.js';
 import { resolveTunnelScriptPath } from './tunnel-script-path.js';
+import {
+  runTunnelQuickEnsureIfEnabled,
+  runTunnelQuickSpawn,
+  type TunnelQuickAction,
+} from './tunnel-quick-spawn.js';
 
 function spawnTunnelAction(
   context: vscode.ExtensionContext,
-  action: 'ensure' | 'stop' | 'start',
+  action: TunnelQuickAction,
   log?: (msg: string) => void,
 ): void {
   const port = vscode.workspace.getConfiguration('cursorHandoff').get<number>('serverPort', 3000);
   const dataDir = resolveDataDir(context);
   const wsPaths = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
   const script = resolveTunnelScriptPath(context.extensionPath, wsPaths);
-  if (!script) {
-    log?.(`${process.platform === 'win32' ? 'run-cloudflared-quick.ps1' : 'run-cloudflared-quick.sh'} not found (dist/scripts or workspace/scripts)`);
-    return;
-  }
 
-  const args = ['-Action', action, '-Port', String(port), '-DataDir', dataDir];
-  const child = process.platform === 'win32'
-    ? spawn(
-      'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script, ...args],
-      { detached: true, stdio: 'ignore', windowsHide: true },
-    )
-    : spawn('bash', [script, ...args], { detached: true, stdio: 'ignore' });
-
-  child.on('error', (err) => {
-    log?.(`spawn error: ${err.message}`);
+  runTunnelQuickSpawn({
+    action,
+    platform: process.platform,
+    port,
+    dataDir,
+    script,
+    log,
   });
-  child.unref();
-  log?.(`${action} cloudflared quick tunnel (${script})…`);
 }
 
 /** Quick tunnel cloudflared — when owner starts server. */
@@ -39,12 +33,18 @@ export function ensureCloudflaredQuickTunnel(
   log?: (msg: string) => void,
 ): void {
   const config = vscode.workspace.getConfiguration('cursorHandoff');
-  if (!config.get<boolean>('webTunnel.enabled', true)) {
-    log?.('disabled (cursorHandoff.webTunnel.enabled)');
-    return;
-  }
+  const port = config.get<number>('serverPort', 3000);
+  const dataDir = resolveDataDir(context);
+  const wsPaths = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
+  const script = resolveTunnelScriptPath(context.extensionPath, wsPaths);
 
-  spawnTunnelAction(context, 'ensure', log);
+  runTunnelQuickEnsureIfEnabled(config.get<boolean>('webTunnel.enabled', true), {
+    platform: process.platform,
+    port,
+    dataDir,
+    script,
+    log,
+  });
 }
 
 export function stopCloudflaredQuickTunnel(
@@ -60,3 +60,6 @@ export function startCloudflaredQuickTunnel(
 ): void {
   spawnTunnelAction(context, 'start', log);
 }
+
+export { runTunnelQuickEnsureIfEnabled, runTunnelQuickSpawn } from './tunnel-quick-spawn.js';
+export type { TunnelQuickAction, TunnelQuickSpawnParams, TunnelSpawnFn } from './tunnel-quick-spawn.js';

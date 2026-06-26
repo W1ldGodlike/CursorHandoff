@@ -46,6 +46,8 @@ Extension never imports server modules — it spawns `dist/server/bundle.mjs` as
 
 **After changing `src/` or `extension/src/`:** request redeploy by creating `data/redeploy-requested` (stop-hook runs `scripts/redeploy/redeploy-restart-cursor.ps1`). Do not ask the user to reload manually.
 
+**AUTO-REDEPLOY: PAUSED** — пока не ставить флаг после правок; только по явной просьбе. См. `.cursor/rules/cursor-handoff-redeploy.mdc`.
+
 **Tests:** always `npm test` — never bare `npx tsx --test` (stale runners leak memory).
 
 ## Product skills (optional globals)
@@ -57,6 +59,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install/install-hand
 ```
 
 Installs `cursor-handoff-telegram-send` and `plan-widget-tg` skills under `~/.cursor/skills/`.
+
+**Plans:** `.cursor/plans/` is gitignored. On **▶ Build**, update checklist + Execution Log per **`.cursor/rules/plan-living-build.mdc`** — overrides Cursor's «do not edit plan file» boilerplate.
 
 ## i18n
 

@@ -24,6 +24,16 @@ import {
 import { readWebSettingsRecord, writeWebSettingsRecord } from './settings-api.js';
 import { isTelegramPollActive } from './poll-status.js';
 import { getLocale, t } from '../i18n/t.js';
+import { logError, logInfo, logWarn } from '../core/log-event.js';
+import type { LogContext } from '../core/log-event.js';
+
+function relayCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'relay', op, ...extra };
+}
+
+function logRelayCmd(op: string, message: string, extra?: Omit<LogContext, 'scope'>): void {
+  logInfo('RELAY_CMD_OK', message, relayCtx(op, extra));
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -344,15 +354,17 @@ export class Relay {
     this.setupStateForwarding();
 
     if (this.authEnabled) {
-      console.log('[relay] Web app password protection enabled');
+      logInfo('RELAY_AUTH_ENABLED', 'Web app password protection enabled', relayCtx('auth'));
     }
   }
 
   start(): Promise<void> {
     return new Promise((resolve) => {
       this.httpServer.listen(this.config.serverPort, this.config.serverHost, () => {
-        console.log(
-          `[relay] Server listening on http://${this.config.serverHost}:${this.config.serverPort}`
+        logInfo(
+          'RELAY_LISTEN',
+          `http://${this.config.serverHost}:${this.config.serverPort}`,
+          relayCtx('listen'),
         );
         resolve();
       });
@@ -441,7 +453,7 @@ export class Relay {
       const ip = this.getClientIp(req);
       const { allowed, retryAfter } = this.checkRateLimit(ip);
       if (!allowed) {
-        console.warn(`[relay] Rate limited login from ${ip}`);
+        logWarn('RELAY_AUTH_RATE_LIMIT', `Rate limited login from ${ip}`, relayCtx('login', { hint: ip }));
         res.set('Retry-After', String(retryAfter));
         return res.status(429).json({ error: `Too many attempts. Retry in ${retryAfter} s.` });
       }
@@ -454,13 +466,13 @@ export class Relay {
       const expected = Buffer.from(this.config.webappPassword);
       const received = Buffer.from(password);
       if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
-        console.warn(`[relay] Failed login attempt from ${ip}`);
+        logWarn('RELAY_AUTH_FAIL', `Failed login attempt from ${ip}`, relayCtx('login', { hint: ip }));
         return res.status(401).json({ error: 'Wrong password' });
       }
 
       const token = randomBytes(32).toString('hex');
       this.sessionStore.add(token);
-      console.log(`[relay] Successful login from ${ip}`);
+      logInfo('RELAY_AUTH_OK', `login from ${ip}`, relayCtx('login', { hint: ip }));
       res.setHeader(
         'Set-Cookie',
         [
@@ -505,6 +517,8 @@ export class Relay {
         }
         res.json({ ok: true });
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logError('RELAY_SHUTDOWN_FAIL', `Shutdown hook failed: ${msg}`, relayCtx('shutdown'));
         res.status(500).json({
           ok: false,
           error: err instanceof Error ? err.message : String(err),
@@ -623,7 +637,8 @@ export class Relay {
         res.setHeader('Cache-Control', 'no-store');
         res.type('html').send(html);
       } catch (err) {
-        console.error(`[relay] Failed to serve index.html: ${err}`);
+        const msg = err instanceof Error ? err.message : String(err);
+        logError('RELAY_CLIENT_FAIL', `Failed to serve index.html: ${msg}`, relayCtx('serve_client'));
         res.status(500).send('Client files not found');
       }
     });
@@ -654,13 +669,13 @@ export class Relay {
               )
               ? 'cookie-present'
               : 'empty';
-        console.warn(`[relay] Socket.io auth rejected (${socket.id}) — ${hint}`);
+        logWarn('RELAY_AUTH_REJECT', `Socket.io auth rejected (${socket.id}) — ${hint}`, relayCtx('socket_auth', { hint }));
         next(new Error('Unauthorized'));
       });
     }
 
     this.io.on('connection', (socket) => {
-      console.log(`[relay] Client connected: ${socket.id}`);
+      logInfo('RELAY_SOCKET_CONNECT', socket.id, relayCtx('socket', { hint: socket.id }));
 
       socket.emit('state:full', this.stateManager.getCurrentState());
 
@@ -698,9 +713,10 @@ export class Relay {
             msgText = msgText.trim() ? `${prefix}\n\n${msgText}` : prefix;
           }
           const attachCount = decoded.imagePaths.length + decoded.filePaths.length;
-          console.log(
-            `[relay] Command: send_message with ${attachCount} attachment(s) from ${socket.id}`
-            + `${payload.submit === 'ctrlEnter' ? ' (force)' : ''}`,
+          logRelayCmd(
+            'send_message',
+            `${attachCount} attachment(s)${payload.submit === 'ctrlEnter' ? ' force' : ''}`,
+            { itemId: payload.commandId, hint: socket.id },
           );
           const result = decoded.imagePaths.length
             ? await this.commandExecutor.sendMessageWithImages(payload.commandId, {
@@ -714,7 +730,11 @@ export class Relay {
           return;
         }
 
-        console.log(`[relay] Command: send_message from ${socket.id}${payload.submit === 'ctrlEnter' ? ' (force)' : ''}`);
+        logRelayCmd(
+          'send_message',
+          payload.submit === 'ctrlEnter' ? 'force' : 'enter',
+          { itemId: payload.commandId, hint: socket.id },
+        );
         const result = await this.commandExecutor.sendMessage(
           payload.commandId,
           text,
@@ -732,7 +752,7 @@ export class Relay {
           } satisfies CommandResult);
           return;
         }
-        console.log(`[relay] Command: force_queue_item ${payload.queueItemId} from ${socket.id}`);
+        logRelayCmd('force_queue_item', payload.queueItemId ?? '', { itemId: payload.commandId, hint: socket.id });
         const result = await this.commandExecutor.forceQueueItem(
           payload.commandId,
           payload.queueItemId,
@@ -749,7 +769,7 @@ export class Relay {
           } satisfies CommandResult);
           return;
         }
-        console.log(`[relay] Command: load_history from ${socket.id}`);
+        logRelayCmd('load_history', socket.id, { itemId: payload.commandId, hint: socket.id });
         const before = this.stateManager.getCurrentState().messages.length;
         const scrollResult = await this.commandExecutor.scrollChatUp(payload.commandId, 5);
         if (!scrollResult.ok) {
@@ -768,6 +788,7 @@ export class Relay {
           } satisfies CommandResult);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
+          logError('RELAY_CMD_FAIL', `load_history failed: ${msg}`, relayCtx('load_history', { itemId: payload.commandId }));
           socket.emit('command:result', { commandId: payload.commandId, ok: false, error: msg });
         }
       });
@@ -781,7 +802,7 @@ export class Relay {
           } satisfies CommandResult);
           return;
         }
-        console.log(`[relay] Command: approve from ${socket.id}`);
+        logRelayCmd('approve', socket.id, { itemId: payload.commandId, hint: socket.id });
         const result = await this.commandExecutor.clickApproval(
           payload.commandId,
           payload.selectorPath
@@ -798,7 +819,7 @@ export class Relay {
           } satisfies CommandResult);
           return;
         }
-        console.log(`[relay] Command: approve_all from ${socket.id}`);
+        logRelayCmd('approve_all', socket.id, { itemId: payload.commandId, hint: socket.id });
         const result = await this.commandExecutor.approveAll(payload.commandId);
         socket.emit('command:result', result);
       });
@@ -812,7 +833,7 @@ export class Relay {
           } satisfies CommandResult);
           return;
         }
-        console.log(`[relay] Command: reject from ${socket.id}`);
+        logRelayCmd('reject', socket.id, { itemId: payload.commandId, hint: socket.id });
         const result = await this.commandExecutor.reject(
           payload.commandId,
           payload.selectorPath
@@ -829,7 +850,11 @@ export class Relay {
           } satisfies CommandResult);
           return;
         }
-        console.log(`[relay] Command: switch_tab to "${payload.tabTitle ?? payload.selectorPath}" from ${socket.id}`);
+        logRelayCmd('switch_tab', payload.tabTitle ?? payload.selectorPath ?? '', {
+          itemId: payload.commandId,
+          hint: socket.id,
+          composerId: payload.composerId,
+        });
         const result = await this.commandExecutor.switchTab(
           payload.commandId,
           payload.tabTitle ?? '',
@@ -848,7 +873,7 @@ export class Relay {
           } satisfies CommandResult);
           return;
         }
-        console.log(`[relay] Command: new_chat from ${socket.id}`);
+        logRelayCmd('new_chat', socket.id, { itemId: payload.commandId, hint: socket.id });
         const result = await this.commandExecutor.newChat(payload.commandId);
         socket.emit('command:result', result);
       });
@@ -862,9 +887,11 @@ export class Relay {
           } satisfies CommandResult);
           return;
         }
-        console.log(
-          `[relay] Command: close_chat "${payload.tabTitle ?? payload.composerId ?? '(active)'}" from ${socket.id}`,
-        );
+        logRelayCmd('close_chat', payload.tabTitle ?? payload.composerId ?? 'active', {
+          itemId: payload.commandId,
+          hint: socket.id,
+          composerId: payload.composerId,
+        });
         const result = await this.commandExecutor.closeChat(
           payload.commandId,
           payload.tabTitle,
@@ -882,7 +909,7 @@ export class Relay {
           } satisfies CommandResult);
           return;
         }
-        console.log(`[relay] Command: set_mode to ${payload.modeId} from ${socket.id}`);
+        logRelayCmd('set_mode', payload.modeId ?? '', { itemId: payload.commandId, hint: socket.id });
         const result = await this.commandExecutor.setMode(
           payload.commandId,
           payload.modeId
@@ -899,7 +926,7 @@ export class Relay {
           } satisfies CommandResult);
           return;
         }
-        console.log(`[relay] Command: set_model to ${payload.modelId} from ${socket.id}`);
+        logRelayCmd('set_model', payload.modelId ?? '', { itemId: payload.commandId, hint: socket.id });
         const result = await this.commandExecutor.setModel(
           payload.commandId,
           payload.modelId
@@ -916,7 +943,7 @@ export class Relay {
           } satisfies CommandResult);
           return;
         }
-        console.log(`[relay] Command: get_model_options from ${socket.id}`);
+        logRelayCmd('get_model_options', socket.id, { itemId: payload.commandId, hint: socket.id });
         const result = await this.commandExecutor.getModelOptions(
           payload.commandId
         );
@@ -932,7 +959,7 @@ export class Relay {
           } satisfies CommandResult);
           return;
         }
-        console.log(`[relay] Command: get_plan_full for ${payload.planLabel} from ${socket.id}`);
+        logRelayCmd('get_plan_full', payload.planLabel ?? '', { itemId: payload.commandId, hint: socket.id });
         const planFile = readPlanFile(payload.planLabel);
         if (!planFile) {
           socket.emit('command:result', {
@@ -962,7 +989,7 @@ export class Relay {
           } satisfies CommandResult);
           return;
         }
-        console.log(`[relay] Command: get_plan_model_options from ${socket.id}`);
+        logRelayCmd('get_plan_model_options', socket.id, { itemId: payload.commandId, hint: socket.id });
         const result = await this.commandExecutor.getPlanModelOptions(
           payload.commandId,
           payload.selectorPath
@@ -979,7 +1006,7 @@ export class Relay {
           } satisfies CommandResult);
           return;
         }
-        console.log(`[relay] Command: set_plan_model to ${payload.planModelId} from ${socket.id}`);
+        logRelayCmd('set_plan_model', payload.planModelId ?? '', { itemId: payload.commandId, hint: socket.id });
         const result = await this.commandExecutor.setPlanModel(
           payload.commandId,
           payload.selectorPath,
@@ -997,7 +1024,7 @@ export class Relay {
           } satisfies CommandResult);
           return;
         }
-        console.log(`[relay] Command: click_action from ${socket.id}`);
+        logRelayCmd('click_action', socket.id, { itemId: payload.commandId, hint: socket.id });
         const result = await this.commandExecutor.clickAction(
           payload.commandId,
           payload.selectorPath
@@ -1055,12 +1082,20 @@ export class Relay {
           } satisfies CommandResult);
           return;
         }
-        console.log(`[relay] Command: switch_window to ${payload.windowId} from ${socket.id}`);
+        logRelayCmd('switch_window', payload.windowId ?? '', {
+          itemId: payload.commandId,
+          hint: socket.id,
+          windowId: payload.windowId,
+        });
         try {
           await this.cdpBridge.switchWindow(payload.windowId);
           socket.emit('command:result', { commandId: payload.commandId, ok: true });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
+          logError('RELAY_CMD_FAIL', `switch_window failed: ${msg}`, relayCtx('switch_window', {
+            itemId: payload.commandId,
+            windowId: payload.windowId,
+          }));
           socket.emit('command:result', { commandId: payload.commandId, ok: false, error: msg });
         }
       });
@@ -1074,18 +1109,19 @@ export class Relay {
           } satisfies CommandResult);
           return;
         }
-        console.log(`[relay] Command: refresh_state from ${socket.id}`);
+        logRelayCmd('refresh_state', socket.id, { itemId: payload.commandId, hint: socket.id });
         try {
           if (this.shutdownHooks) await this.shutdownHooks.extractNow();
           socket.emit('command:result', { commandId: payload.commandId, ok: true });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
+          logError('RELAY_CMD_FAIL', `refresh_state failed: ${msg}`, relayCtx('refresh_state', { itemId: payload.commandId }));
           socket.emit('command:result', { commandId: payload.commandId, ok: false, error: msg });
         }
       });
 
       socket.on('disconnect', (reason) => {
-        console.log(`[relay] Client disconnected: ${socket.id} (${reason})`);
+        logInfo('RELAY_SOCKET_DISCONNECT', `${socket.id} (${reason})`, relayCtx('socket', { hint: reason }));
       });
     });
   }

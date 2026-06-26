@@ -14,6 +14,7 @@ releases/
 temp/
 .cursor-handoff/
 local/
+# Living plan files (execution checklists, Execution Log) — see .cursor/rules/plan-living-build.mdc
 .cursor/plans/
 # Local dev DOM probe — not public (tooling in local/, playbook in .cursor/)
 .cursor/skills/cursor-dom-probe/

@@ -96,6 +96,8 @@ import { getServerBuildInfo } from '../../core/build-meta.js';
 import { readCursorWakeState } from '../../web/wake-status.js';
 import { formatStartupNotifyMessage, tryClaimStartupNotify, wasRecentStartupNotify } from '../../core/notify-startup.js';
 import { isGracefulShutdown } from '../../core/graceful-shutdown.js';
+import { logError, logInfo, logWarn } from '../../core/log-event.js';
+import type { LogContext } from '../../core/log-event.js';
 
 const TYPING_INTERVAL_MS = 4000;
 const MAX_INITIAL_MESSAGES = 5;
@@ -103,6 +105,18 @@ const TOPIC_CREATE_DELAY_MS = 1500;
 const syncStatePath = () => `${getDataDir()}/telegram-sync.json`;
 const authPath = () => `${getDataDir()}/telegram-auth.json`;
 const activityPath = () => `${getDataDir()}/telegram-activity.json`;
+
+function pollLoopCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'telegram', op, ...extra };
+}
+
+function queueKickCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'queue', op, ...extra };
+}
+
+function bridgeAutoCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'bridge', op, ...extra };
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -228,7 +242,11 @@ export abstract class BaseTelegramTransport implements Transport {
       ...this.authState.registeredUsers.map(u => u.id),
     ]);
     if (config.preRegisteredUsers.length > 0) {
-      console.log(`[telegram] Using TELEGRAM_ALLOWED_USERS: ${config.preRegisteredUsers.join(', ')}`);
+      logInfo(
+        'TG_AUTH_PREREGISTER',
+        `Using TELEGRAM_ALLOWED_USERS: ${config.preRegisteredUsers.join(', ')}`,
+        pollLoopCtx('init'),
+      );
     }
     this.loadSyncState();
   }
@@ -256,7 +274,7 @@ export abstract class BaseTelegramTransport implements Transport {
 
   protected async connectAndVerify(): Promise<string | null> {
     const maskedToken = this.config.botToken.slice(0, 6) + '...' + this.config.botToken.slice(-4);
-    console.log(`[telegram] Starting bot (token: ${maskedToken})...`);
+    logInfo('TG_CONNECT_START', `Starting bot (token: ${maskedToken})...`, pollLoopCtx('connect'));
 
     const apiBase = `https://api.telegram.org/bot${this.config.botToken}`;
     const MAX_RETRIES = 5;
@@ -277,19 +295,27 @@ export abstract class BaseTelegramTransport implements Transport {
         }
 
         if (resp.status === 401 || data.error_code === 401) {
-          console.error('[telegram] Invalid bot token (401 Unauthorized) — not retrying');
+          logError('TG_TOKEN_INVALID', 'Invalid bot token (401 Unauthorized) — not retrying', pollLoopCtx('connect'));
           return null;
         }
 
-        console.warn(`[telegram] getMe returned ok=false (HTTP ${resp.status}: ${data.description ?? 'unknown'})`);
+        logWarn(
+          'TG_GETME_FAIL',
+          `getMe returned ok=false (HTTP ${resp.status}: ${data.description ?? 'unknown'})`,
+          pollLoopCtx('connect', { attempt }),
+        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[telegram] Connection attempt ${attempt}/${MAX_RETRIES} failed: ${msg}`);
+        logWarn('TG_CONNECT_ATTEMPT_FAIL', `Connection attempt ${attempt}/${MAX_RETRIES} failed: ${msg}`, pollLoopCtx('connect', { attempt }));
       }
 
       if (attempt < MAX_RETRIES) {
         const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1);
-        console.log(`[telegram] Retrying in ${(delay / 1000).toFixed(0)}s...`);
+        logInfo(
+          'TG_CONNECT_RETRY',
+          `Retrying in ${(delay / 1000).toFixed(0)}s`,
+          pollLoopCtx('connect', { attempt, durationMs: delay }),
+        );
         await sleep(delay);
       }
     }
@@ -297,21 +323,25 @@ export abstract class BaseTelegramTransport implements Transport {
     if (!connected) {
       try {
         await fetch('https://www.google.com', { signal: AbortSignal.timeout(5000) });
-        console.error('[telegram] google.com reachable — issue is Telegram-specific (DNS/blocked/token)');
+        logError('TG_CONNECT_TELEGRAM_BLOCKED', 'google.com reachable — issue is Telegram-specific (DNS/blocked/token)', pollLoopCtx('connect'));
       } catch {
-        console.error('[telegram] No outbound HTTPS from this process. Check proxy/firewall for Node.js.');
+        logError('TG_CONNECT_NO_HTTPS', 'No outbound HTTPS from this process. Check proxy/firewall for Node.js.', pollLoopCtx('connect'));
       }
-      console.error(`[telegram] Giving up after ${MAX_RETRIES} attempts`);
+      logError('TG_CONNECT_GIVEUP', `Giving up after ${MAX_RETRIES} attempts`, pollLoopCtx('connect', { attempt: MAX_RETRIES }));
       return null;
     }
 
-    console.log(`[telegram] API reachable — bot: @${botUsername}`);
+    logInfo('TG_CONNECT_OK', `API reachable — bot: @${botUsername}`, pollLoopCtx('connect', { hint: botUsername }));
 
     const dataDir = process.env.DATA_DIR ?? './data';
     const dropPending = !hasPendingItems(dataDir);
     try {
       await fetch(`${apiBase}/deleteWebhook?drop_pending_updates=${dropPending}`, { signal: AbortSignal.timeout(5000) });
-      console.log(`[telegram] Cleared webhook (drop_pending_updates=${dropPending})`);
+      logInfo(
+        'TG_WEBHOOK_CLEAR',
+        `Cleared webhook (drop_pending_updates=${dropPending})`,
+        pollLoopCtx('connect', { hint: String(dropPending) }),
+      );
     } catch {
       // not critical
     }
@@ -320,15 +350,20 @@ export abstract class BaseTelegramTransport implements Transport {
       const probe = await fetch(`${apiBase}/getUpdates?limit=1&timeout=0`, { signal: AbortSignal.timeout(10000) });
       const probeData = await probe.json() as { ok: boolean; error_code?: number; description?: string };
       if (!probeData.ok && (probe.status === 409 || probeData.error_code === 409)) {
-        console.warn(
-          '[telegram] getUpdates 409 — another process is polling (often CursorWake during handoff); '
-          + 'bot.start() will take over after the token is released',
+        logWarn(
+          'TG_GETUPDATES_CONFLICT',
+          'getUpdates 409 — another process is polling (often CursorWake during handoff); bot.start() will take over after the token is released',
+          pollLoopCtx('get_updates_probe'),
         );
       } else {
-        console.log(`[telegram] getUpdates probe ok=${probeData.ok}`);
+        logInfo(
+          'TG_GETUPDATES_PROBE_OK',
+          `getUpdates probe ok=${probeData.ok}`,
+          pollLoopCtx('get_updates_probe'),
+        );
       }
     } catch (err) {
-      console.warn(`[telegram] getUpdates probe failed: ${err instanceof Error ? err.message : err}`);
+      logWarn('TG_GETUPDATES_PROBE_FAIL', `getUpdates probe failed: ${err instanceof Error ? err.message : err}`, pollLoopCtx('get_updates_probe'));
     }
 
     return botUsername ?? 'unknown';
@@ -351,7 +386,11 @@ export abstract class BaseTelegramTransport implements Transport {
   }
 
   protected onBotConnected(): void {
-    console.log(`[telegram] Bot connected (sync: ${this.syncEnabled ? 'on' : 'off'})`);
+    logInfo(
+      'TG_CONNECT_READY',
+      `Bot connected (sync: ${this.syncEnabled ? 'on' : 'off'})`,
+      pollLoopCtx('connect', { chatId: this.chatId, hint: this.syncEnabled ? 'on' : 'off' }),
+    );
     this.started = true;
     this.loadLastNotifiedWebUrl();
     this.cleanupPersistedActivity();
@@ -386,9 +425,10 @@ export abstract class BaseTelegramTransport implements Transport {
         JSON.stringify({ lastNotifiedUrl: url, notifiedAt: new Date().toISOString() }, null, 2),
       );
     } catch (err) {
-      console.warn(
-        '[telegram] web-tunnel notify persist failed:',
-        err instanceof Error ? err.message : err,
+      logWarn(
+        'TG_WEB_TUNNEL_PERSIST_FAIL',
+        `web-tunnel notify persist failed: ${err instanceof Error ? err.message : err}`,
+        pollLoopCtx('web_tunnel_persist', { chatId: this.chatId }),
       );
     }
   }
@@ -408,9 +448,10 @@ export abstract class BaseTelegramTransport implements Transport {
       if (!prev) return;
       const text = `${t('tg.msg.webUrl.notifyPrefix', '🌐 CursorHandoff web:')} <a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`;
       this.api.sendMessage(this.chatId, text, { parse_mode: 'HTML' }).catch(err => {
-        console.warn(
-          '[telegram] web-tunnel notify failed:',
-          err instanceof Error ? err.message : err,
+        logWarn(
+          'TG_WEB_TUNNEL_NOTIFY_FAIL',
+          `web-tunnel notify failed: ${err instanceof Error ? err.message : err}`,
+          pollLoopCtx('web_tunnel_notify', { chatId: this.chatId }),
         );
       });
     };
@@ -429,9 +470,10 @@ export abstract class BaseTelegramTransport implements Transport {
         scheduleCheck();
       });
     } catch (err) {
-      console.warn(
-        '[telegram] web-tunnel watcher failed:',
-        err instanceof Error ? err.message : err,
+      logWarn(
+        'TG_WEB_TUNNEL_WATCHER_FAIL',
+        `web-tunnel watcher failed: ${err instanceof Error ? err.message : err}`,
+        pollLoopCtx('web_tunnel_watcher', { chatId: this.chatId }),
       );
     }
   }
@@ -474,9 +516,10 @@ export abstract class BaseTelegramTransport implements Transport {
       webTunnelUrl,
     });
     void this.api.sendMessage(this.chatId, text).catch((err) => {
-      console.warn(
-        '[telegram] startup notify failed:',
-        err instanceof Error ? err.message : err,
+      logWarn(
+        'TG_STARTUP_NOTIFY_FAIL',
+        `startup notify failed: ${err instanceof Error ? err.message : err}`,
+        pollLoopCtx('startup_notify', { chatId: this.chatId }),
       );
     });
   }
@@ -512,10 +555,18 @@ export abstract class BaseTelegramTransport implements Transport {
     const dataDir = getDataDir();
     if (!hasPendingItems(dataDir)) return;
 
+    const pendingCount = countPending(dataDir);
     this.queueKickStarted = true;
-    console.log(`[telegram] Processing pending queue (${countPending(dataDir)} item(s))...`);
+    logInfo(
+      'QUEUE_PROCESS_START',
+      `${pendingCount} item(s)`,
+      queueKickCtx('process_pending', { chatId: this.chatId, hint: String(pendingCount) }),
+    );
     processPendingQueue(this.buildCommandDeps())
-      .catch(err => console.error('[telegram] Queue processing error:', err instanceof Error ? err.message : err))
+      .catch(err => logError('QUEUE_PROCESS_FAIL', err instanceof Error ? err.message : String(err), queueKickCtx('process_pending', {
+        chatId: this.chatId,
+        hint: String(pendingCount),
+      })))
       .finally(() => { this.queueKickStarted = false; });
   }
 
@@ -563,7 +614,7 @@ export abstract class BaseTelegramTransport implements Transport {
       await sleep(100);
     }
     await this.sendQueue.drain(30_000);
-    console.log('[telegram] flushOutboundToTelegram done');
+    logInfo('TG_FLUSH_OUTBOUND_OK', 'flushOutboundToTelegram done', pollLoopCtx('flush_outbound'));
   }
 
   private async flushProcessWindow(windowId: string, snapshot: WindowSnapshot): Promise<void> {
@@ -574,9 +625,10 @@ export abstract class BaseTelegramTransport implements Transport {
     try {
       await this.doProcessWindow(windowId, snapshot);
     } catch (err) {
-      console.warn(
-        `[telegram] flush window ${snapshot.windowTitle}: `
-        + `${err instanceof Error ? err.message : err}`,
+      logWarn(
+        'TG_FLUSH_WINDOW_FAIL',
+        `flush window ${snapshot.windowTitle}: ${err instanceof Error ? err.message : String(err)}`,
+        pollLoopCtx('flush_window', { windowId }),
       );
     }
   }
@@ -640,14 +692,17 @@ export abstract class BaseTelegramTransport implements Transport {
   protected async dispatchCommand(cmd: string, ctx: BotContext, deps: CommandDeps): Promise<void> {
     const chatId = deps.chatId ?? ctx.chat?.id;
     const msgId = ctx.message?.message_id;
+    const threadId = ctx.message?.message_thread_id;
     if (chatId != null && msgId != null) {
       if (!shouldProcessInboundMessage(chatId, msgId)) {
-        console.log(`[telegram] Skip duplicate command /${cmd} msg ${msgId}`);
+        logInfo(
+          'TG_INBOUND_CMD_DEDUP',
+          `Skip duplicate command /${cmd} msg ${msgId}`,
+          pollLoopCtx('dispatch_command', { threadId, chatId, hint: cmd }),
+        );
         return;
       }
     }
-
-    const threadId = ctx.message?.message_thread_id;
     if (threadId != null) {
       const chatCmds = new Set(['menu', 'thread_status', 'whereami', 'thread_rename', 'notify_mode', 'close_chat', 'new_chat', 'setup_tg_send']);
       if (chatCmds.has(cmd)) {
@@ -693,7 +748,11 @@ export abstract class BaseTelegramTransport implements Transport {
           );
           const state: AuthState = { token: raw.token, registeredUsers: users };
           const names = users.map(u => u.username ? `@${u.username}` : String(u.id)).join(', ');
-          console.log(`[telegram] Auth loaded: ${users.length} user(s) [${names}]`);
+          logInfo(
+            'TG_AUTH_LOAD_OK',
+            `Auth loaded: ${users.length} user(s) [${names}]`,
+            pollLoopCtx('load_auth', { hint: String(users.length) }),
+          );
           return state;
         }
       }
@@ -726,7 +785,7 @@ export abstract class BaseTelegramTransport implements Transport {
     try {
       writeFileSync(authPath(), JSON.stringify(state, null, 2));
     } catch (err) {
-      console.warn('[telegram] Failed to save auth:', err instanceof Error ? err.message : err);
+      logWarn('TG_AUTH_SAVE_FAIL', `Failed to save auth: ${err instanceof Error ? err.message : err}`, pollLoopCtx('save_auth'));
     }
   }
 
@@ -739,14 +798,18 @@ export abstract class BaseTelegramTransport implements Transport {
     this.topicManager.clearAll();
     this.messageTracker.clearAll();
     this.deleteAllActivityMessages();
-    console.log('[telegram] All state reset');
+    logInfo('TG_STATE_RESET_OK', 'All state reset', pollLoopCtx('reset_all'));
   }
 
   private deleteActivityMessage(threadId: number): void {
     const msgId = this.activityMsgIds.get(threadId);
     if (!msgId) return;
     this.api.deleteMessage(this.chatId!, msgId).catch(() => {});
-    console.log(`[telegram] Activity deleted (msgId=${msgId}, thread=${threadId})`);
+    logInfo(
+      'TG_ACTIVITY_DELETED',
+      `msgId=${msgId}`,
+      pollLoopCtx('delete_activity', { threadId, chatId: this.chatId, hint: String(msgId) }),
+    );
     this.activityMsgIds.delete(threadId);
     this.lastActivityText.delete(threadId);
     this.activityTimestamps.delete(threadId);
@@ -763,7 +826,11 @@ export abstract class BaseTelegramTransport implements Transport {
     const now = Date.now();
     for (const [threadId, ts] of this.activityTimestamps) {
       if (now - ts > AGENT_ACTIVITY_STALE_MS && this.activityMsgIds.has(threadId)) {
-        console.log(`[telegram] Activity stale (${((now - ts) / 1000).toFixed(0)}s), cleaning up`);
+        logInfo(
+          'TG_ACTIVITY_STALE',
+          `${((now - ts) / 1000).toFixed(0)}s`,
+          pollLoopCtx('clean_stale', { threadId, chatId: this.chatId }),
+        );
         this.deleteActivityMessage(threadId);
       }
     }
@@ -783,7 +850,11 @@ export abstract class BaseTelegramTransport implements Transport {
       const raw = JSON.parse(readFileSync(activityPath(), 'utf-8')) as Record<string, number>;
       const entries = Object.entries(raw);
       if (entries.length === 0) return;
-      console.log(`[telegram] Cleaning ${entries.length} persisted activity message(s)`);
+      logInfo(
+        'TG_ACTIVITY_CLEANUP',
+        `${entries.length} persisted message(s)`,
+        pollLoopCtx('cleanup_persisted', { chatId: this.chatId, hint: String(entries.length) }),
+      );
       for (const [, msgId] of entries) {
         if (this.chatId) {
           this.api.deleteMessage(this.chatId, msgId).catch(() => {});
@@ -801,7 +872,11 @@ export abstract class BaseTelegramTransport implements Transport {
       const data = JSON.parse(readFileSync(syncStatePath(), 'utf-8')) as { enabled: boolean; chatId?: number };
       this.syncEnabled = data.enabled;
       if (data.chatId) this.groupId = data.chatId;
-      console.log(`[telegram] Sync state: ${this.syncEnabled ? 'enabled' : 'disabled'}${this.groupId ? ` (group ${this.groupId})` : ''}`);
+      logInfo(
+        'TG_SYNC_STATE_LOAD',
+        `Sync state: ${this.syncEnabled ? 'enabled' : 'disabled'}${this.groupId ? ` (group ${this.groupId})` : ''}`,
+        pollLoopCtx('load_sync', { chatId: this.groupId, hint: this.syncEnabled ? 'enabled' : 'disabled' }),
+      );
     } catch { /* clean start */ }
   }
 
@@ -812,7 +887,7 @@ export abstract class BaseTelegramTransport implements Transport {
         chatId: this.groupId ?? null,
       }));
     } catch (err) {
-      console.warn('[telegram] Failed to save sync state:', err instanceof Error ? err.message : err);
+      logWarn('TG_SYNC_STATE_SAVE_FAIL', `Failed to save sync state: ${err instanceof Error ? err.message : err}`, pollLoopCtx('save_sync_state', { chatId: this.chatId }));
     }
   }
 
@@ -828,13 +903,27 @@ export abstract class BaseTelegramTransport implements Transport {
 
     if (patch.pendingApprovals) {
       this.processApprovals(patch.pendingApprovals).catch(err => {
-        console.error('[telegram] Approval error:', err);
+        const state = this.stateManager.getCurrentState();
+        const threadId = this.topicManager.getActiveThread(
+          state.windows, state.activeWindowId, state.chatTabs,
+        );
+        logError('TG_APPROVAL_FAIL', err instanceof Error ? err.message : String(err), pollLoopCtx('process_approvals', {
+          chatId: this.chatId,
+          threadId,
+        }));
       });
     }
 
     if ('questionnaire' in patch) {
       this.processQuestionnaire(patch.questionnaire ?? null).catch(err => {
-        console.error('[telegram] Questionnaire error:', err);
+        const state = this.stateManager.getCurrentState();
+        const threadId = this.topicManager.getActiveThread(
+          state.windows, state.activeWindowId, state.chatTabs,
+        );
+        logError('TG_QUESTIONNAIRE_FAIL', err instanceof Error ? err.message : String(err), pollLoopCtx('process_questionnaire', {
+          chatId: this.chatId,
+          threadId,
+        }));
       });
     }
 
@@ -938,7 +1027,10 @@ export abstract class BaseTelegramTransport implements Transport {
         this.queueMsgIds.delete(threadId);
       }
       if (!msg.includes('message is not modified')) {
-        console.warn(`[telegram] Queue message failed: ${msg}`);
+        logWarn('QUEUE_MESSAGE_FAIL', `Queue message failed: ${msg}`, queueKickCtx('sync_composer_queue', {
+          threadId,
+          chatId: this.chatId,
+        }));
       }
     }
   }
@@ -955,7 +1047,11 @@ export abstract class BaseTelegramTransport implements Transport {
       this.pendingSnapshots.delete(windowId);
       if (pending) {
         this.doProcessWindow(windowId, pending)
-          .catch(err => console.error(`[telegram] Process error for ${pending.windowTitle}:`, err))
+          .catch(err => logError('TG_PROCESS_WINDOW_FAIL', err instanceof Error ? err.message : String(err), pollLoopCtx('process_window', {
+            windowId,
+            windowTitle: pending.windowTitle,
+            chatId: this.chatId,
+          })))
           .finally(processNext);
       } else {
         this.processing.delete(windowId);
@@ -963,7 +1059,11 @@ export abstract class BaseTelegramTransport implements Transport {
     };
 
     this.doProcessWindow(windowId, snapshot)
-      .catch(err => console.error(`[telegram] Process error for ${snapshot.windowTitle}:`, err))
+      .catch(err => logError('TG_PROCESS_WINDOW_FAIL', err instanceof Error ? err.message : String(err), pollLoopCtx('process_window', {
+        windowId,
+        windowTitle: snapshot.windowTitle,
+        chatId: this.chatId,
+      })))
       .finally(processNext);
   }
 
@@ -1016,14 +1116,18 @@ export abstract class BaseTelegramTransport implements Transport {
     try {
       await this.api.editForumTopic(this.chatId!, threadId, label);
       this.lastSyncedForumLabels.set(threadId, label);
-      console.log(`[telegram] Forum topic ${threadId} synced → "${label}"`);
+      logInfo(
+        'TG_FORUM_SYNC_OK',
+        `Forum topic ${threadId} synced → "${label}"`,
+        pollLoopCtx('forum_sync', { threadId, hint: label }),
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('TOPIC_NOT_MODIFIED')) {
         this.lastSyncedForumLabels.set(threadId, label);
         return;
       }
-      console.warn(`[telegram] Forum topic rename ${threadId} failed: ${msg}`);
+      logWarn('TG_FORUM_RENAME_FAIL', `Forum topic rename ${threadId} failed: ${msg}`, pollLoopCtx('sync_forum_label', { threadId, chatId: this.chatId }));
     }
   }
 
@@ -1072,9 +1176,10 @@ export abstract class BaseTelegramTransport implements Transport {
       if (isSameLogicalWindow(mapping, snapshot)) {
         migrateMappingWindowId(this.topicManager, mapping, windowId, snapshot);
       } else {
-        console.warn(
-          `[telegram] Skip outbound for "${snapshot.windowTitle}": ` +
-          `thread ${threadId} belongs to window "${mapping.windowTitle}" (${mapping.windowId.substring(0, 8)})`,
+        logWarn(
+          'TG_OUTBOUND_WINDOW_MISMATCH',
+          `Skip outbound for "${snapshot.windowTitle}": thread ${threadId} belongs to window "${mapping.windowTitle}" (${mapping.windowId.substring(0, 8)})`,
+          pollLoopCtx('process_window', { threadId, windowId }),
         );
         return;
       }
@@ -1122,10 +1227,17 @@ export abstract class BaseTelegramTransport implements Transport {
           this.lastActivityText.set(threadId, activityText);
           this.activityTimestamps.set(threadId, now);
           this.saveActivityState();
-          console.log(`[telegram] Activity sent: "${activityText}" (msgId=${sent.message_id})`);
+          logInfo(
+            'TG_ACTIVITY_OK',
+            `"${activityText}" msgId=${sent.message_id}`,
+            pollLoopCtx('send_activity', { threadId, chatId: this.chatId }),
+          );
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          console.warn(`[telegram] Activity send failed: ${msg}`);
+          logWarn('TG_ACTIVITY_SEND_FAIL', msg, pollLoopCtx('send_activity', {
+            threadId,
+            chatId: this.chatId,
+          }));
         }
       } else if (activityText && this.activityMsgIds.get(threadId) && activityText !== prevActivityText) {
         const lastEdit = this.lastActivityEditAt.get(threadId) ?? 0;
@@ -1222,10 +1334,10 @@ export abstract class BaseTelegramTransport implements Transport {
     if (code === 404 || /not found|unknown method|method not/i.test(msg)) {
       if (!this.richDisabled) {
         this.richDisabled = true;
-        console.warn(`[telegram] Rich Messages unavailable (${msg}) — switching to plain HTML`);
+        logWarn('TG_RICH_UNAVAILABLE', `Rich Messages unavailable (${msg}) — switching to plain HTML`, pollLoopCtx('send_rich'));
       }
     } else {
-      console.warn(`[telegram] Rich send failed (${msg}) — HTML fallback for this message`);
+      logWarn('TG_RICH_SEND_FAIL', `Rich send failed (${msg}) — HTML fallback for this message`, pollLoopCtx('send_rich'));
     }
     return true;
   }
@@ -1280,7 +1392,16 @@ export abstract class BaseTelegramTransport implements Transport {
                 parse_mode: 'HTML',
                 reply_markup: i === parts.length - 1 ? formatted.keyboard : undefined,
               });
-          } catch { /* ok */ }
+          } catch (partErr) {
+            const partMsg = partErr instanceof Error ? partErr.message : String(partErr);
+            if (!partMsg.includes('message is not modified')) {
+              logWarn(
+                'TG_EDIT_FAIL',
+                partMsg,
+                pollLoopCtx('edit_message', { threadId, chatId: this.chatId, itemId: element.id, hint: `part${i}` }),
+              );
+            }
+          }
         } else {
           try {
             const sent = await this.api.sendMessage(this.chatId!, parts[i], {
@@ -1289,7 +1410,14 @@ export abstract class BaseTelegramTransport implements Transport {
                 reply_markup: i === parts.length - 1 ? formatted.keyboard : undefined,
               });
             allMsgIds.push(sent.message_id);
-          } catch { /* ok */ }
+          } catch (partErr) {
+            const partMsg = partErr instanceof Error ? partErr.message : String(partErr);
+            logWarn(
+              'TG_SEND_FAIL',
+              partMsg,
+              pollLoopCtx('send_message', { threadId, chatId: this.chatId, itemId: element.id, hint: `part${i}` }),
+            );
+          }
         }
       }
 
@@ -1300,6 +1428,12 @@ export abstract class BaseTelegramTransport implements Transport {
         this.messageTracker.track(threadId, element.id, tracked.telegramMsgIds, contentHash, element.type);
       } else if (msg.includes('not found')) {
         this.messageTracker.track(threadId, element.id, [], 'dead', element.type);
+      } else {
+        logWarn(
+          'TG_EDIT_FAIL',
+          msg,
+          pollLoopCtx('edit_message', { threadId, chatId: this.chatId, itemId: element.id }),
+        );
       }
     }
   }
@@ -1368,11 +1502,11 @@ export abstract class BaseTelegramTransport implements Transport {
       ) {
         this.messageTracker.track(threadId, element.id, [], 'dead-thread', element.type);
         if (this.topicManager.removeMapping(threadId)) {
-          console.warn(`[telegram] Removed dead topic mapping ${threadId} (send failed)`);
+          logWarn('TG_DEAD_TOPIC_REMOVED', `Removed dead topic mapping ${threadId} (send failed)`, pollLoopCtx('send_message', { threadId, chatId: this.chatId }));
         }
         return;
       }
-      console.warn(`[telegram] Send failed: ${msg}`);
+      logWarn('TG_SEND_FAIL', msg, pollLoopCtx('send_message', { threadId, chatId: this.chatId, itemId: element.id }));
     }
   }
 
@@ -1403,8 +1537,10 @@ export abstract class BaseTelegramTransport implements Transport {
       const logKey = `${windowId}::${tabTitle}::${blockReason}`;
       if (!this.autoCreateBlockLogged.has(logKey)) {
         this.autoCreateBlockLogged.add(logKey);
-        console.log(
-          `[telegram] Defer auto-create "${snapshot.windowTitle} — ${tabTitle}" (${blockReason})`,
+        logInfo(
+          'TG_TOPIC_AUTO_DEFER',
+          `Defer auto-create "${snapshot.windowTitle} — ${tabTitle}" (${blockReason})`,
+          pollLoopCtx('auto_create_defer', { windowId, windowTitle: snapshot.windowTitle, hint: blockReason }),
         );
       }
       return undefined;
@@ -1422,8 +1558,10 @@ export abstract class BaseTelegramTransport implements Transport {
 
         const foreign = this.topicManager.findByComposerId(composerId);
         if (foreign && foreign.windowId !== windowId) {
-          console.warn(
-            `[telegram] Skip auto-create "${topicName}": composer belongs to ${foreign.windowTitle}, not ${snapshot.windowTitle}`,
+          logWarn(
+            'BRIDGE_AUTO_CREATE_SKIP',
+            `Skip auto-create "${topicName}": composer belongs to ${foreign.windowTitle}, not ${snapshot.windowTitle}`,
+            bridgeAutoCtx('auto_create', { windowId, composerId }),
           );
           return undefined;
         }
@@ -1433,8 +1571,10 @@ export abstract class BaseTelegramTransport implements Transport {
       const result = await this.api.createForumTopic(this.chatId!, topicName);
       const threadId = result.message_thread_id;
       if (!await isTopicReachable(this.api, this.chatId, threadId)) {
-        console.warn(
-          `[telegram] Auto-create "${topicName}" returned thread ${threadId} but topic is not reachable — skip mapping`,
+        logWarn(
+          'BRIDGE_AUTO_CREATE_UNREACHABLE',
+          `Auto-create "${topicName}" returned thread ${threadId} but topic is not reachable — skip mapping`,
+          bridgeAutoCtx('auto_create', { windowId, threadId, chatId: this.chatId }),
         );
         return undefined;
       }
@@ -1451,11 +1591,14 @@ export abstract class BaseTelegramTransport implements Transport {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('not a forum') || msg.includes('not a supergroup')) {
-        console.error(`[telegram] Group ${this.chatId} is not a forum. Disabling bridge.`);
+        logError('BRIDGE_NOT_FORUM', `Group ${this.chatId} is not a forum. Disabling bridge.`, bridgeAutoCtx('auto_create', { chatId: this.chatId }));
         this.syncEnabled = false;
         this.saveSyncState();
       } else {
-        console.warn(`[telegram] Failed to auto-create "${topicName}": ${msg}`);
+        logWarn('BRIDGE_AUTO_CREATE_FAIL', `Failed to auto-create "${topicName}": ${msg}`, bridgeAutoCtx('auto_create', {
+          windowId,
+          chatId: this.chatId,
+        }));
       }
       return undefined;
     } finally {
@@ -1484,10 +1627,13 @@ export abstract class BaseTelegramTransport implements Transport {
       if (fallback) {
         threadId = fallback.threadId;
         if (approvals.length > 0) {
-          console.log(
-            `[telegram] Approval routed via tab-title fallback: ` +
-            `tab="${activeTab.title}" → thread=${threadId} (owner="${fallback.windowTitle}", ` +
-            `active CDP window="${activeWin?.title ?? 'none'}")`
+          logInfo(
+            'TG_APPROVAL_ROUTED',
+            `tab-title fallback tab="${activeTab.title}" → thread=${threadId}`,
+            pollLoopCtx('process_approvals_fallback', {
+              threadId,
+              chatId: this.chatId,
+            }),
           );
         }
       }
@@ -1495,11 +1641,10 @@ export abstract class BaseTelegramTransport implements Transport {
 
     if (!threadId) {
       if (approvals.length > 0) {
-        console.warn(
-          `[telegram] Approval(${approvals.length}) on global path but no thread resolved ` +
-          `(activeWindow="${activeWin?.title ?? state.activeWindowId ?? 'none'}", ` +
-          `activeTab="${activeTab?.title ?? 'none'}", windows=${state.windows.length}, ` +
-          `chatTabs=${state.chatTabs.length}). Per-window path will retry.`
+        logWarn(
+          'TG_APPROVAL_NO_THREAD',
+          `Approval(${approvals.length}) on global path but no thread resolved (activeWindow="${activeWin?.title ?? state.activeWindowId ?? 'none'}", activeTab="${activeTab?.title ?? 'none'}", windows=${state.windows.length}, chatTabs=${state.chatTabs.length}). Per-window path will retry.`,
+          pollLoopCtx('process_approvals', { chatId: this.chatId }),
         );
       }
       return;
@@ -1594,7 +1739,11 @@ export abstract class BaseTelegramTransport implements Transport {
             threadId, trackId, tracked.telegramMsgIds,
             contentHash, 'approval'
           );
-          console.log(`[telegram] Approval edited: id=${approval.id} thread=${threadId} desc="${approval.description.substring(0, 80)}"`);
+          logInfo(
+            'TG_APPROVAL_OK',
+            `edited id=${approval.id}`,
+            pollLoopCtx('edit_approval', { threadId, chatId: this.chatId, itemId: approval.id }),
+          );
         } else {
           const sent = await this.api.sendMessage(this.chatId!, formatted.html, {
               message_thread_id: threadId,
@@ -1605,12 +1754,20 @@ export abstract class BaseTelegramTransport implements Transport {
             threadId, trackId, [sent.message_id],
             contentHash, 'approval'
           );
-          console.log(`[telegram] Approval sent: id=${approval.id} thread=${threadId} msgId=${sent.message_id} desc="${approval.description.substring(0, 80)}"`);
+          logInfo(
+            'TG_APPROVAL_OK',
+            `sent id=${approval.id} msgId=${sent.message_id}`,
+            pollLoopCtx('send_approval', { threadId, chatId: this.chatId, itemId: approval.id }),
+          );
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (!msg.includes('not found') && !msg.includes('not modified')) {
-          console.warn('[telegram] Approval error:', msg);
+          logWarn('TG_APPROVAL_SEND_FAIL', msg, pollLoopCtx('send_approval', {
+            threadId,
+            chatId: this.chatId,
+            itemId: approval.id,
+          }));
         }
       } finally {
         this.approvalInflight.delete(inflightKey);
@@ -1678,7 +1835,10 @@ export abstract class BaseTelegramTransport implements Transport {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (!msg.includes('not found') && !msg.includes('not modified')) {
-        console.warn('[telegram] Questionnaire error:', msg);
+        logWarn('TG_QUESTIONNAIRE_SEND_FAIL', msg, pollLoopCtx('send_questionnaire', {
+          threadId,
+          chatId: this.chatId,
+        }));
       }
     }
   }

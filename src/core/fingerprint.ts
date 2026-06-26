@@ -3,6 +3,8 @@ import { readFileSync, existsSync } from 'fs';
 import { dirname, join, basename } from 'path';
 import { fileURLToPath } from 'url';
 import { legacyForbiddenMarkers, requiredBuildMarkers } from './build-meta.js';
+import { logError, logInfo, logWarn } from './log-event.js';
+import { startupCtx } from './startup-boot.js';
 
 /**
  * Bump when server behavior contract changes (TG queue, auto-keyboards, etc.).
@@ -92,21 +94,21 @@ export function logStartupAudit(result: StartupAuditResult): void {
   const shortBundle = basename(result.bundlePath);
   if (result.ok) {
     const built = result.manifest?.builtAt ?? 'unknown';
-    console.log(
-      `[startup-audit] BUILD OK epoch=${SERVER_COMPAT_VERSION} ` +
-      `fingerprint=${BUILD_FINGERPRINT} bundle=${shortBundle} builtAt=${built}`,
-    );
-    console.log(
-      '[startup-audit] features: queued-telegram-api=on auto-chat-keyboards=off menus=/menu-only',
-    );
+    logInfo('STARTUP_AUDIT_OK', `BUILD OK epoch=${SERVER_COMPAT_VERSION} bundle=${shortBundle} builtAt=${built}`, startupCtx('startup_audit', {
+      hint: `fingerprint=${BUILD_FINGERPRINT}`,
+    }));
+    logInfo('STARTUP_AUDIT_FEATURES', 'features: queued-telegram-api=on auto-chat-keyboards=off menus=/menu-only', startupCtx('startup_audit'));
     return;
   }
 
-  console.error(
-    `[startup-audit] STALE OR INVALID BUILD (${result.violations.length} issue(s)) — ` +
-    `${result.violations.join('; ')}`,
+  logError(
+    'STARTUP_AUDIT_FAIL',
+    `STALE OR INVALID BUILD (${result.violations.length} issue(s)) — ${result.violations.join('; ')}`,
+    startupCtx('startup_audit'),
   );
-  console.error(
-    '[startup-audit] Fix: npm run build:ext && scripts/install/install-extension-local.ps1 → Developer: Reload Window → Restart Server',
+  logError(
+    'STARTUP_AUDIT_FIX',
+    'Fix: npm run build:ext && scripts/install/install-extension-local.ps1 → Developer: Reload Window → Restart Server',
+    startupCtx('startup_audit'),
   );
 }

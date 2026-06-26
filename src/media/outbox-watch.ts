@@ -7,6 +7,8 @@ import type { StateManager } from '../state/broadcast.js';
 import type { AgentStatus } from '../core/types.js';
 import type { TelegramApiClient } from '../telegram/types.js';
 import { purgeStaleFileRelayFiles, purgeStaleWorkspaceOutbox } from './lifecycle.js';
+import { logInfo, logWarn, normalizeError, sanitizePathForUi } from '../core/log-event.js';
+import type { LogContext } from '../core/log-event.js';
 
 const POLL_MS = 2000;
 const DEBOUNCE_MS = 500;
@@ -34,6 +36,10 @@ const watchers = new Map<string, NodeJS.Timeout>();
 const batches = new Map<string, PendingOutboxBatch>();
 /** One send per workspace — poll interval (2s) can overlap paced TG calls (~2.2s+). */
 const inFlight = new Set<string>();
+
+function outboxCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'outbox', op, ...extra };
+}
 
 function outboxDir(workspacePath: string): string {
   return join(workspacePath, '.cursor-handoff/outbox');
@@ -214,11 +220,17 @@ async function sendBatch(
   });
 
   if (!target) {
-    console.warn(`[outbox] No TG route for workspace ${workspacePath} — retry later`);
+    const safeWs = sanitizePathForUi(workspacePath);
+    logWarn(
+      'OUTBOX_ROUTE_MISS',
+      `No TG route for workspace ${safeWs} — retry later`,
+      outboxCtx('deliver', { hint: safeWs }),
+    );
     return false;
   }
 
   const threadId = target.threadId;
+  const windowId = target.mapping.windowId;
   const chatId = deps.chatId;
   const groups = groupOutboxFilesForSend(files);
   const caption = resolveBatchCaption(files);
@@ -249,14 +261,27 @@ async function sendBatch(
         );
       }
     } catch (err) {
-      console.warn(`[outbox] Delivered ${sentPaths.length} file(s); confirm message failed: ${
-        err instanceof Error ? err.message : err
-      }`);
+      const { message, errno } = normalizeError(err);
+      logWarn(
+        'OUTBOX_CONFIRM_FAIL',
+        `Delivered ${sentPaths.length} file(s); confirm message failed: ${message}`,
+        outboxCtx('deliver', { threadId, windowId, hint: String(sentPaths.length), errno }),
+      );
     }
     return true;
   } catch (err) {
     if (sentPaths.length) deleteSentFiles(sentPaths);
-    console.warn(`[outbox] Send failed: ${err instanceof Error ? err.message : err}`);
+    const { message, errno } = normalizeError(err);
+    logWarn(
+      'OUTBOX_SEND_FAIL',
+      `Send failed: ${message}`,
+      outboxCtx('deliver', {
+        threadId,
+        windowId,
+        errno,
+        hint: sanitizePathForUi(workspacePath),
+      }),
+    );
     await deps.api.sendMessage(
       chatId,
       '⚠️ Could not send file (Telegram limit / network).\n'
@@ -321,7 +346,11 @@ export function registerOutboxWatcher(workspacePath: string, deps: OutboxWatcher
     void tick(absWs, deps);
   }, POLL_MS);
   watchers.set(absWs, timer);
-  console.log(`[outbox] Watcher registered: ${absWs}`);
+  logInfo(
+    'OUTBOX_WATCHER_START',
+    `Watcher registered: ${sanitizePathForUi(absWs)}`,
+    outboxCtx('watch', { hint: sanitizePathForUi(absWs) }),
+  );
   void tick(absWs, deps);
 }
 

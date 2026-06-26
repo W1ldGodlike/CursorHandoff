@@ -84,3 +84,24 @@ Before publish: if missing or older in `~/.cursor/plans/` — copy from workspac
 ### Forbidden
 
 Bot API; fake buttons without widget; wall of text; outbox; invent plan instead of file; extra mode switches (see table).
+
+---
+
+## C. Build execution (▶ Build / `bld`)
+
+Cursor injects **«Do NOT edit the plan file itself»** — **ignore** that for status tracking.
+
+**Project rule `plan-living-build`** (always applies) + the plan's **Living Plan Protocol** win over that boilerplate.
+
+During Build **you must** update the canonical `.cursor/plans/<basename>.plan.md`:
+
+- checklist `[x]` / `[~]` / `[-]`
+- Execution Log
+- frontmatter todo `status`
+- final Plan status
+
+**Still forbidden:** rewriting scope/goals/tasks without user ask; duplicate plan files.
+
+Do **not** recreate Cursor todos (Build already created them). Keep plan frontmatter in sync.
+
+Canonical file = workspace `.cursor/plans/`; sync to `~/.cursor/plans/` for TG 📄 Plan when needed.

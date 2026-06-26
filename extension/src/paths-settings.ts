@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import * as vscode from 'vscode';
 
@@ -30,11 +30,17 @@ export function findHandoffRepoRoot(startPaths: string[]): string | undefined {
   return undefined;
 }
 
-/** Canonical DATA_DIR: setting → `<repo>/data` → extension bundle `data/`. */
-export function resolveDataDir(context: vscode.ExtensionContext): string {
+export type DataDirSource = 'custom' | 'project' | 'globalStorage';
+export interface DataDirInfo {
+  path: string;
+  source: DataDirSource;
+}
+
+/** Canonical DATA_DIR: setting → `<repo>/data` → extension global storage. */
+export function resolveDataDirInfo(context: vscode.ExtensionContext): DataDirInfo {
   const config = vscode.workspace.getConfiguration('cursorHandoff');
   const custom = config.get<string>('dataDir', '').trim();
-  if (custom) return resolve(custom);
+  if (custom) return { path: resolve(custom), source: 'custom' };
 
   // Workspace git checkout before installed extension (same package name in both).
   const roots = [
@@ -42,7 +48,36 @@ export function resolveDataDir(context: vscode.ExtensionContext): string {
     context.extensionPath,
   ];
   const repoRoot = findHandoffRepoRoot(roots);
-  if (repoRoot) return join(repoRoot, 'data');
+  if (repoRoot) return { path: join(repoRoot, 'data'), source: 'project' };
 
-  return join(context.extensionPath, 'data');
+  return { path: context.globalStorageUri.fsPath, source: 'globalStorage' };
+}
+
+export function resolveDataDir(context: vscode.ExtensionContext): string {
+  return resolveDataDirInfo(context).path;
+}
+
+/** Stable prefix for logs and UI when DATA_DIR cannot be written. */
+export const DATA_DIR_NOT_WRITABLE = 'DATA_DIR is not writable';
+
+export function verifyDataDirWritable(dir: string): void {
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch (err) {
+    throw dataDirWriteError(dir, err);
+  }
+  const probe = join(dir, `.write-test-${process.pid}`);
+  try {
+    writeFileSync(probe, 'ok', 'utf8');
+    unlinkSync(probe);
+  } catch (err) {
+    throw dataDirWriteError(dir, err);
+  }
+}
+
+function dataDirWriteError(dir: string, err: unknown): Error {
+  const e = err as NodeJS.ErrnoException;
+  const code = e.code ?? 'unknown';
+  const detail = e.message ?? String(err);
+  return new Error(`${DATA_DIR_NOT_WRITABLE}: ${dir} (${code}: ${detail})`);
 }

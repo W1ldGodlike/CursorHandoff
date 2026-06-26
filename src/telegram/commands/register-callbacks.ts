@@ -14,6 +14,8 @@ import {
 import { isGeneralChat } from '../ui/menus.js';
 import type { BotContext } from '../types.js';
 import { t } from '../../i18n/t.js';
+import { logError, logInfo, logWarn, normalizeError } from '../../core/log-event.js';
+import type { LogContext } from '../../core/log-event.js';
 import {
   type CommandDeps,
   type RegisterDeps,
@@ -27,6 +29,30 @@ import {
 import { ensureTopicWindow, getThreadIdFromContext } from './mode-model.js';
 import { bootstrapProjectFromPath } from './projects-web.js';
 
+function registerCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'telegram', op, ...extra };
+}
+
+function formatErrDetail(err: unknown): string {
+  return err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err);
+}
+
+function callbackCtx(ctx: BotContext, op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return registerCtx(op, {
+    threadId: getThreadIdFromContext(ctx) ?? undefined,
+    chatId: ctx.chat?.id,
+    ...extra,
+  });
+}
+
+function logCallbackWindowFail(ctx: BotContext, action: string): void {
+  logWarn(
+    'TG_CALLBACK_WINDOW_FAIL',
+    `callback ${action}: could not switch window`,
+    callbackCtx(ctx, 'callback', { hint: action }),
+  );
+}
+
 // --- /register ---
 
 export async function handleRegister(ctx: BotContext, deps: RegisterDeps): Promise<void> {
@@ -38,16 +64,20 @@ export async function handleRegister(ctx: BotContext, deps: RegisterDeps): Promi
   }
 
   if (token !== deps.authState.token) {
+    logWarn('TG_REGISTER_BAD_TOKEN', '/register rejected: invalid token', registerCtx('register', { chatId: ctx.chat?.id }));
     await ctx.reply(t('tg.msg.register.badToken', 'Invalid token.'));
     return;
   }
 
   const userId = ctx.from?.id;
-  if (!userId) return;
+  if (!userId) {
+    logWarn('TG_REGISTER_NO_USER', '/register rejected: no from.id on context', registerCtx('register', { chatId: ctx.chat?.id }));
+    return;
+  }
 
   if (deps.envAllowedUsers.length > 0 && !deps.envAllowedUsers.includes(userId)) {
     await ctx.reply(t('tg.msg.register.notAllowed', 'Access restricted by TELEGRAM_ALLOWED_USERS.'));
-    console.warn(`[telegram] /register rejected: user ${userId} not in TELEGRAM_ALLOWED_USERS`);
+    logWarn('TG_REGISTER_REJECTED', `/register rejected: user ${userId} not in TELEGRAM_ALLOWED_USERS`, registerCtx('register', { chatId: ctx.chat?.id }));
     return;
   }
 
@@ -56,7 +86,7 @@ export async function handleRegister(ctx: BotContext, deps: RegisterDeps): Promi
   const displayName = username ? `@${username}` : firstName ?? String(userId);
   deps.registerUser(userId, username, firstName);
   await ctx.reply(t('tg.msg.register.ok', 'Registered {name}! All bot commands are available.', { name: displayName }));
-  console.log(`[telegram] Registered: ${displayName} (ID: ${userId})`);
+  logInfo('TG_REGISTER_OK', `Registered ${displayName} (${userId})`, registerCtx('register', { chatId: ctx.chat?.id }));
 }
 // --- Callback queries ---
 
@@ -120,6 +150,7 @@ export function parseCallbackData(data: string): { action: string; id: string; h
 export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): Promise<void> {
   const data = ctx.callbackQuery?.data;
   if (!data) {
+    logWarn('TG_CALLBACK_NO_DATA', 'callback query without data', callbackCtx(ctx, 'callback'));
     await ctx.answerCallbackQuery({ text: t('tg.msg.callback.unknown', 'Unknown action') });
     return;
   }
@@ -136,10 +167,14 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
   try {
     if (action === 'mode') {
       if (!(await ensureTopicWindow(ctx, deps))) {
+        logCallbackWindowFail(ctx, 'mode');
         await ctx.answerCallbackQuery({ text: t('tg.msg.callback.windowFailed', 'Could not switch window') });
         return;
       }
       const result = await deps.commandExecutor.setMode(commandId, id);
+      if (!result.ok) {
+        logWarn('TG_CALLBACK_MODE_FAIL', `setMode failed: ${result.error ?? 'unknown'}`, callbackCtx(ctx, 'callback', { hint: 'mode' }));
+      }
       await ctx.answerCallbackQuery({ text: result.ok ? t('tg.msg.callback.modeOk', 'Mode: {mode}', { mode: id }) : t('tg.msg.callback.modeErr', 'Error: {error}', { error: result.error ?? 'unknown' }) });
       if (result.ok) {
         await ctx.editMessageText(t('tg.msg.mode.current', '<b>Current mode:</b> {mode}', { mode: escapeHtml(id) }), { parse_mode: 'HTML' });
@@ -155,10 +190,12 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
       const idx = Number.parseInt(idxRaw ?? '', 10);
       const pick = pendingProjectPicks.get(token);
       if (!pick || !Number.isFinite(idx) || idx < 0 || idx >= pick.candidates.length) {
+        logWarn('TG_CALLBACK_PICK_EXPIRED', `open_project pick expired token=${token}`, callbackCtx(ctx, 'callback', { hint: 'opr' }));
         await ctx.answerCallbackQuery({ text: t('tg.msg.callback.pickExpired', 'Pick expired, run /open_project again.') });
         return;
       }
       if ((deps.chatId ?? ctx.chat?.id) !== pick.chatId) {
+        logWarn('TG_CALLBACK_PICK_WRONG_CHAT', 'open_project pick for another chat', callbackCtx(ctx, 'callback', { hint: 'opr', chatId: pick.chatId }));
         await ctx.answerCallbackQuery({ text: t('tg.msg.callback.pickWrongChat', 'This pick is for another chat.') });
         return;
       }
@@ -174,11 +211,15 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
 
     if (action === 'model') {
       if (!(await ensureTopicWindow(ctx, deps))) {
+        logCallbackWindowFail(ctx, 'model');
         await ctx.answerCallbackQuery({ text: t('tg.msg.callback.windowFailed', 'Could not switch window') });
         return;
       }
       const label = id.startsWith('label::') ? id.slice(7) : id;
       const result = await deps.commandExecutor.setModel(commandId, id);
+      if (!result.ok) {
+        logWarn('TG_CALLBACK_MODEL_FAIL', `setModel failed: ${result.error ?? 'unknown'}`, callbackCtx(ctx, 'callback', { hint: 'model' }));
+      }
       await ctx.answerCallbackQuery({ text: result.ok ? t('tg.msg.callback.modelOk', 'Model: {model}', { model: label }) : t('tg.msg.callback.modeErr', 'Error: {error}', { error: result.error ?? 'unknown' }) });
       if (result.ok) {
         await ctx.editMessageText(t('tg.msg.model.current', '<b>Current model:</b> {model}', { model: escapeHtml(label) }), { parse_mode: 'HTML' });
@@ -188,17 +229,20 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
 
     if (action === 'dif') {
       if (!(await ensureTopicWindow(ctx, deps))) {
+        logCallbackWindowFail(ctx, 'dif');
         await ctx.answerCallbackQuery({ text: t('tg.msg.callback.windowFailed', 'Could not switch window') });
         return;
       }
       const toolCallId = deps.messageTracker.resolveHash(hash);
       if (!toolCallId) {
+        logWarn('TG_CALLBACK_STALE', 'dif: tool hash evicted', callbackCtx(ctx, 'callback', { hint: 'dif' }));
         await ctx.answerCallbackQuery({ text: t('tg.msg.callback.actionStale', 'Action no longer pending (done, cleared, or restart).') });
         return;
       }
       await ctx.answerCallbackQuery({ text: t('tg.msg.callback.extracting', 'Extracting…') });
       const content = await deps.commandExecutor.extractToolContent(toolCallId);
       if (!content || !content.code) {
+        logWarn('TG_CALLBACK_EXTRACT_FAIL', 'extractToolContent returned empty', callbackCtx(ctx, 'callback', { hint: 'dif' }));
         await ctx.reply(t('tg.msg.callback.extractFailed', 'Could not extract content — tool call may have left the DOM.'));
         return;
       }
@@ -225,6 +269,7 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
 
     if (action === 'vpl') {
       if (!(await ensureTopicWindow(ctx, deps))) {
+        logCallbackWindowFail(ctx, 'vpl');
         await ctx.answerCallbackQuery({ text: t('tg.msg.callback.windowFailed', 'Could not switch window') });
         return;
       }
@@ -234,6 +279,7 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
       ) as PlanBlock | undefined;
 
       if (!planEl) {
+        logWarn('TG_CALLBACK_PLAN_MISS', `plan prefix ${id} not in state`, callbackCtx(ctx, 'callback', { hint: 'vpl' }));
         await ctx.answerCallbackQuery({ text: t('tg.msg.callback.planNotFound', 'Plan not found in current state') });
         return;
       }
@@ -256,6 +302,7 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
     // Questionnaire — live DOM click: `qan:<letter>`, `qff:<letter>`, `qsk:_`, `qco:_`.
     if (action === 'qan' || action === 'qff' || action === 'qsk' || action === 'qco') {
       if (!(await ensureTopicWindow(ctx, deps))) {
+        logCallbackWindowFail(ctx, action);
         await ctx.answerCallbackQuery({ text: t('tg.msg.callback.windowFailed', 'Could not switch window') });
         return;
       }
@@ -265,6 +312,9 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
         : action === 'qco' ? 'continue' as const
         : { letter: hash };
       const result = await deps.commandExecutor.clickQuestionnaire(commandId, target);
+      if (!result.ok) {
+        logWarn('TG_CALLBACK_QUESTIONNAIRE_FAIL', `clickQuestionnaire failed: ${result.error ?? 'unknown'}`, callbackCtx(ctx, 'callback', { hint: action }));
+      }
       const qNames: Record<string, string> = {
         qan: t('tg.msg.callback.answer', 'Answer {letter}', { letter: hash }),
         qff: t('tg.msg.callback.answer', 'Answer {letter}', { letter: hash }),
@@ -307,6 +357,7 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
     }
 
     if (!(await ensureTopicWindow(ctx, deps))) {
+      logCallbackWindowFail(ctx, action);
       await ctx.answerCallbackQuery({ text: t('tg.msg.callback.windowFailed', 'Could not switch window') });
       return;
     }
@@ -319,6 +370,7 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
     const selectorPath = fromHash ?? stableFallback;
 
     if (!selectorPath) {
+      logWarn('TG_CALLBACK_STALE', `callback ${action}: hash/selector evicted`, callbackCtx(ctx, 'callback', { hint: action }));
       await ctx.answerCallbackQuery({
         text: t('tg.msg.callback.actionStale', 'Action no longer pending (done, cleared, or restart).'),
       });
@@ -334,6 +386,7 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
         result = await deps.commandExecutor.clickAction(commandId, selectorPath);
         break;
       default:
+        logWarn('TG_CALLBACK_UNKNOWN', `unknown callback action: ${action}`, callbackCtx(ctx, 'callback', { hint: action }));
         await ctx.answerCallbackQuery({ text: t('tg.msg.callback.unknownAction', 'Unknown: {action}', { action }) });
         return;
     }
@@ -348,7 +401,15 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
       bld: t('tg.msg.callback.build', 'Build'),
     };
     await ctx.answerCallbackQuery({ text: result.ok ? names[action] ?? action : t('tg.msg.callback.modeErr', 'Error: {error}', { error: result.error ?? 'unknown' }) });
+    if (!result.ok) {
+      const code = action === 'apr' || action === 'rej' || action === 'all'
+        ? 'TG_CALLBACK_APPROVAL_FAIL'
+        : 'TG_CALLBACK_ACTION_FAIL';
+      logWarn(code, `callback ${action}: ${result.error ?? 'unknown'}`, callbackCtx(ctx, 'callback', { hint: action }));
+    }
   } catch (err) {
+    const norm = normalizeError(err);
+    logError('TG_CALLBACK_FAIL', formatErrDetail(err), callbackCtx(ctx, 'callback', { hint: action, errno: norm.errno }));
     await ctx.answerCallbackQuery({ text: t('tg.msg.callback.error', 'Error: {error}', { error: err instanceof Error ? err.message : String(err) }) });
   }
 }
@@ -364,6 +425,7 @@ function buildOutboxWatcherDeps(deps: CommandDeps): OutboxWatcherDeps {
 
 export async function handleSetupTgSend(ctx: BotContext, deps: CommandDeps): Promise<void> {
   if (isGeneralChat(ctx)) {
+    logWarn('TG_SETUP_TG_REJECT_GENERAL', '/setup_tg_send in General chat', callbackCtx(ctx, 'setup_tg_send'));
     await ctx.reply(t('tg.msg.setupTg.generalOnly', '⚠️ Send photos in a project thread, not General.'));
     return;
   }
@@ -373,6 +435,7 @@ export async function handleSetupTgSend(ctx: BotContext, deps: CommandDeps): Pro
 
   const mapping = deps.topicManager.resolveThread(threadId);
   if (!mapping) {
+    logWarn('TG_SETUP_TG_NOT_MAPPED', '/setup_tg_send: thread not linked', callbackCtx(ctx, 'setup_tg_send', { threadId }));
     await ctx.reply(t('tg.msg.setupTg.notMappedBridge', '⚠️ Thread not linked. Run /bridge or write from an active Cursor tab.'));
     return;
   }
@@ -383,6 +446,7 @@ export async function handleSetupTgSend(ctx: BotContext, deps: CommandDeps): Pro
     ?? resolveProjectPath(mapping)
     ?? undefined;
   if (!workspacePath) {
+    logWarn('TG_SETUP_TG_NO_PATH', '/setup_tg_send: no project path', callbackCtx(ctx, 'setup_tg_send', { threadId, windowId: mapping.windowId }));
     await ctx.reply(t('tg.msg.setupTg.noProjectPath', '⚠️ No project path for this thread.\nOpen the Cursor window for this project and try again.'));
     return;
   }
@@ -406,7 +470,9 @@ export async function handleSetupTgSend(ctx: BotContext, deps: CommandDeps): Pro
 
   try {
     ensureFileRelayBootstrap(workspacePath, threadId, deps.topicManager, buildOutboxWatcherDeps(deps));
-  } catch {
+  } catch (err) {
+    const norm = normalizeError(err);
+    logWarn('TG_SETUP_TG_WRITE_FAIL', `bootstrap write failed: ${norm.message}`, callbackCtx(ctx, 'setup_tg_send', { threadId, errno: norm.errno }));
     await ctx.reply(t('tg.msg.setupTg.writeFailed', '⚠️ Could not create folders and rules in the project (no write access).\nCheck directory permissions and retry.'));
     return;
   }

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { resolveDataDir } from './paths-settings.js';
+import { resolveDataDir, resolveDataDirInfo } from './paths-settings.js';
 import { openHandoffDoc } from './open-doc.js';
 import { getCursorWakeStatus } from './wake-launcher.js';
 import { getTunnelAddonStatus } from './tunnel-status.js';
@@ -13,6 +13,8 @@ import { applyWakeStartupSetting } from './wake-startup.js';
 import { restartCursorWake, writeRaiseCursor } from './wake-launcher.js';
 import { startCloudflaredQuickTunnel, stopCloudflaredQuickTunnel } from './tunnel-launcher.js';
 import { loadLocaleStrings, normalizeLocale, tr } from './extension-locale.js';
+import { emitExtensionUiLog, formatSettingsAddonFail } from './extension-ui-log.js';
+import { showDedupedErrorToast } from './extension-toast.js';
 import { renderHandoffSettingsHtml, type HandoffSettingsViewState } from './handoff-settings-view.js';
 
 interface TelegramAuth {
@@ -116,6 +118,19 @@ export class HandoffSettings {
         }
         break;
       }
+      case 'copyDataDir': {
+        const path = (msg.path as string | undefined)?.trim() || resolveDataDir(this.context);
+        await vscode.env.clipboard.writeText(path);
+        vscode.window.showInformationMessage(
+          tr(this.dict, 'ext.handoffSettings.msg.dataDirCopied', 'Runtime data folder path copied.')
+        );
+        break;
+      }
+      case 'openDataDir': {
+        const dataDir = resolveDataDir(this.context);
+        void vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(dataDir));
+        break;
+      }
       case 'savePassword': {
         const newPw = (msg.password as string).trim();
         await config.update('webappPassword', newPw, vscode.ConfigurationTarget.Global);
@@ -203,24 +218,26 @@ export class HandoffSettings {
         break;
       }
       case 'restartWake': {
-        await restartCursorWake(resolveDataDir(this.context), () => {});
+        await restartCursorWake(resolveDataDir(this.context), (msg) => {
+          emitExtensionUiLog(msg);
+        });
         void this.updateWebview();
         break;
       }
       case 'pauseWake': {
-        writeRaiseCursor(resolveDataDir(this.context), false);
+        writeRaiseCursor(resolveDataDir(this.context), false, (m) => emitExtensionUiLog(m));
         void this.updateWebview();
         break;
       }
       case 'resumeWake': {
-        writeRaiseCursor(resolveDataDir(this.context), true);
+        writeRaiseCursor(resolveDataDir(this.context), true, (m) => emitExtensionUiLog(m));
         void this.updateWebview();
         break;
       }
       case 'setWakeStartup': {
         const enabled = !!msg.enabled;
         await config.update('wake.startupEnabled', enabled, vscode.ConfigurationTarget.Global);
-        await applyWakeStartupSetting(enabled);
+        await applyWakeStartupSetting(enabled, (line) => emitExtensionUiLog(line));
         void this.updateWebview();
         break;
       }
@@ -256,12 +273,12 @@ export class HandoffSettings {
         break;
       }
       case 'startTunnel': {
-        startCloudflaredQuickTunnel(this.context);
+        startCloudflaredQuickTunnel(this.context, (line) => emitExtensionUiLog(line));
         setTimeout(() => { void this.updateWebview(); }, 2000);
         break;
       }
       case 'stopTunnel': {
-        stopCloudflaredQuickTunnel(this.context);
+        stopCloudflaredQuickTunnel(this.context, (line) => emitExtensionUiLog(line));
         setTimeout(() => { void this.updateWebview(); }, 800);
         break;
       }
@@ -284,8 +301,9 @@ export class HandoffSettings {
       await action();
       void this.updateWebview();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      vscode.window.showErrorMessage(`${label}: ${msg}`);
+      const line = formatSettingsAddonFail(label, err);
+      emitExtensionUiLog(line, 'error');
+      showDedupedErrorToast(line, 'SETTINGS_ADDON_FAIL');
     }
   }
 
@@ -295,15 +313,19 @@ export class HandoffSettings {
     const workspacePaths = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
     this.dict = loadLocaleStrings(this.context.extensionPath, workspacePaths, locale);
     const telegramAuth = loadTelegramAuth(this.context);
-    const dataDir = resolveDataDir(this.context);
+    const dataDirInfo = resolveDataDirInfo(this.context);
+    const dataDir = dataDirInfo.path;
     const isWindows = process.platform === 'win32';
     const wakeStatus = isWindows ? await getCursorWakeStatus(dataDir) : null;
     const tunnelStatus = await getTunnelAddonStatus(dataDir);
+    const serverPort = config.get<number>('serverPort', 3000);
     const state: HandoffSettingsViewState = {
       locale,
       isWindows,
+      dataDir,
+      dataDirSource: dataDirInfo.source,
       serverHost: config.get<string>('serverHost', '127.0.0.1'),
-      serverPort: config.get<number>('serverPort', 3000),
+      serverPort,
       webappPassword: config.get<string>('webappPassword', ''),
       telegramEnabled: config.get<boolean>('telegram.enabled', false),
       telegramBotToken: config.get<string>('telegram.botToken', ''),

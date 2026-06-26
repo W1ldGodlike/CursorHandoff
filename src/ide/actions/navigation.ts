@@ -1,7 +1,13 @@
 import type { CdpClient } from '../cdp-client.js';
 import type { SelectorConfig, CommandResult, PlanModelOption } from '../../core/types.js';
+import { logWarn, logError, logCommandOk } from '../../core/log-event.js';
+import type { LogContext } from '../../core/log-event.js';
 import { setClipboardImage } from '../../media/clipboard-win.js';
 import { MESSAGE_WRAPPER_SELECTOR } from '../message-index.js';
+
+function commandCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'cdp', op, ...extra };
+}
 
 const MSG_IDX = JSON.stringify(MESSAGE_WRAPPER_SELECTOR);
 
@@ -218,7 +224,7 @@ export class CommandExecutor {
         throw new Error(result?.error ?? 'Failed to focus input');
       }
 
-      console.log(`[command-executor] Focused: ${result.info}`);
+      logCommandOk(result.info ?? 'focused', commandCtx(commandId));
       await sleep(FOCUS_DELAY_MS);
 
       // Step 2: clear text Ctrl+A, then Delete (CDP Input domain)
@@ -229,7 +235,7 @@ export class CommandExecutor {
 
       // Step 3: paste via CDP Input.insertText (native Chromium input pipeline)
       await client.typeText(text);
-      console.log(`[command-executor] Text inserted via Input.insertText (${text.length} chars)`);
+      logCommandOk(`inserted ${text.length} chars`, commandCtx(commandId));
       await sleep(150);
 
       await this.pressSubmit(client, submit);
@@ -269,7 +275,7 @@ export class CommandExecutor {
       if (!result?.ok) {
         throw new Error(result?.error ?? 'Force queue submit failed');
       }
-      console.log(`[command-executor] Force queue item: ${queueItemId.slice(0, 32)}`);
+      logCommandOk(queueItemId.slice(0, 32), commandCtx(commandId, { itemId: queueItemId }));
     });
   }
 
@@ -352,10 +358,10 @@ export class CommandExecutor {
   private async pressSubmit(client: CdpClient, submit: 'enter' | 'ctrlEnter'): Promise<void> {
     if (submit === 'ctrlEnter') {
       await client.pressKey('Enter', 'Enter', 13, 2);
-      console.log('[command-executor] Ctrl+Enter pressed via CDP Input.dispatchKeyEvent');
+      logCommandOk('Ctrl+Enter via CDP', commandCtx('press_submit', { hint: 'ctrlEnter' }));
     } else {
       await client.pressKey('Enter', 'Enter', 13);
-      console.log('[command-executor] Enter pressed via CDP Input.dispatchKeyEvent');
+      logCommandOk('Enter via CDP', commandCtx('press_submit', { hint: 'enter' }));
     }
   }
 
@@ -462,7 +468,7 @@ export class CommandExecutor {
         await client.pressKey('PageUp', 'PageUp', 33);
         await sleep(500);
       }
-      console.log(`[command-executor] Scrolled chat up ${times} times`);
+      logCommandOk(`scrolled up ${times}x`, commandCtx(commandId, { hint: String(times) }));
     });
   }
 
@@ -485,7 +491,7 @@ export class CommandExecutor {
           return false;
         })()
       `);
-      console.log('[command-executor] Scrolled chat to bottom');
+      logCommandOk('scrolled to bottom', commandCtx(commandId));
     });
   }
 
@@ -676,7 +682,7 @@ export class CommandExecutor {
           })()
         `) as boolean;
         if (active) {
-          console.log(`[command-executor] Tab active confirmed: ${tabTitle}`);
+          logCommandOk(`tab active: ${tabTitle}`, commandCtx(commandId, { windowTitle: tabTitle }));
           return;
         }
         await new Promise((r) => setTimeout(r, 200));
@@ -769,7 +775,7 @@ export class CommandExecutor {
           : 'selectorPath' in target
             ? target.selectorPath.slice(-40)
             : target.letter;
-      console.log(`[command-executor] Questionnaire click: ${label}`);
+      logCommandOk(`questionnaire click: ${label}`, commandCtx(commandId, { hint: label }));
     });
   }
 
@@ -815,7 +821,7 @@ export class CommandExecutor {
         throw new Error(err);
       }
       await client.clickAtCoords(result.x, result.y);
-      console.log('[command-executor] Questionnaire advance: next question');
+      logCommandOk('questionnaire advance', commandCtx(commandId));
     });
   }
 
@@ -844,7 +850,7 @@ export class CommandExecutor {
         })()
       `) as boolean;
       if (!ok) throw new Error('Questionnaire freeform textarea not found');
-      console.log(`[command-executor] Questionnaire freeform (${text.length} chars)`);
+      logCommandOk(`questionnaire freeform ${text.length} chars`, commandCtx(commandId));
     });
   }
 
@@ -866,7 +872,7 @@ export class CommandExecutor {
         })()
       `) as { ok: boolean; sel?: string };
       if (!result?.ok) throw new Error('New Chat button not found');
-      console.log(`[command-executor] New chat: 1 click (${result.sel ?? '?'})`);
+      logCommandOk(`new chat (${result.sel ?? '?'})`, commandCtx(commandId, { hint: result.sel }));
     });
   }
 
@@ -929,7 +935,7 @@ export class CommandExecutor {
       if (!clicked) {
         throw new Error(tabTitle ? `Chat tab not found: ${tabTitle}` : 'No active chat tab to close');
       }
-      console.log(`[command-executor] Closed chat tab: ${tabTitle ?? '(active)'}`);
+      logCommandOk(`closed tab: ${tabTitle ?? '(active)'}`, commandCtx(commandId, { windowTitle: tabTitle }));
     });
   }
 
@@ -1040,14 +1046,14 @@ export class CommandExecutor {
         })()
       `) as boolean;
       if (!selected) throw new Error(`Mode "${modeId}" not found in dropdown`);
-      console.log(`[command-executor] Mode set to: ${modeId}`);
+      logCommandOk(`mode=${modeId}`, commandCtx(commandId, { hint: modeId }));
     });
   }
 
   async clickAction(commandId: string, selectorPath: string): Promise<CommandResult> {
     return this.withRetry(commandId, async (client) => {
       await client.click(selectorPath);
-      console.log(`[command-executor] Clicked action: ${selectorPath.substring(0, 60)}`);
+      logCommandOk(selectorPath.substring(0, 60), commandCtx(commandId, { hint: selectorPath.substring(0, 60) }));
     });
   }
 
@@ -1241,12 +1247,12 @@ export class CommandExecutor {
         })()
       `) as boolean;
       if (menuStillOpen) {
-        console.warn(`[command-executor] Model dropdown still open — pressing Escape`);
+        logWarn('COMMAND_WARN', 'Model dropdown still open — pressing Escape', commandCtx(commandId));
         await client.pressKey('Escape', 'Escape', 27);
         await sleep(100);
       }
 
-      console.log(`[command-executor] Model set to: ${modelId} (menu closed: ${!menuStillOpen})`);
+      logCommandOk(`model=${modelId} menuClosed=${!menuStillOpen}`, commandCtx(commandId, { hint: modelId }));
     });
   }
 
@@ -1289,7 +1295,7 @@ export class CommandExecutor {
         await client.pressKey('Escape', 'Escape', 27);
         await sleep(100);
       }
-      console.log(`[command-executor] Plan model set to: ${planModelId}`);
+      logCommandOk(`planModel=${planModelId}`, commandCtx(commandId, { hint: planModelId }));
     });
   }
 
@@ -1305,7 +1311,7 @@ export class CommandExecutor {
       return { commandId, ok: true };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[command-executor] Failed (no retry): ${msg}`);
+      logError('COMMAND_FAIL', `Failed (no retry): ${msg}`, commandCtx(commandId));
       return { commandId, ok: false, error: msg };
     }
   }
@@ -1325,8 +1331,10 @@ export class CommandExecutor {
         return { commandId, ok: true };
       } catch (err) {
         lastError = err instanceof Error ? err.message : String(err);
-        console.warn(
-          `[command-executor] Attempt ${attempt + 1}/${MAX_RETRIES + 1} failed: ${lastError}`
+        logWarn(
+          'COMMAND_WARN',
+          `Attempt ${attempt + 1}/${MAX_RETRIES + 1} failed: ${lastError}`,
+          commandCtx(commandId, { attempt: attempt + 1 }),
         );
         if (attempt < MAX_RETRIES) {
           await sleep(RETRY_DELAY_MS);
@@ -1352,8 +1360,10 @@ export class CommandExecutor {
         return { commandId, ok: true, data };
       } catch (err) {
         lastError = err instanceof Error ? err.message : String(err);
-        console.warn(
-          `[command-executor] Attempt ${attempt + 1}/${MAX_RETRIES + 1} failed: ${lastError}`
+        logWarn(
+          'COMMAND_WARN',
+          `Attempt ${attempt + 1}/${MAX_RETRIES + 1} failed: ${lastError}`,
+          commandCtx(commandId, { attempt: attempt + 1 }),
         );
         if (attempt < MAX_RETRIES) {
           await sleep(RETRY_DELAY_MS);

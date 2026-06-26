@@ -1,4 +1,10 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { logWarn, normalizeError, sanitizePathForUi } from '../core/log-event.js';
+import type { LogContext } from '../core/log-event.js';
+
+function wakeCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'wake', op, ...extra };
+}
 
 export type CursorWakeUpdatedBy = 'tray' | 'telegram' | 'cursor-handoff';
 
@@ -14,6 +20,14 @@ const DEFAULT_STATE: CursorWakeState = {
   updatedBy: 'cursor-handoff',
 };
 
+const VALID_UPDATED_BY = new Set<CursorWakeUpdatedBy>(['tray', 'telegram', 'cursor-handoff']);
+
+function parseUpdatedBy(value: unknown): CursorWakeUpdatedBy {
+  return VALID_UPDATED_BY.has(value as CursorWakeUpdatedBy)
+    ? (value as CursorWakeUpdatedBy)
+    : 'cursor-handoff';
+}
+
 export function getCursorWakeStatePath(dataDir: string): string {
   return `${dataDir}/cursor-wake-state.json`;
 }
@@ -27,12 +41,12 @@ export function readCursorWakeState(dataDir: string): CursorWakeState {
         return {
           raiseCursor: raw.raiseCursor,
           updatedAt: raw.updatedAt ?? new Date().toISOString(),
-          updatedBy: raw.updatedBy ?? 'cursor-handoff',
+          updatedBy: parseUpdatedBy(raw.updatedBy),
         };
       }
     }
   } catch {
-    /* fresh start */
+    /* corrupt or unreadable — bootstrap below, no read-side log */
   }
   writeCursorWakeState(dataDir, DEFAULT_STATE);
   return { ...DEFAULT_STATE };
@@ -47,12 +61,16 @@ export function writeCursorWakeState(
     updatedAt: new Date().toISOString(),
     updatedBy: partial.updatedBy,
   };
+  const path = getCursorWakeStatePath(dataDir);
   try {
-    writeFileSync(getCursorWakeStatePath(dataDir), JSON.stringify(state, null, 2));
+    mkdirSync(dataDir, { recursive: true });
+    writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
   } catch (err) {
-    console.warn(
-      '[cursor-wake-state] Failed to save:',
-      err instanceof Error ? err.message : err
+    const { message, errno } = normalizeError(err);
+    logWarn(
+      'WAKE_STATE_SAVE_FAIL',
+      `Failed to save ${sanitizePathForUi(path)}: ${message}`,
+      wakeCtx('persist_state', { hint: partial.updatedBy, errno }),
     );
   }
   return state;

@@ -4,6 +4,8 @@ import { HANDOFF_BRAND_ROOT_CSS } from './handoff-brand-css.js';
 export interface HandoffSettingsViewState {
   locale: 'en' | 'ru';
   isWindows: boolean;
+  dataDir: string;
+  dataDirSource: 'custom' | 'project' | 'globalStorage';
   serverHost: string;
   serverPort: number;
   webappPassword: string;
@@ -118,6 +120,11 @@ export function renderHandoffSettingsHtml(state: HandoffSettingsViewState, dict:
   const hasAllowedUsers = state.telegramAllowedUsers.split(',').some((s) => /^\d+$/.test(s.trim()));
   const maskedToken = hasBotToken ? state.telegramBotToken.slice(0, 6) + '...' + state.telegramBotToken.slice(-4) : '';
   const browserHost = state.serverHost === '0.0.0.0' ? '<your-ip>' : state.serverHost;
+  const dataDirSourceLabel = state.dataDirSource === 'custom'
+    ? t('ext.handoffSettings.dataDir.source.custom', 'Custom path from settings')
+    : state.dataDirSource === 'project'
+      ? t('ext.handoffSettings.dataDir.source.project', 'Project default (./data)')
+      : t('ext.handoffSettings.dataDir.source.global', 'Extension user storage');
   const tgReg = state.telegramRegisteredUsers.length > 0;
   const hasPw = !!state.webappPassword.trim();
   const needsPasswordWarn = networkMode !== 'localhost' && !hasPw;
@@ -242,7 +249,17 @@ export function renderHandoffSettingsHtml(state: HandoffSettingsViewState, dict:
          <p class="hint cfg-hint">${escapeHtml(t('ext.handoffSettings.password.description', 'Required when you open the server from a phone or another computer.'))}</p>
        </div>
        <p class="hint"><a href="#" class="lnk" data-action="openDoc" data-path="docs/guide.md#tailscale">${escapeHtml(t('ext.handoffSettings.network.tailscaleGuide', 'Tailscale guide'))}</a></p>
-       ${saveBtn('saveNetworking', t('ext.handoffSettings.network.saveAndRestart', 'Save bind address and restart'))}`),
+       ${saveBtn('saveNetworking', t('ext.handoffSettings.network.saveAndRestart', 'Save bind address and restart'))}
+       <div class="cfg" style="margin-top:10px">
+         ${cfgRow(t('ext.handoffSettings.dataDir.title', 'Runtime data folder'),
+           `<div class="path-row">
+              <code id="dataDirPath" class="path-val">${escapeHtml(state.dataDir)}</code>
+              <button type="button" class="mini" id="copyDataDir">${escapeHtml(t('web.common.copy', 'Copy'))}</button>
+              <button type="button" class="mini" id="openDataDir">${escapeHtml(t('ext.handoffSettings.dataDir.open', 'Open folder'))}</button>
+            </div>`)}
+         <p class="hint cfg-hint">${escapeHtml(dataDirSourceLabel)}</p>
+         <p class="hint cfg-hint">${escapeHtml(t('ext.handoffSettings.dataDir.hint', 'Logs, Telegram state, and queues are stored here.'))}</p>
+       </div>`),
 
     card('telegram', t('ext.handoffSettings.tab.telegram', 'Telegram'),
       `<p class="lead">${escapeHtml(t('ext.handoffSettings.telegram.lead', 'Five steps, top to bottom. Each step unlocks the next — do them in order.'))}</p>
@@ -445,6 +462,14 @@ export function renderHandoffSettingsHtml(state: HandoffSettingsViewState, dict:
     .cfg-sel:focus, .cfg-in:focus { outline: 1px solid var(--link); outline-offset: -1px; }
     .pw-row { display: flex; gap: 6px; align-items: center; }
     .pw-row .cfg-in { flex: 1; min-width: 0; }
+    .path-row { display: flex; gap: 6px; align-items: center; }
+    .path-val {
+      flex: 1; min-width: 0; padding: 6px 8px;
+      border: 1px solid var(--border); border-radius: 2px;
+      background: var(--input-bg); color: var(--input-fg);
+      font: inherit; font-size: 12px; font-family: var(--mono);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
     .mini {
       font: inherit; font-size: 12px; padding: 5px 9px; flex-shrink: 0;
       border: 1px solid var(--border); border-radius: 2px;
@@ -661,6 +686,13 @@ export function renderHandoffSettingsHtml(state: HandoffSettingsViewState, dict:
       if (pw) navigator.clipboard.writeText(pw).then(() => sendMsg({ type: 'copyPassword' })).catch(() => sendMsg({ type: 'copyPassword' }));
       else sendMsg({ type: 'copyPassword' });
     });
+    document.getElementById('copyDataDir')?.addEventListener('click', () => {
+      const p = document.getElementById('dataDirPath')?.textContent?.trim();
+      if (p) {
+        navigator.clipboard.writeText(p).then(() => sendMsg({ type: 'copyDataDir', path: p })).catch(() => sendMsg({ type: 'copyDataDir', path: p }));
+      }
+    });
+    document.getElementById('openDataDir')?.addEventListener('click', () => sendMsg({ type: 'openDataDir' }));
     document.getElementById('savePassword')?.addEventListener('click', () => {
       sendMsg({ type: 'savePassword', password: document.getElementById('passwordInput')?.value || '' });
     });

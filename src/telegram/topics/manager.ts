@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { dirname } from 'path';
 import type { CursorWindow, ChatTab } from '../../core/types.js';
 import { cleanTabTitle } from '../../ide/parse/tabs.js';
 import type { TelegramApiClient } from '../types.js';
@@ -12,6 +13,8 @@ import {
   shouldAllowMappingTitleUpdate,
 } from './guards.js';
 import { getDataDir } from '../../core/paths.js';
+import { logError, logInfo, logWarn, normalizeError, sanitizePathForUi } from '../../core/log-event.js';
+import type { LogContext } from '../../core/log-event.js';
 import { normalizeNotifyMode } from '../ui/notify-mode.js';
 
 export interface TopicMapping {
@@ -41,6 +44,14 @@ export interface TopicMapping {
 }
 
 const persistPath = () => `${getDataDir()}/telegram-topics.json`;
+
+function topicCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'telegram', op, hint: persistPath(), ...extra };
+}
+
+function formatErrDetail(err: unknown): string {
+  return err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err);
+}
 
 /**
  * Canonical window+tab key. windowId when available (stable in session).
@@ -145,9 +156,21 @@ export class TopicManager {
     // different windowIds from past Cursor sessions. Take most recent —
     // last worked with — and rebind to current windowId.
     const best = titleMatches.reduce((a, b) => (a.lastActive >= b.lastActive ? a : b));
+    const prevWindowId = best.windowId;
     best.windowId = windowId;
     this.byWindowIdTab.set(runtimeKey, best);
     best.lastActive = Date.now();
+    if (prevWindowId !== windowId) {
+      logInfo(
+        'TG_TOPIC_WINDOW_REBIND',
+        `Rebound thread ${best.threadId} to window ${windowId} (was ${prevWindowId})`,
+        topicCtx('resolve_thread', {
+          threadId: best.threadId,
+          windowId,
+          windowTitle,
+        }),
+      );
+    }
     return best.threadId;
   }
 
@@ -203,9 +226,28 @@ export class TopicManager {
           };
           this.addMapping(mapping);
           created.push(mapping);
+          logInfo(
+            'TG_TOPIC_CREATE_OK',
+            `Created topic "${topicName}" → thread ${mapping.threadId}`,
+            topicCtx('create_topic', {
+              threadId: mapping.threadId,
+              chatId,
+              windowId: win.id,
+              windowTitle: win.title,
+            }),
+          );
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.error(`[topic-manager] Failed to create topic "${topicName}": ${msg}`);
+          const norm = normalizeError(err);
+          logError(
+            'TG_TOPIC_CREATE_FAIL',
+            `Failed to create topic "${topicName}": ${formatErrDetail(err)}`,
+            topicCtx('create_topic', {
+              chatId,
+              windowId: win.id,
+              windowTitle: win.title,
+              errno: norm.errno,
+            }),
+          );
         }
       }
     }
@@ -233,6 +275,16 @@ export class TopicManager {
   registerMapping(mapping: TopicMapping): void {
     mapping.tabTitle = cleanTabTitle(mapping.tabTitle);
     this.addMapping(mapping);
+    logInfo(
+      'TG_TOPIC_REGISTER',
+      `Registered thread ${mapping.threadId} for ${mapping.windowTitle} — ${mapping.tabTitle}`,
+      topicCtx('register', {
+        threadId: mapping.threadId,
+        windowId: mapping.windowId,
+        windowTitle: mapping.windowTitle,
+        composerId: mapping.composerId,
+      }),
+    );
     this.saveToDisk();
   }
 
@@ -252,7 +304,10 @@ export class TopicManager {
     windowTitle?: string,
   ): TopicMapping | undefined {
     const existing = this.byThread.get(threadId);
-    if (!existing) return undefined;
+    if (!existing) {
+      logWarn('TG_TOPIC_TOUCH_MISS', `touchAfterInbound: unknown thread ${threadId}`, topicCtx('touch_after_inbound', { threadId }));
+      return undefined;
+    }
     if (windowId && windowTitle && existing.windowId !== windowId
       && normalizeWindowTitle(existing.windowTitle).toLowerCase()
         === normalizeWindowTitle(windowTitle).toLowerCase()) {
@@ -271,22 +326,39 @@ export class TopicManager {
       const mappedStable = normalizeComposerId(existing.composerId);
       const ownedElsewhere = this.findByComposerId(stable);
       if (ownedElsewhere && ownedElsewhere.threadId !== threadId) {
-        console.warn(
-          `[topic-manager] touchAfterInbound: composer ${stable.substring(0, 8)} ` +
-          `already on thread ${ownedElsewhere.threadId} — not assigning to ${threadId}`,
+        logWarn(
+          'TG_TOPIC_COMPOSER_CONFLICT',
+          `touchAfterInbound: composer ${stable.substring(0, 8)} already on thread ${ownedElsewhere.threadId} — not assigning to ${threadId}`,
+          topicCtx('touch_after_inbound', {
+            threadId,
+            windowId: existing.windowId,
+            windowTitle: existing.windowTitle,
+            composerId: stable,
+          }),
         );
       } else if (mappedStable && isStableComposerId(mappedStable) && mappedStable !== stable) {
-        console.warn(
-          `[topic-manager] touchAfterInbound: keep composer ${mappedStable.substring(0, 8)} ` +
-          `on thread ${threadId} (active reported ${stable.substring(0, 8)})`,
+        logWarn(
+          'TG_TOPIC_COMPOSER_KEEP',
+          `touchAfterInbound: keep composer ${mappedStable.substring(0, 8)} on thread ${threadId} (active reported ${stable.substring(0, 8)})`,
+          topicCtx('touch_after_inbound', {
+            threadId,
+            windowId: existing.windowId,
+            windowTitle: existing.windowTitle,
+            composerId: mappedStable,
+          }),
         );
       } else {
         existing.composerId = stable;
       }
     } else if (stable && !tabMatches) {
-      console.warn(
-        `[topic-manager] touchAfterInbound: keep composer on thread ${threadId} ` +
-        `(active tab "${cleanedActive}" ≠ mapping "${existing.tabTitle}")`,
+      logWarn(
+        'TG_TOPIC_TAB_MISMATCH',
+        `touchAfterInbound: keep composer on thread ${threadId} (active tab "${cleanedActive}" ≠ mapping "${existing.tabTitle}")`,
+        topicCtx('touch_after_inbound', {
+          threadId,
+          windowId: existing.windowId,
+          windowTitle: existing.windowTitle,
+        }),
       );
     }
     const now = Date.now();
@@ -311,9 +383,14 @@ export class TopicManager {
         cleaned.toLowerCase() !== existing.tabTitle.toLowerCase() &&
         !shouldAllowMappingTitleUpdate(existing.tabTitle, cleaned)
       ) {
-        console.warn(
-          `[topic-manager] touchAfterInbound: keep tabTitle "${existing.tabTitle}" ` +
-          `(ignore "${cleaned}" on thread ${threadId})`,
+        logWarn(
+          'TG_TOPIC_TITLE_KEEP',
+          `touchAfterInbound: keep tabTitle "${existing.tabTitle}" (ignore "${cleaned}" on thread ${threadId})`,
+          topicCtx('touch_after_inbound', {
+            threadId,
+            windowId: existing.windowId,
+            windowTitle: existing.windowTitle,
+          }),
         );
       }
     }
@@ -370,11 +447,19 @@ export class TopicManager {
     const stable = normalizeComposerId(composerId);
     if (!stable) return false;
     const mapping = this.byThread.get(threadId);
-    if (!mapping) return false;
+    if (!mapping) {
+      logWarn('TG_TOPIC_BACKFILL_MISS', `backfillComposerId: unknown thread ${threadId}`, topicCtx('backfill_composer', { threadId }));
+      return false;
+    }
     if (normalizeComposerId(mapping.composerId) === stable) return false;
     if (isStableComposerId(mapping.composerId)) return false;
     mapping.composerId = stable;
     this.saveToDisk();
+    logInfo(
+      'TG_TOPIC_BACKFILL_OK',
+      `thread ${threadId}: composer ${stable.substring(0, 8)}`,
+      topicCtx('backfill_composer', { threadId, windowId: mapping.windowId, composerId: stable }),
+    );
     return true;
   }
 
@@ -417,7 +502,12 @@ export class TopicManager {
     workspacePath?: string
   ): TopicMapping | undefined {
     const existing = this.byThread.get(threadId);
-    if (!existing) return undefined;
+    if (!existing) {
+      logWarn('TG_TOPIC_UPDATE_MISS', `updateMappingTarget: unknown thread ${threadId}`, topicCtx('update_mapping_target', { threadId }));
+      return undefined;
+    }
+    const prevWindowId = existing.windowId;
+    const prevTabTitle = existing.tabTitle;
     // Remove old indexes for previous target.
     const oldRuntimeKey = makeRuntimeKey(existing.windowId, existing.tabTitle);
     if (this.byWindowIdTab.get(oldRuntimeKey)?.threadId === threadId) {
@@ -444,9 +534,14 @@ export class TopicManager {
     if (!occupant || occupant.threadId === threadId) {
       this.byWindowIdTab.set(newRuntimeKey, existing);
     } else {
-      console.warn(
-        `[topic-manager] runtime key "${newRuntimeKey}" taken by thread ${occupant.threadId} — ` +
-        `thread ${threadId} has no title key (routing by composerId)`,
+      logWarn(
+        'TG_TOPIC_RUNTIME_KEY_TAKEN',
+        `runtime key "${newRuntimeKey}" taken by thread ${occupant.threadId} — thread ${threadId} has no title key (routing by composerId)`,
+        topicCtx('update_mapping_target', {
+          threadId,
+          windowId,
+          windowTitle,
+        }),
       );
     }
     const newTitleKey = makeTitleKey(existing.windowTitle, existing.tabTitle);
@@ -456,15 +551,30 @@ export class TopicManager {
       this.byTitleTab.set(newTitleKey, list);
     }
     this.saveToDisk();
+    logInfo(
+      'TG_TOPIC_UPDATE_OK',
+      `thread ${threadId}: ${prevWindowId}/${prevTabTitle} → ${windowId}/${existing.tabTitle}`,
+      topicCtx('update_mapping_target', {
+        threadId,
+        windowId,
+        windowTitle,
+      }),
+    );
     return existing;
   }
 
   /** User forum topic name (§28). tabTitle / routing unchanged. */
   setTopicLabel(threadId: number, topicLabel: string): TopicMapping | undefined {
     const existing = this.byThread.get(threadId);
-    if (!existing) return undefined;
+    if (!existing) {
+      logWarn('TG_TOPIC_LABEL_MISS', `setTopicLabel: unknown thread ${threadId}`, topicCtx('set_topic_label', { threadId }));
+      return undefined;
+    }
     const cleaned = normalizeTopicLabelInput(topicLabel);
-    if (!cleaned) return undefined;
+    if (!cleaned) {
+      logWarn('TG_TOPIC_LABEL_REJECT', `setTopicLabel: empty label for thread ${threadId}`, topicCtx('set_topic_label', { threadId }));
+      return undefined;
+    }
     existing.topicLabel = cleaned;
     existing.lastActive = Date.now();
     this.saveToDisk();
@@ -473,9 +583,15 @@ export class TopicManager {
 
   setTopicMode(threadId: number, mode: string): TopicMapping | undefined {
     const existing = this.byThread.get(threadId);
-    if (!existing) return undefined;
+    if (!existing) {
+      logWarn('TG_TOPIC_MODE_MISS', `setTopicMode: unknown thread ${threadId}`, topicCtx('set_topic_mode', { threadId }));
+      return undefined;
+    }
     const normalized = normalizeTopicMode(mode);
-    if (!normalized) return existing;
+    if (!normalized) {
+      logWarn('TG_TOPIC_MODE_REJECT', `setTopicMode: invalid mode "${mode}" for thread ${threadId}`, topicCtx('set_topic_mode', { threadId }));
+      return existing;
+    }
     if (existing.topicMode === normalized) return existing;
     existing.topicMode = normalized;
     existing.lastActive = Date.now();
@@ -485,9 +601,15 @@ export class TopicManager {
 
   setNotifyMode(threadId: number, notifyMode: string): TopicMapping | undefined {
     const existing = this.byThread.get(threadId);
-    if (!existing) return undefined;
+    if (!existing) {
+      logWarn('TG_TOPIC_NOTIFY_MISS', `setNotifyMode: unknown thread ${threadId}`, topicCtx('set_notify_mode', { threadId }));
+      return undefined;
+    }
     const normalized = normalizeNotifyMode(notifyMode);
-    if (!normalized) return undefined;
+    if (!normalized) {
+      logWarn('TG_TOPIC_NOTIFY_REJECT', `setNotifyMode: invalid preset "${notifyMode}" for thread ${threadId}`, topicCtx('set_notify_mode', { threadId }));
+      return undefined;
+    }
     if (existing.notifyMode === normalized) return existing;
     existing.notifyMode = normalized;
     existing.lastActive = Date.now();
@@ -497,7 +619,10 @@ export class TopicManager {
 
   removeMapping(threadId: number): boolean {
     const mapping = this.byThread.get(threadId);
-    if (!mapping) return false;
+    if (!mapping) {
+      logWarn('TG_TOPIC_REMOVE_MISS', `removeMapping: unknown thread ${threadId}`, topicCtx('remove_mapping', { threadId }));
+      return false;
+    }
     this.byThread.delete(threadId);
     const runtimeKey = makeRuntimeKey(mapping.windowId, mapping.tabTitle);
     if (this.byWindowIdTab.get(runtimeKey)?.threadId === threadId) {
@@ -511,24 +636,39 @@ export class TopicManager {
       else this.byTitleTab.set(titleKey, filtered);
     }
     this.saveToDisk();
+    logInfo(
+      'TG_TOPIC_REMOVED',
+      `Removed thread ${threadId} (${mapping.windowTitle} — ${mapping.tabTitle})`,
+      topicCtx('remove_mapping', {
+        threadId,
+        windowId: mapping.windowId,
+        windowTitle: mapping.windowTitle,
+      }),
+    );
     return true;
   }
 
   clearAll(): void {
+    const count = this.byThread.size;
     this.byWindowIdTab.clear();
     this.byTitleTab.clear();
     this.byThread.clear();
+    logInfo('TG_TOPIC_CLEAR_ALL', `Cleared ${count} topic mapping(s)`, topicCtx('clear_all'));
     this.saveToDisk();
   }
 
   resetHighWaterMark(): void {
     this._highWaterMark = 0;
+    logInfo('TG_TOPIC_HWM_RESET', 'highWaterMark reset to 0', topicCtx('reset_hwm'));
     this.saveToDisk();
   }
 
   private loadFromDisk(): void {
     try {
-      if (!existsSync(persistPath())) return;
+      if (!existsSync(persistPath())) {
+        logInfo('TG_TOPIC_LOAD_SKIP', 'No telegram-topics.json yet — empty store', topicCtx('load_persist'));
+        return;
+      }
       const raw = readFileSync(persistPath(), 'utf-8');
       const data = JSON.parse(raw) as { mappings?: TopicMapping[]; highWaterMark?: number } | TopicMapping[];
 
@@ -553,22 +693,34 @@ export class TopicManager {
       }
       if (hwm > this._highWaterMark) this._highWaterMark = hwm;
 
-      console.log(`[topic-manager] Loaded ${this.byThread.size} mappings`);
-    } catch {
-      // clean start
+      logInfo('TG_TOPIC_LOAD_OK', `Loaded ${this.byThread.size} topic mappings`, topicCtx('load_persist'));
+    } catch (err) {
+      const norm = normalizeError(err);
+      const path = persistPath();
+      logError(
+        'TG_TOPIC_LOAD_FAIL',
+        `Failed to load ${sanitizePathForUi(path)}: ${formatErrDetail(err)}`,
+        topicCtx('load_persist', { errno: norm.errno }),
+      );
     }
   }
 
   private saveToDisk(): void {
+    const path = persistPath();
     try {
+      mkdirSync(dirname(path), { recursive: true });
       const mappings = this.getAllMappings();
-      writeFileSync(persistPath(), JSON.stringify({
+      writeFileSync(path, JSON.stringify({
         mappings,
         highWaterMark: this._highWaterMark,
       }, null, 2));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[topic-manager] Failed to save: ${msg}`);
+      const norm = normalizeError(err);
+      logError(
+        'TG_TOPIC_SAVE_FAIL',
+        `Failed to save ${this.byThread.size} mapping(s) to ${sanitizePathForUi(path)}: ${formatErrDetail(err)}`,
+        topicCtx('persist', { errno: norm.errno }),
+      );
     }
   }
 }

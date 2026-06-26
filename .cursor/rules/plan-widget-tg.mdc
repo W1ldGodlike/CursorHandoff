@@ -1,8 +1,10 @@
 ---
-description: Plan mode and plan in TG — global skill plan-widget-tg
+description: Plan mode and plan in TG — skills plan-widget-tg + plan-living-build (Build override)
 alwaysApply: true
 ---
 
 # Plan mode and plan in TG
 
 Global skill **`plan-widget-tg`**. Details live there; this rule is a pointer only.
+
+**Build execution:** rule **`plan-living-build`** — Living Plan checklist / Execution Log **must** be updated during Build (overrides Cursor «Do NOT edit the plan file»).

@@ -1,6 +1,12 @@
 import { EventEmitter } from 'events';
 import type { ChatElement, CursorState, CursorWindow } from '../core/types.js';
+import { logWarn } from '../core/log-event.js';
+import type { LogContext } from '../core/log-event.js';
 import { AGENT_ACTIVITY_STALE_MS } from '../ide/activity-stale.js';
+
+function stateCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'state', op, ...extra };
+}
 
 function composerKey(state: CursorState): string {
   const tab = state.chatTabs?.find((t) => t.isActive);
@@ -122,9 +128,14 @@ export class StateManager extends EventEmitter {
   onExtractionFailure(message: string | null): void {
     this.consecutiveNulls++;
     if (this.consecutiveNulls === this.nullWarningThreshold) {
-      console.warn(
-        `[state-manager] ${this.nullWarningThreshold} consecutive failed extractions. ` +
-        'Selectors may need updating or the Cursor window may be background-throttled.'
+      logWarn(
+        'STATE_EXTRACT_STREAK',
+        `${this.nullWarningThreshold} consecutive failed extractions. `
+        + 'Selectors may need updating or the Cursor window may be background-throttled.',
+        stateCtx('extract', {
+          windowId: this.currentState.activeWindowId || undefined,
+          hint: String(this.nullWarningThreshold),
+        }),
       );
     }
 

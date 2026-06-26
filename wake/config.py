@@ -232,9 +232,10 @@ def _load_cursor_settings() -> dict[str, Any]:
     return _load_json(settings_path)
 
 
-def log_line(cfg: Config, message: str) -> None:
+def log_line(cfg: Config, message: str, *, code: str | None = None) -> None:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    line = f"{ts} {message}"
+    tail = f" code={code}" if code else ""
+    line = f"{ts} {message}{tail}"
     print(line, flush=True)
     try:
         with cfg.log_path.open("a", encoding="utf-8") as f:

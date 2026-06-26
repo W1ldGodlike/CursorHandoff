@@ -1,9 +1,15 @@
 import { readFileSync, writeFileSync } from 'fs';
 import { basename } from 'path';
 import type { TelegramApiClient, TgKeyboard, TgReplyMarkup } from '../types.js';
+import { logInfo } from '../../core/log-event.js';
+import type { LogContext } from '../../core/log-event.js';
 
 const HTTP_TIMEOUT_MS = 30_000;
 const UPLOAD_TIMEOUT_MS = 120_000;
+
+function rawApiCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'telegram', op, ...extra };
+}
 
 export class RawTelegramApiClient implements TelegramApiClient {
   private baseUrl: string;
@@ -38,9 +44,16 @@ export class RawTelegramApiClient implements TelegramApiClient {
     if (options?.parse_mode) body.parse_mode = options.parse_mode;
     if (options?.reply_markup) body.reply_markup = options.reply_markup;
     const result = await this.call<{ message_id: number }>('sendMessage', body);
-    // Trace each send — see which thread a duplicate landed in.
     const preview = text.replace(/\s+/g, ' ').slice(0, 60);
-    console.log(`[telegram-api] send thread=${options?.message_thread_id ?? 'main'} msgId=${result.message_id} text="${preview}"`);
+    logInfo(
+      'TG_API_SEND_OK',
+      `msgId=${result.message_id} "${preview}"`,
+      rawApiCtx('send_message', {
+        chatId,
+        threadId: options?.message_thread_id,
+        hint: String(result.message_id),
+      }),
+    );
     return result;
   }
 
@@ -66,7 +79,15 @@ export class RawTelegramApiClient implements TelegramApiClient {
     if (options?.reply_markup) body.reply_markup = options.reply_markup;
     const result = await this.call<{ message_id: number }>('sendRichMessage', body);
     const preview = richHtml.replace(/\s+/g, ' ').slice(0, 60);
-    console.log(`[telegram-api] sendRich thread=${options?.message_thread_id ?? 'main'} msgId=${result.message_id} html="${preview}"`);
+    logInfo(
+      'TG_API_SEND_RICH_OK',
+      `msgId=${result.message_id} "${preview}"`,
+      rawApiCtx('send_rich_message', {
+        chatId,
+        threadId: options?.message_thread_id,
+        hint: String(result.message_id),
+      }),
+    );
     return result;
   }
 

@@ -2,6 +2,7 @@ import { spawn, exec } from 'child_process';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { promisify } from 'util';
+import { formatExtensionLogLine, type LogLevel } from './log-event.js';
 import { syncWakeConfig } from './wake-config.js';
 
 const execAsync = promisify(exec);
@@ -41,7 +42,7 @@ function readRaiseCursor(dataDir: string): boolean {
 }
 
 /** Same file as server `cursor-wake-state.json` — /pause /resume / tray. */
-export function writeRaiseCursor(dataDir: string, raiseCursor: boolean): void {
+export function writeRaiseCursor(dataDir: string, raiseCursor: boolean, log?: (msg: string) => void): void {
   try {
     writeFileSync(
       join(dataDir, 'cursor-wake-state.json'),
@@ -52,7 +53,8 @@ export function writeRaiseCursor(dataDir: string, raiseCursor: boolean): void {
       }, null, 2),
     );
   } catch (err) {
-    console.warn('[wake-launcher] writeRaiseCursor:', err instanceof Error ? err.message : err);
+    const msg = err instanceof Error ? err.message : String(err);
+    wakeLog(log, 'warn', `writeRaiseCursor: ${msg}`, 'WAKE_RAISE_CURSOR_FAIL');
   }
 }
 
@@ -68,6 +70,15 @@ export async function getCursorWakeStatus(dataDir: string): Promise<CursorWakeSt
   };
 }
 
+function wakeLog(
+  log: ((msg: string) => void) | undefined,
+  level: LogLevel,
+  message: string,
+  code: string,
+): void {
+  log?.(formatExtensionLogLine(level, message, { scope: 'wake', code }));
+}
+
 function spawnWake(exe: string, dataDir: string, log?: (msg: string) => void): void {
   const child = spawn(exe, [], {
     detached: true,
@@ -77,7 +88,7 @@ function spawnWake(exe: string, dataDir: string, log?: (msg: string) => void): v
     env: { ...process.env, DATA_DIR: dataDir },
   });
   child.on('error', (err) => {
-    log?.(`spawn error: ${err.message}`);
+    wakeLog(log, 'error', `spawn error: ${err.message}`, 'WAKE_SPAWN_ERR');
   });
   child.unref();
 }
@@ -91,7 +102,7 @@ export async function ensureCursorWakeRunning(
 
   const exe = wakeExePath();
   if (!existsSync(exe)) {
-    log?.(`not installed (expected ${exe})`);
+    wakeLog(log, 'info', `not installed (expected ${exe})`, 'WAKE_NOT_INSTALLED');
     return;
   }
 
@@ -99,17 +110,17 @@ export async function ensureCursorWakeRunning(
 
   const count = await countCursorWakeProcesses();
   if (count > 2) {
-    log?.('too many instances — restarting');
+    wakeLog(log, 'warn', 'too many instances — restarting', 'WAKE_TOO_MANY');
     await restartCursorWake(dataDir, log);
     return;
   }
   if (count > 0) {
-    log?.('already running');
+    wakeLog(log, 'info', 'already running', 'WAKE_ALREADY_RUNNING');
     return;
   }
 
   spawnWake(exe, dataDir, log);
-  log?.('started');
+  wakeLog(log, 'info', 'started', 'WAKE_STARTED');
 }
 
 /** Restart Wake: stop + start with current DATA_DIR. */
@@ -121,13 +132,13 @@ export async function restartCursorWake(
 
   const exe = wakeExePath();
   if (!existsSync(exe)) {
-    log?.(`not installed (expected ${exe})`);
+    wakeLog(log, 'info', `not installed (expected ${exe})`, 'WAKE_NOT_INSTALLED');
     return;
   }
 
   try {
     await execAsync('taskkill /IM CursorWake.exe /F', { windowsHide: true });
-    log?.('stopped');
+    wakeLog(log, 'info', 'stopped', 'WAKE_STOPPED');
   } catch {
     /* process may not exist */
   }
@@ -135,7 +146,7 @@ export async function restartCursorWake(
   await sleep(800);
   syncWakeConfig(dataDir);
   spawnWake(exe, dataDir, log);
-  log?.('restarted');
+  wakeLog(log, 'info', 'restarted', 'WAKE_RESTARTED');
 }
 
 function sleep(ms: number): Promise<void> {

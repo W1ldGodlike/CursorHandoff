@@ -7,6 +7,8 @@ import { formatNotifyModeLabel, normalizeNotifyMode, resolveNotifyMode } from '.
 import { tgKeyboard, type BotContext } from '../types.js';
 import { resolveTargetWindow } from '../routing/window-resolver.js';
 import { t } from '../../i18n/t.js';
+import { logInfo, logWarn, normalizeError } from '../../core/log-event.js';
+import type { LogContext } from '../../core/log-event.js';
 import {
   type CommandDeps,
   genId,
@@ -50,12 +52,14 @@ export async function handleNotifyMode(ctx: BotContext, deps: CommandDeps): Prom
 
   const next = normalizeNotifyMode(arg);
   if (!next) {
+    logWarn('TG_NOTIFY_MODE_REJECT', `invalid notify mode: ${arg}`, modeCtx('notify_mode', ctx, { threadId }));
     await ctx.reply(t('tg.msg.notifyMode.badMode', '⚠️ Mode: <code>full</code>, <code>quiet</code>, or <code>final</code>.'), { parse_mode: 'HTML' });
     return;
   }
 
   const updated = deps.topicManager.setNotifyMode(threadId, next);
   if (!updated) {
+    logWarn('TG_NOTIFY_MODE_SAVE_FAIL', 'setNotifyMode returned undefined', modeCtx('notify_mode', ctx, { threadId }));
     await ctx.reply(t('tg.msg.notifyMode.saveFailed', '⚠️ Could not save mode.'));
     return;
   }
@@ -67,6 +71,16 @@ export async function handleNotifyMode(ctx: BotContext, deps: CommandDeps): Prom
 }
 export function getThreadIdFromContext(ctx: BotContext): number | undefined {
   return ctx.message?.message_thread_id ?? ctx.callbackQuery?.message?.message_thread_id;
+}
+
+function modeCtx(op: string, ctx: BotContext, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return {
+    scope: 'telegram',
+    op,
+    threadId: getThreadIdFromContext(ctx),
+    chatId: ctx.chat?.id,
+    ...extra,
+  };
 }
 
 export async function ensureTopicWindow(ctx: BotContext, deps: CommandDeps): Promise<boolean> {
@@ -91,6 +105,11 @@ export async function ensureTopicWindow(ctx: BotContext, deps: CommandDeps): Pro
     });
 
     if (!targetWin) {
+      logWarn(
+        'TG_ENSURE_WINDOW_NOT_FOUND',
+        `window «${mapping.windowTitle}» not found`,
+        modeCtx('ensure_window', ctx, { threadId, windowId: mapping.windowId }),
+      );
       const open = deps.stateManager.getCurrentState().windows.map(w => w.title).join(', ') || 'none';
       const hint = resolveProjectPath(mapping)
         ? ''
@@ -111,7 +130,13 @@ export async function ensureTopicWindow(ctx: BotContext, deps: CommandDeps): Pro
       await deps.cdpBridge.switchWindow(targetWin.id);
       deps.windowMonitor.setHomeWindow(targetWin.id);
       await waitForFreshExtraction(deps.stateManager, genBefore, 4000);
-    } catch {
+    } catch (err) {
+      const norm = normalizeError(err);
+      logWarn(
+        'TG_ENSURE_WINDOW_SWITCH_FAIL',
+        norm.message,
+        modeCtx('ensure_window', ctx, { threadId, windowId: mapping.windowId, errno: norm.errno }),
+      );
       await ctx.reply(t('tg.msg.window.switchFailed', '⚠️ Could not switch to target window.'));
       return false;
     }
@@ -136,7 +161,11 @@ export async function handleMode(ctx: BotContext, deps: CommandDeps): Promise<vo
   const state = deps.stateManager.getCurrentState();
   const activeWin = state.windows.find(w => w.id === state.activeWindowId);
   const activeTab = state.chatTabs.find(t => t.isActive);
-  console.log(`[telegram] /set_mode for "${activeWin?.title ?? '?'}" / "${activeTab?.title ?? '?'}" → ${state.mode.current}`);
+  logInfo(
+    'TG_MODE_MENU',
+    `/set_mode for "${activeWin?.title ?? '?'}" / "${activeTab?.title ?? '?'}" → ${state.mode.current}`,
+    modeCtx('set_mode', ctx, { windowId: activeWin?.id, windowTitle: activeWin?.title }),
+  );
 
   const kb = tgKeyboard();
   for (const mode of state.mode.available) {
@@ -155,19 +184,29 @@ export async function handleModel(ctx: BotContext, deps: CommandDeps): Promise<v
   const state = deps.stateManager.getCurrentState();
   const activeWin = state.windows.find(w => w.id === state.activeWindowId);
   const activeTab = state.chatTabs.find(t => t.isActive);
-  console.log(`[telegram] /pick_model for "${activeWin?.title ?? '?'}" / "${activeTab?.title ?? '?'}" → ${state.model.current}`);
 
   const result = await deps.commandExecutor.getModelOptions(genId());
   const raw = result.data as { options?: { id: string; label: string; selected?: boolean }[] } | undefined;
   const options = result.ok && Array.isArray(raw?.options) ? raw.options : [];
 
   if (options.length === 0) {
+    logWarn(
+      'TG_MODEL_OPTIONS_FAIL',
+      result.error ?? 'empty model options',
+      modeCtx('pick_model', ctx, { windowId: activeWin?.id, hint: state.model.current }),
+    );
     await ctx.reply(
       t('tg.msg.model.loadFailed', '<b>Current model:</b> {model}\n<i>Could not load model list from Cursor.</i>', { model: escapeHtml(state.model.current) }),
       { parse_mode: 'HTML' }
     );
     return;
   }
+
+  logInfo(
+    'TG_MODEL_MENU',
+    `/pick_model for "${activeWin?.title ?? '?'}" / "${activeTab?.title ?? '?'}" → ${state.model.current}`,
+    modeCtx('pick_model', ctx, { windowId: activeWin?.id, windowTitle: activeWin?.title, hint: `options=${options.length}` }),
+  );
 
   const kb = tgKeyboard();
   const currentLower = state.model.current.toLowerCase();

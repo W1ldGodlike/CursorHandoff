@@ -13,6 +13,8 @@ import { resolveTargetWindow } from '../routing/window-resolver.js';
 import { resolveProjectPath } from '../../workspace/launcher.js';
 import { countPending } from '../../workspace/offline-queue.js';
 import { getDataDir } from '../../core/paths.js';
+import { logError, logInfo, logWarn, normalizeError } from '../../core/log-event.js';
+import type { LogContext } from '../../core/log-event.js';
 import type { WindowSnapshot } from '../../state/windows.js';
 import type { BotContext } from '../types.js';
 import { t } from '../../i18n/t.js';
@@ -22,6 +24,14 @@ import {
   sleep,
   TOPIC_CREATE_DELAY_MS,
 } from './shared.js';
+
+function threadCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'telegram', op, ...extra };
+}
+
+function formatErrDetail(err: unknown): string {
+  return err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err);
+}
 
 let newChatInFlight = false;
 
@@ -118,6 +128,7 @@ export async function handleCloseChat(ctx: BotContext, deps: CommandDeps): Promi
     onStatus: async (text) => { await ctx.reply(text, { parse_mode: 'HTML' }); },
   });
   if (!ctxResult.ok) {
+    logWarn('TG_CLOSE_CHAT_CONTEXT_FAIL', ctxResult.error, threadCtx('close_chat', { threadId, windowId: mapping.windowId }));
     await ctx.reply(`⚠️ ${ctxResult.error}`);
     return;
   }
@@ -125,6 +136,7 @@ export async function handleCloseChat(ctx: BotContext, deps: CommandDeps): Promi
   const chatTitle = cleanTabTitle(mapping.tabTitle);
   const result = await deps.commandExecutor.closeChat(genId(), chatTitle);
   if (!result.ok) {
+    logWarn('TG_CLOSE_CHAT_FAIL', result.error ?? 'closeChat failed', threadCtx('close_chat', { threadId, windowId: mapping.windowId }));
     await ctx.reply(`⚠️ ${result.error ?? t('tg.msg.closeChat.failed', 'Could not close chat')}`);
     return;
   }
@@ -147,17 +159,20 @@ export async function handleNewChat(ctx: BotContext, deps: CommandDeps): Promise
   }
 
   if (newChatInFlight) {
+    logWarn('TG_NEW_CHAT_IN_FLIGHT', '/new_chat rejected: already running', threadCtx('new_chat', { threadId, chatId }));
     await ctx.reply(t('tg.msg.newChat.inFlight', '⏳ /new_chat already running — one command = one tab, please wait.'));
     return;
   }
 
   if (!deps.getSyncEnabled()) {
+    logWarn('TG_NEW_CHAT_BRIDGE_OFF', '/new_chat rejected: bridge disabled', threadCtx('new_chat', { threadId, chatId }));
     await ctx.reply(t('tg.msg.newChat.bridgeOff', '⚠️ Bridge disabled. Run /bridge first — new threads won\'t be created without it.'));
     return;
   }
 
   const mapping = deps.topicManager.resolveThread(threadId);
   if (!mapping) {
+    logWarn('TG_NEW_CHAT_NOT_MAPPED', '/new_chat: thread not linked', threadCtx('new_chat', { threadId, chatId }));
     await ctx.reply(t('tg.msg.threadNotMapped', '⚠️ This thread is not linked. Run /bridge first.'));
     return;
   }
@@ -170,6 +185,7 @@ export async function handleNewChat(ctx: BotContext, deps: CommandDeps): Promise
     onStatus: async (text) => { await ctx.reply(text, { parse_mode: 'HTML' }); },
   });
   if (!winResult.ok) {
+    logWarn('TG_NEW_CHAT_WINDOW_FAIL', winResult.error, threadCtx('new_chat', { threadId, chatId, windowId: mapping.windowId }));
     await ctx.reply(`⚠️ ${winResult.error}`);
     return;
   }
@@ -179,9 +195,14 @@ export async function handleNewChat(ctx: BotContext, deps: CommandDeps): Promise
   const cidBefore = normalizeComposerId(
     before.chatTabs.find((t) => t.isActive)?.composerId || before.activeComposerId,
   );
-  console.log(`[telegram] /new_chat: msg=${tgMsgId ?? '?'} tabs=${tabsBefore} → newChat()`);
+  logInfo(
+    'TG_NEW_CHAT_START',
+    `/new_chat msg=${tgMsgId ?? '?'} tabs=${tabsBefore} → newChat()`,
+    threadCtx('new_chat', { threadId, chatId, windowId: winResult.targetWin.id }),
+  );
   const createResult = await deps.commandExecutor.newChat(genId());
   if (!createResult.ok) {
+    logWarn('TG_NEW_CHAT_CREATE_FAIL', createResult.error ?? 'newChat failed', threadCtx('new_chat', { threadId, chatId, windowId: winResult.targetWin.id }));
     await ctx.reply(`⚠️ ${createResult.error ?? t('tg.msg.newChat.createFailed', 'Could not create chat')}`);
     return;
   }
@@ -202,9 +223,11 @@ export async function handleNewChat(ctx: BotContext, deps: CommandDeps): Promise
   }
   const cleanedTab = cleanTabTitle(activeTab?.title ?? 'New Agent');
   const topicName = formatForumTopicLabel(winResult.targetWin.title, cleanedTab);
-  console.log(
-    `[telegram] /new_chat: tabs ${tabsBefore}→${deps.stateManager.getCurrentState().chatTabs.length}`
-    + ` active="${cleanedTab}" composer=${composerId ?? 'pending'}`,
+  const tabsAfter = deps.stateManager.getCurrentState().chatTabs.length;
+  logInfo(
+    'TG_NEW_CHAT_ACTIVE',
+    `tabs ${tabsBefore}→${tabsAfter} active="${cleanedTab}" composer=${composerId?.substring(0, 8) ?? 'pending'}`,
+    threadCtx('new_chat', { threadId, chatId, windowId: winResult.targetWin.id, composerId, hint: topicName }),
   );
 
   let newThreadId: number;
@@ -213,8 +236,9 @@ export async function handleNewChat(ctx: BotContext, deps: CommandDeps): Promise
     const created = await deps.api.createForumTopic(chatId, topicName);
     newThreadId = created.message_thread_id;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    await ctx.reply(t('tg.msg.newChat.threadFailed', '⚠️ Chat created in Cursor but Telegram thread failed: {error}', { error: msg }));
+    const norm = normalizeError(err);
+    logError('TG_NEW_CHAT_TOPIC_FAIL', formatErrDetail(err), threadCtx('new_chat', { threadId, chatId, errno: norm.errno }));
+    await ctx.reply(t('tg.msg.newChat.threadFailed', '⚠️ Chat created in Cursor but Telegram thread failed: {error}', { error: norm.message }));
     return;
   }
 
@@ -242,9 +266,10 @@ export async function handleNewChat(ctx: BotContext, deps: CommandDeps): Promise
   });
   deps.noteForumTopicLabel?.(newThreadId, topicName);
 
-  console.log(
-    `[telegram] /new_chat: topic ${newThreadId} «${topicName}» ` +
-    `(tab="${cleanedTab}", composer=${composerId?.substring(0, 8) ?? 'pending'})`,
+  logInfo(
+    'TG_NEW_CHAT_OK',
+    `topic ${newThreadId} «${topicName}» tab="${cleanedTab}" composer=${composerId?.substring(0, 8) ?? 'pending'}`,
+    threadCtx('new_chat', { threadId: newThreadId, chatId, windowId: winResult.targetWin.id, composerId }),
   );
 
   await ctx.reply(
@@ -448,8 +473,8 @@ export async function handleThreadRename(ctx: BotContext, deps: CommandDeps): Pr
     deps.noteForumTopicLabel?.(threadId, forumLabel);
   } catch (err) {
     renamed = false;
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[telegram] /thread_rename topic ${threadId} failed: ${msg}`);
+    const norm = normalizeError(err);
+    logWarn('TG_THREAD_RENAME_FAIL', `/thread_rename topic ${threadId} failed: ${norm.message}`, threadCtx('thread_rename', { threadId, chatId, errno: norm.errno }));
   }
 
   const lines = [

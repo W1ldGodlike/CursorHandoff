@@ -1,5 +1,6 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { formatExtensionLogLine } from './log-event.js';
 
 const execAsync = promisify(exec);
 
@@ -35,7 +36,10 @@ export async function killStaleBundleServers(log: (msg: string) => void): Promis
   if (pids.length === 0) return;
 
   for (const pid of pids) {
-    log(`kill stale bundle PID ${pid}`);
+    log(formatExtensionLogLine('info', `kill stale bundle PID ${pid}`, {
+      scope: 'extension',
+      code: 'SPAWN_STALE_KILL',
+    }));
     try {
       await execAsync(`taskkill /PID ${pid} /F /T`, { windowsHide: true });
     } catch {

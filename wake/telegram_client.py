@@ -106,7 +106,7 @@ class TelegramPoller:
         self._register_commands()
         self._thread = threading.Thread(target=self._loop, name="cursor-wake-tg", daemon=True)
         self._thread.start()
-        log_line(self.cfg, "[telegram] Long-poll started")
+        log_line(self.cfg, "[telegram] Long-poll started", code="WAKE_TG_POLL_START")
 
     def _register_commands(self) -> None:
         scopes: list[dict[str, Any]] = [
@@ -128,7 +128,7 @@ class TelegramPoller:
                 label = scope["type"]
                 if scope["type"] == "chat":
                     label = f"chat {scope['chat_id']}"
-                log_line(self.cfg, f"[telegram] Registered {len(TELEGRAM_BOT_COMMANDS)} commands ({label})")
+                log_line(self.cfg, f"[telegram] Registered {len(TELEGRAM_BOT_COMMANDS)} commands ({label})", code="WAKE_TG_CMDS_REG")
         if chat_id is not None:
             self._ensure_general_keyboard(chat_id)
 
@@ -137,14 +137,14 @@ class TelegramPoller:
             "menu_button": json.dumps({"type": "commands"}),
         })
         # Tiles only via /menu — automatic reply_markup expands keyboard on chat entry.
-        log_line(self.cfg, "[telegram] General menu button set (tiles via /menu)")
+        log_line(self.cfg, "[telegram] General menu button set (tiles via /menu)", code="WAKE_TG_MENU_BTN")
 
     def stop(self) -> None:
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=5)
             self._thread = None
-        log_line(self.cfg, "[telegram] Long-poll stopped")
+        log_line(self.cfg, "[telegram] Long-poll stopped", code="WAKE_TG_POLL_STOP")
 
     def _api(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
         base = f"https://api.telegram.org/bot{self.cfg.bot_token}/{method}"
@@ -157,17 +157,17 @@ class TelegramPoller:
             with urllib.request.urlopen(req, timeout=self.cfg.telegram_poll_timeout_sec + 10) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
                 if not body.get("ok"):
-                    log_line(self.cfg, f"[telegram] API {method} error: {body.get('description')}")
+                    log_line(self.cfg, f"[telegram] API {method} error: {body.get('description')}", code="WAKE_TG_API_ERR")
                     return None
                 return body
         except urllib.error.HTTPError as err:
             if err.code == 409:
-                log_line(self.cfg, "[telegram] 409 Conflict — CursorHandoff owns polling")
+                log_line(self.cfg, "[telegram] 409 Conflict — CursorHandoff owns polling", code="WAKE_TG_POLL_CONFLICT")
             else:
-                log_line(self.cfg, f"[telegram] HTTP {err.code} on {method}")
+                log_line(self.cfg, f"[telegram] HTTP {err.code} on {method}", code="WAKE_TG_HTTP_ERR")
             return None
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as err:
-            log_line(self.cfg, f"[telegram] {method} failed: {err}")
+            log_line(self.cfg, f"[telegram] {method} failed: {err}", code="WAKE_TG_API_FAIL")
             return None
 
     def send_message(

@@ -1,7 +1,7 @@
 import './bootstrap.js';
-import { createWriteStream, appendFileSync, readFileSync } from 'fs';
+import { createWriteStream } from 'fs';
 import { join } from 'path';
-import { loadConfig, loadSelectors } from './config.js';
+import { enableLogDedupe } from './log-event.js';
 import { CDPBridge } from '../ide/cdp-session.js';
 import { DOMExtractor } from '../ide/parse/tabs.js';
 import { CommandExecutor } from '../ide/actions/navigation.js';
@@ -13,7 +13,7 @@ import { TelegramTransport } from '../telegram/service.js';
 import { RawTelegramTransport } from '../telegram/transport/raw-client.js';
 import { BaseTelegramTransport } from '../telegram/transport/poll-loop.js';
 import { hasPendingItems } from '../workspace/offline-queue.js';
-import { getDataDir } from './paths.js';
+import { getDataDir, verifyDataDirWritable } from './paths.js';
 import { markGracefulShutdown } from './graceful-shutdown.js';
 import { fileURLToPath } from 'url';
 import {
@@ -21,6 +21,27 @@ import {
   logStartupAudit,
   runStartupAudit,
 } from './fingerprint.js';
+import { loadConfig, loadSelectors } from './config.js';
+import {
+  appendDataDirFailMirror,
+  logCdpBridgeError,
+  logCdpConnecting,
+  logDataDirNotWritable,
+  logShutdown,
+  logShutdownFail,
+  logStartupAuditSkip,
+  logStartupAuditStale,
+  logStartupConfig,
+  logStartupFatal,
+  logStartupOk,
+  logStartupVersion,
+  logTgAuthHint,
+  logTgAuthRegistered,
+  logTgStartFail,
+  logTgTransportRaw,
+  registerStartupProcessHandlers,
+  resolvePackageVersion,
+} from './startup-boot.js';
 
 const serverLogPath = join(getDataDir(), 'handoff-server.log');
 const logStream = createWriteStream(serverLogPath, { flags: 'a' });
@@ -68,55 +89,41 @@ if (process.env.LOG_FORMAT === 'json') {
   console.error = (...args: unknown[]) => { const line = args.map(String).join(' '); safeWrite(origError, `${ts()} [ERROR] ${line}`); writeLog(`[ERROR] ${line}`); };
 }
 
-process.on('uncaughtException', (err) => {
-  if (err instanceof Error && (err as NodeJS.ErrnoException).code === 'EPIPE') return;
-  const msg = `[CRASH] Uncaught exception: ${err.message}\n${err.stack ?? ''}`;
-  try {
-    appendFileSync(serverLogPath, `${ts()} ${msg}\n`);
-  } catch {
-    /* ignore */
-  }
-  origError(msg);
-  setTimeout(() => process.exit(1), 100);
-});
+registerStartupProcessHandlers(() => process.exit(1));
 
 async function main(): Promise<void> {
-  let version = 'unknown';
-  for (const rel of ['../../package.json', '../package.json', '../../../package.json']) {
-    try {
-      const pkg = JSON.parse(readFileSync(new URL(rel, import.meta.url), 'utf-8'));
-      if (pkg.name === 'cursor-handoff') { version = pkg.version; break; }
-    } catch { /* try next path */ }
+  try {
+    verifyDataDirWritable(getDataDir());
+  } catch (err) {
+    logDataDirNotWritable(err, getDataDir());
+    appendDataDirFailMirror(serverLogPath, err, ts);
+    process.exit(1);
   }
-  console.log(`=== CursorHandoff v${version} ===`);
-  console.log();
+
+  logStartupOk(`logs: ${serverLogPath}; wake: ${join(getDataDir(), 'cursor-wake.log')}`);
+
+  const version = resolvePackageVersion(import.meta.url);
+  logStartupVersion(version);
 
   const entryPath = fileURLToPath(import.meta.url);
   if (isBundledServerEntry(entryPath)) {
     const audit = runStartupAudit(entryPath);
     logStartupAudit(audit);
     if (!audit.ok) {
-      console.error('[startup-audit] Server continues but Telegram/outbound may use STALE code paths.');
+      logStartupAuditStale();
     }
-    console.log();
   } else {
-    console.log(`[startup-audit] Dev entry (${entryPath}) — bundle audit skipped`);
-    console.log();
+    logStartupAuditSkip(entryPath);
   }
 
   const config = loadConfig();
   const selectors = loadSelectors(config);
 
-  console.log(`[main] DATA_DIR: ${getDataDir()}`);
-  console.log(`[main] CDP URL: ${config.cdpUrl}`);
-  console.log(`[main] Server: http://${config.serverHost}:${config.serverPort}`);
-  console.log(`[main] Poll interval: ${config.pollIntervalMs}ms`);
-  console.log(`[main] Debounce: ${config.debounceMs}ms`);
-  console.log(
-    `[main] Telegram: ${config.telegram.enabled ? 'enabled' : 'disabled'}`
-    + ` (TELEGRAM_ENABLED=${process.env.TELEGRAM_ENABLED ?? '(unset)'}, token=${config.telegram.botToken ? 'set' : 'empty'})`,
+  logStartupConfig(
+    `dataDir=${getDataDir()} cdp=${config.cdpUrl} http://${config.serverHost}:${config.serverPort} tg=${config.telegram.enabled ? 'on' : 'off'}`,
   );
-  console.log();
+
+  enableLogDedupe(true);
 
   const stateManager = new StateManager(config.debounceMs);
   const commandExecutor = new CommandExecutor(selectors);
@@ -154,7 +161,7 @@ async function main(): Promise<void> {
   });
 
   cdpBridge.on('error', (err: Error) => {
-    console.error(`[main] CDP error: ${err.message}`);
+    logCdpBridgeError(err);
   });
 
   const transports: Transport[] = [];
@@ -164,13 +171,13 @@ async function main(): Promise<void> {
   relay.setWindowMonitor(windowMonitor);
   await relay.start();
 
-  console.log('[main] Connecting to Cursor IDE...');
+  logCdpConnecting();
   await cdpBridge.connect();
 
   if (config.telegram.enabled && config.telegram.botToken) {
     const TgTransport = config.telegram.impl === 'raw' ? RawTelegramTransport : TelegramTransport;
     if (config.telegram.impl === 'raw') {
-      console.log('[telegram] Using raw Bot API transport (no Grammy)');
+      logTgTransportRaw();
     }
     const telegram = new TgTransport(
       config.telegram,
@@ -184,14 +191,14 @@ async function main(): Promise<void> {
     const tokenHint = `...${telegram.registerToken.slice(-4)} (full token in ${getDataDir()}/telegram-auth.json, field token)`;
     const names = telegram.registeredUserNames;
     if (names.length > 0) {
-      console.log(`[telegram] Registered user(s): ${names.join(', ')}`);
-      console.log(`[telegram] To register a different user: /register ${tokenHint}`);
+      logTgAuthRegistered(names.join(', '));
+      logTgAuthHint(`To register a different user: /register ${tokenHint}`);
     } else {
-      console.log(`[telegram] To register, send in your Telegram group: /register ${tokenHint}`);
+      logTgAuthHint(`To register, send in your Telegram group: /register ${tokenHint}`);
     }
 
-    telegram.start().catch(err => {
-      console.error(`[telegram] Failed to start: ${err instanceof Error ? err.message : String(err)}`);
+    telegram.start().catch((err) => {
+      logTgStartFail(err);
     });
     transports.push(telegram);
     relay.setShutdownHooks({
@@ -217,40 +224,30 @@ async function main(): Promise<void> {
   windowMonitor.start();
 
   const shutdown = async () => {
-    markGracefulShutdown();
-    console.log('\n[main] Shutting down...');
-    if (queueKick) clearInterval(queueKick);
-    // TG first: drain queue while CDP/extractor are still alive.
-    for (const transport of transports) {
-      await transport.stop();
+    try {
+      markGracefulShutdown();
+      logShutdown();
+      if (queueKick) clearInterval(queueKick);
+      // TG first: drain queue while CDP/extractor are still alive.
+      for (const transport of transports) {
+        await transport.stop();
+      }
+      windowMonitor.stop();
+      extractor.stop();
+      await cdpBridge.disconnect();
+      await relay.stop();
+      process.exit(0);
+    } catch (err) {
+      logShutdownFail(err);
+      process.exit(1);
     }
-    windowMonitor.stop();
-    extractor.stop();
-    await cdpBridge.disconnect();
-    await relay.stop();
-    process.exit(0);
   };
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
-  process.on('unhandledRejection', (reason) => {
-    const msg = `[main] Unhandled rejection: ${String(reason)}`;
-    try {
-      appendFileSync('./temp/server.log', `${ts()} [ERROR] ${msg}\n`);
-    } catch {
-      /* ignore */
-    }
-    console.error(msg);
-  });
 }
 
 main().catch((err) => {
-  const msg = `[main] Fatal error: ${err instanceof Error ? err.message : String(err)}\n${err instanceof Error ? err.stack ?? '' : ''}`;
-  try {
-    appendFileSync('./temp/server.log', `${ts()} [ERROR] ${msg}\n`);
-  } catch {
-    /* ignore */
-  }
-  console.error(msg);
+  logStartupFatal(err);
   setTimeout(() => process.exit(1), 100);
 });

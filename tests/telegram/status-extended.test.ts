@@ -1,5 +1,8 @@
-import { describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import { setLocale } from '../../src/i18n/t.js';
 import { buildStatusLines } from '../../src/telegram/commands/registry.js';
 import { TopicManager } from '../../src/telegram/topics/manager.js';
@@ -59,6 +62,21 @@ function baseState(overrides: Partial<CursorState> = {}): CursorState {
 }
 
 describe('buildStatusLines', () => {
+  let dataDir: string;
+  let origDataDir: string | undefined;
+
+  beforeEach(() => {
+    origDataDir = process.env.DATA_DIR;
+    dataDir = mkdtempSync(join(tmpdir(), 'handoff-status-ext-'));
+    process.env.DATA_DIR = dataDir;
+  });
+
+  afterEach(() => {
+    if (origDataDir === undefined) delete process.env.DATA_DIR;
+    else process.env.DATA_DIR = origDataDir;
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
   it('lists busy windows across all snapshots', () => {
     setLocale('en');
     const snapshots = new Map<string, WindowSnapshot>([

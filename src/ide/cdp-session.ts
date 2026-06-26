@@ -1,7 +1,13 @@
 import { EventEmitter } from 'events';
 import { CdpClient } from './cdp-client.js';
 import type { ServerConfig, CursorWindow } from '../core/types.js';
+import { logError, logInfo, logWarn, newRid } from '../core/log-event.js';
+import type { LogContext } from '../core/log-event.js';
 import { uriPathToNative, workspaceBasename } from '../state/workspace-uri.js';
+
+function cdpCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'cdp', op, ...extra };
+}
 
 interface CDPTarget {
   id: string;
@@ -129,6 +135,7 @@ export class CDPBridge extends EventEmitter {
   private _activeTargetId = '';
   private _windows: CursorWindow[] = [];
   private _activeWorkspaceName: string | null = null;
+  private reconnectRid: string | null = null;
 
   constructor(config: ServerConfig) {
     super();
@@ -146,6 +153,15 @@ export class CDPBridge extends EventEmitter {
   /** true during switchWindow — do not treat as lost Cursor connection. */
   get isSwitchingWindow(): boolean {
     return this._switchingWindow;
+  }
+
+  private beginReconnectCycle(): string {
+    if (!this.reconnectRid) this.reconnectRid = newRid();
+    return this.reconnectRid;
+  }
+
+  private clearReconnectRid(): void {
+    this.reconnectRid = null;
   }
 
   async connect(targetId?: string): Promise<void> {
@@ -170,7 +186,11 @@ export class CDPBridge extends EventEmitter {
         throw new Error('No suitable CDP target found');
       }
 
-      console.log(`[cdp-bridge] Connecting to target: "${target.title}" (${target.url})`);
+      logInfo(
+        'CDP_CONNECT_TARGET',
+        `"${target.title}" ${target.url}`,
+        cdpCtx('connect', { windowId: target.id, hint: target.title }),
+      );
 
       this.client = new CdpClient();
       await this.client.connect(target.webSocketDebuggerUrl);
@@ -180,22 +200,29 @@ export class CDPBridge extends EventEmitter {
       if (this._activeWorkspaceName) {
         const win = this._windows.find(w => w.id === target!.id);
         if (win) win.title = this._activeWorkspaceName;
-        console.log(`[cdp-bridge] Workspace name: "${this._activeWorkspaceName}"`);
+        logInfo(
+          'CDP_WORKSPACE_OK',
+          `"${this._activeWorkspaceName}"`,
+          cdpCtx('connect', { windowId: target.id, windowTitle: this._activeWorkspaceName }),
+        );
       }
 
       this.client.on('disconnected', () => {
         if (!this.intentionalDisconnect) {
-          console.warn('[cdp-bridge] CDP connection lost unexpectedly');
+          const rid = this.beginReconnectCycle();
+          logWarn('CDP_RECONNECT_LOST', 'CDP connection lost unexpectedly', cdpCtx('reconnect', { rid }));
           this.handleDisconnect();
         }
       });
 
       this.reconnectDelay = 1000;
-      console.log('[cdp-bridge] Connected successfully');
+      this.clearReconnectRid();
+      logInfo('CDP_CONNECT_OK', 'Connected successfully', cdpCtx('connect', { windowId: target.id }));
       this.emit('connected');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[cdp-bridge] Connection failed: ${message}`);
+      const rid = this.beginReconnectCycle();
+      logError('CDP_CONNECT_FAIL', `Connection failed: ${message}`, cdpCtx('connect', { rid }));
       this.emit('error', err);
       this.scheduleReconnect();
     }
@@ -230,7 +257,11 @@ export class CDPBridge extends EventEmitter {
     const toClose = placeholderWindowIdsToClose(windows, this._activeTargetId);
     if (toClose.length === 0) return windows;
     for (const id of toClose) {
-      console.log(`[cdp-bridge] Closing duplicate empty window ${id.substring(0, 8)}`);
+      logInfo(
+        'CDP_WINDOW_PRUNE',
+        `closing duplicate empty window ${id.substring(0, 8)}`,
+        cdpCtx('prune_placeholder', { windowId: id }),
+      );
       await this.closeTarget(id);
     }
     const closed = new Set(toClose);
@@ -248,7 +279,7 @@ export class CDPBridge extends EventEmitter {
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[cdp-bridge] Failed to refresh windows: ${message}`);
+      logWarn('CDP_CONNECT_REFRESH_FAIL', `Failed to refresh windows: ${message}`, cdpCtx('refresh_windows'));
     }
     return this._windows;
   }
@@ -275,7 +306,7 @@ export class CDPBridge extends EventEmitter {
 
   private async fetchTargets(verbose = false): Promise<CDPTarget[]> {
     const url = `${this.config.cdpUrl}/json`;
-    if (verbose) console.log(`[cdp-bridge] Discovering targets at ${url}`);
+    if (verbose) logInfo('CDP_TARGETS_DISCOVER', url, cdpCtx('discover_targets', { hint: url }));
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
@@ -296,10 +327,11 @@ export class CDPBridge extends EventEmitter {
       const summary = Object.entries(
         rest.reduce<Record<string, number>>((acc, t) => { acc[t.type] = (acc[t.type] ?? 0) + 1; return acc; }, {})
       ).map(([type, count]) => `${count} ${type}`).join(', ');
-      console.log(`[cdp-bridge] Found ${pages.length} page(s)${summary ? ` (+${summary})` : ''}:`);
-      for (const t of pages) {
-        console.log(`  [page] "${t.title}" — ${t.url}`);
-      }
+      logInfo(
+        'CDP_TARGETS_FOUND',
+        `${pages.length} page(s)${summary ? ` (+${summary})` : ''}`,
+        cdpCtx('discover_targets', { hint: String(pages.length) }),
+      );
     }
     return targets;
   }
@@ -329,7 +361,12 @@ export class CDPBridge extends EventEmitter {
     if (this.intentionalDisconnect) return;
     if (this.reconnectTimer) return;
 
-    console.log(`[cdp-bridge] Reconnecting in ${this.reconnectDelay}ms...`);
+    const rid = this.reconnectRid ?? this.beginReconnectCycle();
+    logInfo(
+      'CDP_RECONNECT_SCHEDULE',
+      `in ${this.reconnectDelay}ms`,
+      cdpCtx('reconnect', { rid, hint: String(this.reconnectDelay) }),
+    );
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
@@ -347,15 +384,22 @@ export class CDPBridge extends EventEmitter {
         if (this._activeTargetId === targetId) {
           this._activeTargetId = '';
         }
-        console.log(`[cdp-bridge] Closed target ${targetId.substring(0, 8)}`);
+        logInfo(
+          'CDP_TARGET_CLOSED',
+          targetId.substring(0, 8),
+          cdpCtx('close_target', { windowId: targetId }),
+        );
         return true;
       }
-      console.warn(`[cdp-bridge] closeTarget HTTP ${response.status} for ${targetId.substring(0, 8)}`);
+      logWarn(
+        'CDP_CONNECT_CLOSE_FAIL',
+        `closeTarget HTTP ${response.status} for ${targetId.substring(0, 8)}`,
+        cdpCtx('close_target', { windowId: targetId }),
+      );
       return false;
     } catch (err) {
-      console.warn(
-        `[cdp-bridge] closeTarget failed: ${err instanceof Error ? err.message : err}`
-      );
+      const message = err instanceof Error ? err.message : String(err);
+      logWarn('CDP_CONNECT_CLOSE_FAIL', `closeTarget failed: ${message}`, cdpCtx('close_target', { windowId: targetId }));
       return false;
     }
   }

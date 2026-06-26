@@ -1,9 +1,27 @@
-import { describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import { TopicManager } from '../../src/telegram/topics/manager.js';
 import { formatMappingForumLabel, formatMappingForumTopicDisplay } from '../../src/telegram/topics/guards.js';
 
 describe('thread_rename', () => {
+  let dataDir: string;
+  let origDataDir: string | undefined;
+
+  beforeEach(() => {
+    origDataDir = process.env.DATA_DIR;
+    dataDir = mkdtempSync(join(tmpdir(), 'handoff-thread-rename-'));
+    process.env.DATA_DIR = dataDir;
+  });
+
+  afterEach(() => {
+    if (origDataDir === undefined) delete process.env.DATA_DIR;
+    else process.env.DATA_DIR = origDataDir;
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
   it('setTopicLabel stores display name without changing tabTitle', () => {
     const tm = new TopicManager();
     tm.registerMapping({

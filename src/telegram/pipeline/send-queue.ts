@@ -1,4 +1,6 @@
 import { extractRetryAfterSeconds } from '../transport/telegram-errors.js';
+import { logInfo, logWarn } from '../../core/log-event.js';
+import type { LogContext } from '../../core/log-event.js';
 
 export interface SendQueueConfig {
   sendDelayMs: number;
@@ -55,10 +57,18 @@ export class SendQueue {
     this.config = { ...DEFAULT_CONFIG, ...config };
   }
 
+  private sendQueueCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+    return { scope: 'queue', op, ...extra };
+  }
+
   private async waitForGlobalPause(): Promise<void> {
     const wait = this.globalPauseUntil - Date.now();
     if (wait > 0) {
-      console.log(`[send-queue] Global 429 cooldown, waiting ${wait}ms`);
+      logInfo(
+        'QUEUE_RETRY_429',
+        `Global 429 cooldown waiting ${wait}ms`,
+        this.sendQueueCtx('cooldown', { durationMs: wait }),
+      );
       await sleep(wait);
     }
   }
@@ -113,7 +123,9 @@ export class SendQueue {
         if (dropIdx !== -1) {
           const dropped = this.queue.splice(dropIdx, 1)[0];
           this.rejectItem(dropped, new Error('Queue overflow: dropped'));
-          console.warn(`[send-queue] Dropped oldest send (queue full at ${this.config.maxQueueSize})`);
+          logWarn('QUEUE_OVERFLOW_DROP', `Dropped oldest send (queue full at ${this.config.maxQueueSize})`, {
+            ...this.sendQueueCtx('enqueue', { chatId: options.chatId }),
+          });
         }
       }
 
@@ -156,9 +168,10 @@ export class SendQueue {
       await sleep(50);
     }
     if (this.busy) {
-      console.warn(
-        `[send-queue] drain timeout after ${timeoutMs}ms ` +
-        `(depth=${this.queue.length}, processing=${this.processing})`,
+      logWarn(
+        'QUEUE_DRAIN_TIMEOUT',
+        `drain timeout after ${timeoutMs}ms (depth=${this.queue.length}, processing=${this.processing})`,
+        this.sendQueueCtx('drain', { durationMs: timeoutMs }),
       );
       return false;
     }
@@ -186,9 +199,14 @@ export class SendQueue {
         if (retryAfter !== null && item.retries < this.config.maxRetries) {
           item.retries++;
           this.applyGlobalCooldown(retryAfter);
-          console.log(
-            `[send-queue] 429 retry ${item.retries}/${this.config.maxRetries}, ` +
-            `cooldown ${retryAfter}s (queue depth ${this.queue.length})`,
+          logInfo(
+            'QUEUE_RETRY_429',
+            `retry ${item.retries}/${this.config.maxRetries}, cooldown ${retryAfter}s (depth ${this.queue.length})`,
+            this.sendQueueCtx('retry', {
+              chatId: item.chatId,
+              attempt: item.retries,
+              hint: String(retryAfter),
+            }),
           );
           await this.waitForGlobalPause();
           this.queue.unshift(item);

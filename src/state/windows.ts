@@ -20,6 +20,12 @@ import type {
 } from '../core/types.js';
 import { applyDerivedActivityToState } from '../ide/activity-derive.js';
 import { applyApprovalFilter } from '../ide/approval-filter.js';
+import { logInfo, logWarn } from '../core/log-event.js';
+import type { LogContext } from '../core/log-event.js';
+
+function stateCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'state', op, ...extra };
+}
 
 export interface WindowSnapshot {
   windowId: string;
@@ -173,8 +179,10 @@ export class WindowMonitor extends EventEmitter {
     this.cdpBridge.on('connected', this.onConnected);
 
     this.cycleTimer = setInterval(() => this.cycle(), CYCLE_TICK_MS);
-    console.log(
-      `[window-monitor] Started (adaptive poll: active=${POLL_ACTIVE_MS}ms idle=${POLL_IDLE_MS}ms, tick=${CYCLE_TICK_MS}ms)`,
+    logInfo(
+      'STATE_WINDOW_START',
+      `adaptive poll active=${POLL_ACTIVE_MS}ms idle=${POLL_IDLE_MS}ms tick=${CYCLE_TICK_MS}ms`,
+      stateCtx('window_poll', { durationMs: CYCLE_TICK_MS }),
     );
   }
 
@@ -309,7 +317,9 @@ export class WindowMonitor extends EventEmitter {
 
     try {
       await this.cdpBridge.refreshWindows();
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logWarn('STATE_WINDOW_REFRESH_FAIL', msg, stateCtx('window_poll'));
       return;
     }
 
@@ -323,11 +333,14 @@ export class WindowMonitor extends EventEmitter {
     if (!this._firstCycleLogged) {
       this._firstCycleLogged = true;
       const homeId = this.getHomeWindowId();
-      console.log(`[window-monitor] First cycle — ${windows.length} window(s), home=${homeId?.substring(0, 8) ?? 'none'}:`);
-      for (const w of windows) {
-        const isHome = w.id === homeId;
-        console.log(`  [${w.id.substring(0, 8)}] "${w.title}" ws=${w.wsUrl ? 'yes' : 'NO'}${isHome ? ' (home)' : ''}`);
-      }
+      const windowHint = windows
+        .map((w) => `${w.id.substring(0, 8)}:"${w.title}" ws=${w.wsUrl ? 'y' : 'n'}${w.id === homeId ? ' home' : ''}`)
+        .join('; ');
+      logInfo(
+        'STATE_WINDOW_FIRST_CYCLE',
+        `${windows.length} window(s) home=${homeId?.substring(0, 8) ?? 'none'}`,
+        stateCtx('window_poll', { windowId: homeId ?? undefined, hint: windowHint }),
+      );
     }
 
     if (windows.length <= 1) return;
@@ -344,7 +357,11 @@ export class WindowMonitor extends EventEmitter {
     if (otherWindows.length === 0) {
       const noWs = windows.filter(w => w.id !== homeId && !w.wsUrl);
       if (noWs.length > 0) {
-        console.warn(`[window-monitor] ${noWs.length} non-home window(s) have no wsUrl (already debugged?): ${noWs.map(w => w.title).join(', ')}`);
+        logWarn(
+          'STATE_WINDOW_NO_WS',
+          `${noWs.length} non-home window(s) have no wsUrl: ${noWs.map(w => w.title).join(', ')}`,
+          stateCtx('window_poll'),
+        );
       }
       return;
     }
@@ -358,7 +375,7 @@ export class WindowMonitor extends EventEmitter {
       this.stateManager.updateWindows(windows, this.cdpBridge.activeTargetId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[window-monitor] Cycle error: ${msg}`);
+      logWarn('STATE_WINDOW_CYCLE_FAIL', `Cycle error: ${msg}`, stateCtx('window_poll'));
     } finally {
       this._cycling = false;
     }
@@ -380,7 +397,10 @@ export class WindowMonitor extends EventEmitter {
 
       const state = await this.extractFromClient(client, windowTitle);
       if (!state) {
-        console.warn(`[window-monitor] Poll "${windowTitle}": extraction returned null`);
+        logWarn('STATE_WINDOW_POLL_NULL', `Poll "${windowTitle}": extraction returned null`, stateCtx('window_poll', {
+          windowId: win.id,
+          windowTitle,
+        }));
         this.emit('window:poll-failed', { windowId: win.id, windowTitle });
       }
       if (state) {
@@ -439,7 +459,10 @@ export class WindowMonitor extends EventEmitter {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (!msg.includes('WebSocket') && !msg.includes('closed')) {
-        console.warn(`[window-monitor] Poll "${win.title}" failed: ${msg}`);
+        logWarn('STATE_WINDOW_POLL_FAIL', `Poll "${win.title}" failed: ${msg}`, stateCtx('window_poll', {
+          windowId: win.id,
+          windowTitle: win.title,
+        }));
       }
       this.emit('window:poll-failed', { windowId: win.id, windowTitle: win.title });
     } finally {

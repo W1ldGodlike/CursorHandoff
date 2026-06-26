@@ -263,7 +263,7 @@
     "redeploy:check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/redeploy/redeploy-restart-cursor.ps1 -SkipCursorRestart",
     "redeploy:restart": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/redeploy/redeploy-restart-cursor.ps1 -RestartOnly",
     "pretest": "node scripts/dev/kill-stale-test-runners.mjs",
-    "test": "npx tsx --test --test-timeout=120000 tests/**/*.test.ts",
+    "test": "npx tsx --import ./tests/test-env.ts --test --test-timeout=120000 tests/**/*.test.ts",
     "test:web": "node scripts/dev/kill-stale-test-runners.mjs && npx tsx --test --test-timeout=120000 tests/web/web-client.test.ts"
   },
   "dependencies": {

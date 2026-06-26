@@ -1,5 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { logError, normalizeError, sanitizePathForUi } from '../core/log-event.js';
+import type { LogContext } from '../core/log-event.js';
+
+function relayCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'relay', op, ...extra };
+}
 
 /** HttpOnly cookie name; must match client expectations for non-HttpOnly cases (parsed on server). */
 export const WEBAPP_SESSION_COOKIE = 'cursor_handoff_session';
@@ -43,7 +49,12 @@ export function createWebappSessionStore(dataDir: string): WebappSessionStore {
       mkdirSync(dataDir, { recursive: true });
       writeFileSync(filePath, JSON.stringify({ tokens: [...tokens.entries()] }) + '\n', 'utf-8');
     } catch (e) {
-      console.error('[relay] Failed to persist web app sessions:', e);
+      const { message, errno } = normalizeError(e);
+      logError(
+        'RELAY_SESSION_PERSIST_FAIL',
+        `Failed to persist ${sanitizePathForUi(filePath)}: ${message}`,
+        relayCtx('session_persist', { errno }),
+      );
     }
   }
 

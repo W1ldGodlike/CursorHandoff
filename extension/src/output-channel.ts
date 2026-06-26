@@ -35,11 +35,7 @@ export function createOutputChannel(): UnifiedOutputChannel {
   }
 }
 
-interface JsonLogLine {
-  ts: number;
-  level: 'info' | 'warn' | 'error';
-  msg: string;
-}
+import { formatServerChildLogLine } from './log-event.js';
 
 /** Latest CursorHandoff.log under Cursor logs (LogOutputChannel sink). */
 export function findLatestExtensionLogUri(): vscode.Uri | undefined {
@@ -118,14 +114,10 @@ export async function revealOutputChannel(channel: UnifiedOutputChannel): Promis
 }
 
 export function appendLogLine(channel: UnifiedOutputChannel, raw: string): void {
-  try {
-    const parsed: JsonLogLine = JSON.parse(raw);
-    switch (parsed.level) {
-      case 'error': channel.error(parsed.msg); break;
-      case 'warn':  channel.warn(parsed.msg);  break;
-      default:      channel.info(parsed.msg);   break;
-    }
-  } catch {
-    channel.info(raw);
+  const { level, line } = formatServerChildLogLine(raw);
+  switch (level) {
+    case 'error': channel.error(line); break;
+    case 'warn': channel.warn(line); break;
+    default: channel.info(line); break;
   }
 }

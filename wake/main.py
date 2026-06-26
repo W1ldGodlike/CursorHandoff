@@ -60,22 +60,22 @@ class CursorWakeApp:
         if not read_raise_cursor(self.cfg):
             return
         if cursor_process_running():
-            log_line(self.cfg, f"[launch] Cursor already running — skip spawn ({reason})")
+            log_line(self.cfg, f"[launch] Cursor already running — skip spawn ({reason})", code="WAKE_LAUNCH_SKIP")
             return
         if not self.cfg.cursor_launch_cmd:
-            log_line(self.cfg, "[launch] No cursorLaunchCmd configured")
+            log_line(self.cfg, "[launch] No cursorLaunchCmd configured", code="WAKE_LAUNCH_NO_CMD")
             return
         if not acquire_launch_lock(self.cfg):
-            log_line(self.cfg, "[launch] Already starting")
+            log_line(self.cfg, "[launch] Already starting", code="WAKE_LAUNCH_LOCKED")
             return
 
         cmd_path = Path(self.cfg.cursor_launch_cmd)
         if not cmd_path.exists():
-            log_line(self.cfg, f"[launch] Missing: {cmd_path}")
+            log_line(self.cfg, f"[launch] Missing: {cmd_path}", code="WAKE_LAUNCH_MISSING")
             release_launch_lock(self.cfg)
             return
 
-        log_line(self.cfg, f"[launch] Starting Cursor ({reason}): {cmd_path}")
+        log_line(self.cfg, f"[launch] Starting Cursor ({reason}): {cmd_path}", code="WAKE_LAUNCH_START")
         self._launch_started_at = time.time()
         try:
             if os.name == "nt" and cmd_path.suffix.lower() == ".exe":
@@ -96,7 +96,7 @@ class CursorWakeApp:
                     stderr=subprocess.DEVNULL,
                 )
         except OSError as err:
-            log_line(self.cfg, f"[launch] Failed: {err}")
+            log_line(self.cfg, f"[launch] Failed: {err}", code="WAKE_LAUNCH_FAIL")
             release_launch_lock(self.cfg)
             self._launch_started_at = None
 
@@ -110,14 +110,14 @@ class CursorWakeApp:
         result = check_health(self.cfg)
         chat_id = self._sync_chat_id()
         if result.cursor_process and result.cdp_ok:
-            log_line(self.cfg, "[launch] Cursor is up (CursorHandoff may still be starting)")
+            log_line(self.cfg, "[launch] Cursor is up (CursorHandoff may still be starting)", code="WAKE_LAUNCH_OK")
             release_launch_lock(self.cfg)
             self._launch_started_at = None
             return
 
         if chat_id:
             self._poller.send_message(chat_id, "⚠️ Failed to start Cursor")
-        log_line(self.cfg, "[launch] Timeout waiting for health")
+        log_line(self.cfg, "[launch] Timeout waiting for health", code="WAKE_LAUNCH_TIMEOUT")
         release_launch_lock(self.cfg)
         self._launch_started_at = None
 
@@ -143,7 +143,7 @@ class CursorWakeApp:
 
         # /health ok but connected=false — zombie port; Wake takes Telegram.
         if is_server_listening(result) and not result.server_connected:
-            log_line(self.cfg, "[health] Server ok but not connected — killing port, Wake takes Telegram")
+            log_line(self.cfg, "[health] Server ok but not connected — killing port, Wake takes Telegram", code="WAKE_HEALTH_ZOMBIE_PORT")
             kill_process_on_port(self.cfg.server_port)
 
         if not read_raise_cursor(self.cfg):
@@ -156,7 +156,7 @@ class CursorWakeApp:
 
         if proc and (not cdp or not result.server_connected):
             if launching:
-                log_line(self.cfg, "[health] Cursor starting — waiting (no GlobalDead kill)")
+                log_line(self.cfg, "[health] Cursor starting — waiting (no GlobalDead kill)", code="WAKE_HEALTH_CURSOR_STARTING")
                 self._ensure_poller()
                 self._wait_launch_result()
                 return
@@ -176,7 +176,7 @@ class CursorWakeApp:
                         chat_id,
                         "⚠️ CursorWake: Cursor unresponsive, restarting…",
                     )
-                log_line(self.cfg, "[health] GlobalDead — killing Cursor")
+                log_line(self.cfg, "[health] GlobalDead — killing Cursor", code="WAKE_HEALTH_GLOBAL_DEAD")
                 kill_all_cursor(self.cfg)
                 self._health_fails = 0
                 time.sleep(2)
@@ -212,9 +212,9 @@ class CursorWakeApp:
         self._wait_launch_result()
 
     def run_loop(self) -> None:
-        log_line(self.cfg, "CursorWake started")
+        log_line(self.cfg, "CursorWake started", code="WAKE_STARTED")
         if not self.cfg.bot_token:
-            log_line(self.cfg, "Warning: no bot token — Telegram disabled")
+            log_line(self.cfg, "Warning: no bot token — Telegram disabled", code="WAKE_TG_DISABLED")
 
         if not self.cfg.state_path.exists():
             write_raise_cursor(self.cfg, True, "tray")
@@ -235,6 +235,7 @@ class CursorWakeApp:
                         f"poller={'on' if self._poller.running else 'off'} "
                         f"fails={self._health_fails} "
                         f"proc={result.cursor_process} cdp={result.cdp_ok} conn={result.server_connected}",
+                        code="WAKE_HEALTH_HEARTBEAT",
                     )
                     last_heartbeat = now
 
@@ -243,11 +244,11 @@ class CursorWakeApp:
                 )
                 self._stop.wait(wait_sec)
             except Exception as err:
-                log_line(self.cfg, f"[health] loop error: {err!r}")
+                log_line(self.cfg, f"[health] loop error: {err!r}", code="WAKE_HEALTH_LOOP_ERR")
                 self._stop.wait(self.cfg.poll_interval_fast_sec)
 
         self._poller.stop()
-        log_line(self.cfg, "CursorWake stopped")
+        log_line(self.cfg, "CursorWake stopped", code="WAKE_STOPPED")
 
     def stop(self) -> None:
         self._stop.set()
@@ -255,9 +256,9 @@ class CursorWakeApp:
 
 def main() -> None:
     cfg = load_config()
-    log_line(cfg, f"DATA_DIR={cfg.data_dir}")
+    log_line(cfg, f"DATA_DIR={cfg.data_dir}", code="WAKE_DATA_DIR")
     if not acquire_single_instance(cfg.instance_lock_path):
-        log_line(cfg, "Another CursorWake instance already running — exit")
+        log_line(cfg, "Another CursorWake instance already running — exit", code="WAKE_SINGLE_INSTANCE")
         return
 
     app = CursorWakeApp(cfg)
@@ -279,7 +280,7 @@ def main() -> None:
                 break
             t = loop_holder[0] if loop_holder else None
             if t and not t.is_alive():
-                log_line(cfg, "[health] loop thread died — restarting")
+                log_line(cfg, "[health] loop thread died — restarting", code="WAKE_HEALTH_LOOP_RESTART")
                 start_loop()
 
     tray = TrayApp(cfg, lambda _v: None, on_exit)

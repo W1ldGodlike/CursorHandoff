@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   BUILD_FINGERPRINT,
   SERVER_COMPAT_VERSION,
+  logStartupAudit,
   runStartupAudit,
 } from '../../src/core/fingerprint.js';
 
@@ -35,6 +36,21 @@ describe('startup-audit', () => {
       bundleSha256: sha(src),
     });
     assert.equal(result.ok, true);
+  });
+
+  it('logStartupAudit failure lines include stable code=', () => {
+    const lines: string[] = [];
+    const orig = console.error;
+    console.error = (...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    };
+    try {
+      logStartupAudit({ ok: false, bundlePath: 'bundle.mjs', violations: ['missing:test'] });
+      assert.ok(lines.some((l) => l.includes('code=STARTUP_AUDIT_FAIL')));
+      assert.ok(lines.some((l) => l.includes('code=STARTUP_AUDIT_FIX')));
+    } finally {
+      console.error = orig;
+    }
   });
 });
 

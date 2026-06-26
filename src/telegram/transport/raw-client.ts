@@ -22,9 +22,15 @@ import { RawTelegramApiClient, type TgUpdate } from './raw-api.js';
 import { wrapTelegramApiWithQueue } from './api-queue.js';
 import { markTelegramPollEstablished, setTelegramPollActive } from '../../web/poll-status.js';
 import { isManualPollAbort } from './poll-errors.js';
+import { logError, logInfo, logWarn } from '../../core/log-event.js';
+import type { LogContext } from '../../core/log-event.js';
 
 const POLL_TIMEOUT_S = 30;
 const POLL_ERROR_BACKOFF_MS = 5_000;
+
+function rawClientCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'telegram', op, ...extra };
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -58,12 +64,12 @@ export class RawTelegramTransport extends BaseTelegramTransport {
     this.initStaleTimer();
 
     try {
-      console.log('[telegram-raw] Verifying bot identity...');
+      logInfo('TG_RAW_GETME_START', 'Verifying bot identity...', rawClientCtx('get_me'));
       const me = await this.rawApi.getMe();
-      console.log(`[telegram-raw] Bot: @${me.username} (id ${me.id})`);
+      logInfo('TG_RAW_GETME_OK', `Bot: @${me.username} (id ${me.id})`, rawClientCtx('get_me', { hint: me.username }));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[telegram-raw] getMe failed: ${msg}`);
+      logError('TG_GETME_FAIL', `getMe failed: ${msg}`, rawClientCtx('get_me'));
       return;
     }
 
@@ -77,7 +83,7 @@ export class RawTelegramTransport extends BaseTelegramTransport {
 
     this.pollLoop().catch(err => {
       if (this.running) {
-        console.error('[telegram-raw] Poll loop crashed:', err);
+        logError('TG_POLL_CRASH', err instanceof Error ? err.message : String(err), rawClientCtx('poll_loop'));
       }
     });
   }
@@ -87,14 +93,14 @@ export class RawTelegramTransport extends BaseTelegramTransport {
     this.pollAbort?.abort();
     setTelegramPollActive(false);
     await this.onStop();
-    console.log('[telegram-raw] Bot stopped');
+    logInfo('TG_RAW_STOP', 'Bot stopped', rawClientCtx('stop'));
   }
 
   // --- Long-poll loop ---
 
   private async pollLoop(): Promise<void> {
     let offset = -1;
-    console.log('[telegram-raw] Starting long-poll loop...');
+    logInfo('TG_RAW_POLL_START', 'Starting long-poll loop...', rawClientCtx('poll_loop'));
 
     // Drop stale pending updates if CursorWake did not persist messages to queue file.
     const dataDir = getDataDir();
@@ -104,7 +110,11 @@ export class RawTelegramTransport extends BaseTelegramTransport {
         const stale = await this.rawApi.getUpdates(-1, 0);
         if (stale.length > 0) {
           offset = stale[stale.length - 1].update_id + 1;
-          console.log(`[telegram-raw] Dropped ${stale.length} pending update(s), resuming from offset ${offset}`);
+          logInfo(
+            'TG_RAW_POLL_STALE_DROP',
+            `Dropped ${stale.length} pending update(s), resuming from offset ${offset}`,
+            rawClientCtx('poll_loop', { hint: String(offset) }),
+          );
         } else {
           offset = 0;
         }
@@ -113,14 +123,18 @@ export class RawTelegramTransport extends BaseTelegramTransport {
       }
     } else {
       offset = 0;
-      console.log('[telegram-raw] Queue has pending items — not dropping Telegram updates');
+      logInfo(
+        'TG_RAW_POLL_KEEP_PENDING',
+        'Queue has pending items — not dropping Telegram updates',
+        rawClientCtx('poll_loop'),
+      );
     }
 
     while (this.running) {
       this.pollAbort = new AbortController();
       try {
         const updates = await this.rawApi.getUpdates(offset, POLL_TIMEOUT_S, this.pollAbort.signal);
-        markTelegramPollEstablished();
+        markTelegramPollEstablished({ chatId: this.groupId });
         for (const update of updates) {
           if (update.update_id >= offset) {
             offset = update.update_id + 1;
@@ -128,7 +142,10 @@ export class RawTelegramTransport extends BaseTelegramTransport {
           try {
             await this.dispatchUpdate(update);
           } catch (err) {
-            console.error('[telegram-raw] Update dispatch error:', err instanceof Error ? err.message : err);
+            logError('TG_DISPATCH_FAIL', err instanceof Error ? err.message : String(err), rawClientCtx('dispatch_update', {
+              threadId: update.message?.message_thread_id,
+              chatId: update.message?.chat?.id,
+            }));
           }
         }
       } catch (err) {
@@ -137,11 +154,11 @@ export class RawTelegramTransport extends BaseTelegramTransport {
         const msg = err instanceof Error ? err.message : String(err);
         const code = (err as Record<string, unknown>).error_code;
         if (code === 409) {
-          console.warn('[telegram-raw] 409 Conflict — retry in 3s (often CursorWake during handoff)');
+          logWarn('TG_POLL_CONFLICT', '409 Conflict — retry in 3s (often CursorWake during handoff)', rawClientCtx('poll_loop'));
           await sleep(3000);
           continue;
         }
-        console.warn(`[telegram-raw] Poll error: ${msg}`);
+        logWarn('TG_POLL_ERROR', msg, rawClientCtx('poll_loop'));
         await sleep(POLL_ERROR_BACKOFF_MS);
       } finally {
         this.pollAbort = null;
@@ -149,7 +166,7 @@ export class RawTelegramTransport extends BaseTelegramTransport {
     }
 
     setTelegramPollActive(false);
-    console.log('[telegram-raw] Poll loop ended');
+    logInfo('TG_RAW_POLL_END', 'Poll loop ended', rawClientCtx('poll_loop'));
   }
 
   // --- Update dispatch ---
@@ -194,7 +211,7 @@ export class RawTelegramTransport extends BaseTelegramTransport {
         if (!userId || !this.registeredUsers.has(userId)) return;
 
         const who = update.message.from?.username ? `@${update.message.from.username}` : String(userId);
-        console.log(`[telegram-raw] ${who} → /${cmd}`);
+        logInfo('TG_RAW_ROUTING_CMD', `${who} → /${cmd}`, rawClientCtx('routing', { hint: cmd }));
 
         await this.dispatchCommand(cmd, ctx, this.deps);
       } else {

@@ -116,8 +116,8 @@ The sidebar **Status** tree is read-mostly (server, CDP, agent, clients, windows
 | `web-settings.json` | Synced web UI preferences |
 | `open-project.json` | One-shot folder open from Telegram |
 | `file-relay/` | File relay bootstrap metadata |
-| `cursor-wake.log` | CursorWake tray log |
-| `handoff-server.log` | Handoff server log (`[telegram]`, CDP commands) |
+| `cursor-wake.log` | CursorWake tray log (`code=WAKE_*` event tails) |
+| `handoff-server.log` | Handoff server log (JSON or human lines with `code=` — `TG_*`, `CDP_*`, `QUEUE_*`, …) |
 | `telegram-questionnaire-freeform/` | Short-lived pending state for TG **Other** + Reply (10 min TTL) |
 | `redeploy-requested` | Dev flag: full redeploy on next stop-hook |
 

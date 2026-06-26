@@ -130,6 +130,11 @@ if (-not $RestartOnly) {
     Invoke-ShutdownFlush
 }
 Stop-WakeAndServer
+$pruneTracker = Join-Path $Root 'scripts/dev/prune-telegram-tracker.mjs'
+if (Test-Path $pruneTracker) {
+    Step 'prune stale telegram tracker + offline queue'
+    node $pruneTracker 2>&1 | Out-Host
+}
 Stop-OrphanBundleServers
 
 if (-not $RestartOnly) {

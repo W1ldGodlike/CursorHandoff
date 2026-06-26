@@ -1,5 +1,7 @@
 import { createHash } from 'crypto';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { logInfo, logWarn, normalizeError } from '../../core/log-event.js';
+import type { LogContext } from '../../core/log-event.js';
 
 export interface TrackedMessage {
   telegramMsgIds: number[];
@@ -17,6 +19,10 @@ interface PersistedData {
 const SAVE_DEBOUNCE_MS = 5000;
 /** Cap entries per thread — else telegram-messages.json grows forever. */
 const MAX_PER_THREAD = 300;
+
+function trackerCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'telegram', op, ...extra };
+}
 
 export class MessageTracker {
   private messages = new Map<string, TrackedMessage>();
@@ -158,15 +164,34 @@ export class MessageTracker {
     try {
       const raw = readFileSync(this.persistPath, 'utf-8');
       const data = JSON.parse(raw) as PersistedData;
+      if (!data.messages || typeof data.messages !== 'object') {
+        logWarn(
+          'TG_TRACKER_LOAD_FAIL',
+          'invalid tracker file shape',
+          trackerCtx('load_tracker', { hint: this.persistPath }),
+        );
+        return;
+      }
       for (const [key, msg] of Object.entries(data.messages)) {
         this.messages.set(key, msg);
       }
-      for (const [hash, path] of Object.entries(data.selectorHashes)) {
-        this.selectorHashes.set(hash, path);
+      if (data.selectorHashes && typeof data.selectorHashes === 'object') {
+        for (const [hash, path] of Object.entries(data.selectorHashes)) {
+          this.selectorHashes.set(hash, path);
+        }
       }
-      console.log(`[message-tracker] Loaded ${this.messages.size} tracked messages from ${this.persistPath}`);
-    } catch {
-      console.log(`[message-tracker] No existing data at ${this.persistPath}, starting fresh`);
+      logInfo(
+        'TG_TRACKER_LOAD_OK',
+        `loaded ${this.messages.size} tracked messages`,
+        trackerCtx('load_tracker', { hint: this.persistPath }),
+      );
+    } catch (err) {
+      const norm = normalizeError(err);
+      logWarn(
+        'TG_TRACKER_LOAD_FAIL',
+        norm.message,
+        trackerCtx('load_tracker', { errno: norm.errno, hint: this.persistPath }),
+      );
     }
   }
 
@@ -179,8 +204,12 @@ export class MessageTracker {
       };
       writeFileSync(this.persistPath, JSON.stringify(data));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[message-tracker] Failed to save: ${msg}`);
+      const norm = normalizeError(err);
+      logWarn(
+        'TG_TRACKER_SAVE_FAIL',
+        norm.message,
+        trackerCtx('persist_tracker', { errno: norm.errno, hint: this.persistPath }),
+      );
     }
   }
 }

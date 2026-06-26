@@ -1,5 +1,7 @@
 import type { TelegramApiClient, BotCommandScope } from '../types.js';
 import { t } from '../../i18n/t.js';
+import { logInfo, logWarn } from '../../core/log-event.js';
+import type { LogContext } from '../../core/log-event.js';
 import { setupGeneralMenuButton } from '../ui/menus.js';
 
 export const BOT_COMMANDS = [
@@ -52,6 +54,10 @@ const BOT_COMMAND_KEYS: Record<(typeof BOT_COMMANDS)[number]['command'], string>
   notify_mode: 'tg.cmd.notify_mode',
 };
 
+function registryCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'telegram', op, ...extra };
+}
+
 function localizedBotCommands(): Array<{ command: string; description: string }> {
   return BOT_COMMANDS.map(({ command, description }) => ({
     command,
@@ -77,14 +83,18 @@ export async function registerBotCommands(
     try {
       await api.setMyCommands(commands, scope);
     } catch (err) {
-    console.warn(
-        `[telegram] setMyCommands failed (${scope.type}${scope.type === 'chat' ? ` ${scope.chat_id}` : ''}): ${
-          err instanceof Error ? err.message : err
-        }`,
+      logWarn(
+        'TG_SET_COMMANDS_FAIL',
+        `setMyCommands failed (${scope.type}${scope.type === 'chat' ? ` ${scope.chat_id}` : ''}): ${err instanceof Error ? err.message : err}`,
+        registryCtx('set_commands', { chatId: scope.type === 'chat' ? scope.chat_id : undefined }),
       );
     }
   }
-  console.log(`[telegram] Registered ${commands.length} bot commands (${scopes.length} scope(s))`);
+  logInfo(
+    'TG_COMMANDS_REGISTERED',
+    `Registered ${commands.length} bot commands (${scopes.length} scope(s))`,
+    registryCtx('set_commands', { hint: String(commands.length) }),
+  );
 
   await setupGeneralMenuButton(api as TelegramApiClient);
 }

@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { existsSync, mkdirSync, rmSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { resolveProjectPath, requestOpenViaExtension } from '../../src/workspace/launcher.js';
+import { requestOpenViaExtension, resolveProjectPath } from '../../src/workspace/launcher.js';
 import type { TopicMapping } from '../../src/telegram/topics/manager.js';
 import { uriPathToNative, workspaceBasename } from '../../src/state/workspace-uri.js';
 
@@ -54,6 +54,17 @@ describe('resolveProjectPath', () => {
       assert.equal(resolved, join(projects, 'test-layout'));
     }
   });
+
+  it('returns null silently when no project folder matches', () => {
+    const mapping: TopicMapping = {
+      threadId: 99,
+      windowId: 'w99',
+      windowTitle: 'no-such-project-folder-ever-xyz',
+      tabTitle: 'Chat',
+      lastActive: 0,
+    };
+    assert.equal(resolveProjectPath(mapping), null);
+  });
 });
 
 describe('requestOpenViaExtension', () => {
@@ -68,6 +79,17 @@ describe('requestOpenViaExtension', () => {
       assert.equal(parsed.path, 'C:\\Users\\foo\\Projects\\bar');
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('creates missing data dir and writes open-project.json', () => {
+    const base = join(tmpdir(), `handoff-open-project-nested-${Date.now()}`);
+    const dir = join(base, 'nested', 'deep');
+    try {
+      assert.equal(requestOpenViaExtension(dir, 'C:\\Users\\foo\\Projects\\bar'), true);
+      assert.ok(existsSync(join(dir, 'open-project.json')));
+    } finally {
+      rmSync(base, { recursive: true, force: true });
     }
   });
 });

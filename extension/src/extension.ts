@@ -18,6 +18,9 @@ import { installCloudflared } from './install-cloudflared.js';
 import { getTunnelAddonStatus } from './tunnel-status.js';
 import { applyWakeStartupSetting } from './wake-startup.js';
 import { openHandoffDoc } from './open-doc.js';
+import { formatExtensionLogLine } from './log-event.js';
+import { bindExtensionUiLog } from './extension-ui-log.js';
+import { showDedupedErrorToast } from './extension-toast.js';
 
 let serverManager: ServerManager | undefined;
 
@@ -65,6 +68,15 @@ async function ensurePassword(context: vscode.ExtensionContext): Promise<void> {
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const outputChannel = createOutputChannel();
+  bindExtensionUiLog((line, level = 'info') => {
+    if (level === 'error' || line.startsWith('[ERROR]')) {
+      outputChannel.error(line);
+    } else if (level === 'warn' || line.startsWith('[WARN]')) {
+      outputChannel.warn(line);
+    } else {
+      outputChannel.info(line);
+    }
+  });
   const statusBarItem = createStatusBar(context);
 
   serverManager = new ServerManager(context, outputChannel, statusBarItem);
@@ -112,13 +124,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void (async () => {
         try {
           const dest = await installCursorWake(context);
-          outputChannel.info(`[CursorWake] Installed: ${dest}`);
+          outputChannel.info(formatExtensionLogLine('info', `Installed: ${dest}`, {
+            scope: 'extension',
+            code: 'EXT_WAKE_INSTALLED',
+          }));
           await refreshAddons();
           void vscode.window.showInformationMessage(`CursorWake installed: ${dest}`);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          outputChannel.warn(`[CursorWake] Install failed: ${msg}`);
-          void vscode.window.showErrorMessage(`CursorHandoff: ${msg}`);
+          outputChannel.warn(formatExtensionLogLine('warn', `Install failed: ${msg}`, {
+            scope: 'extension',
+            code: 'EXT_WAKE_INSTALL_FAIL',
+          }));
+          showDedupedErrorToast(`CursorHandoff: ${msg}`, 'EXT_WAKE_INSTALL_FAIL');
         }
       })();
     }),
@@ -126,7 +144,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void (async () => {
         try {
           const result = await installCloudflared(context);
-          outputChannel.info(`[WebTunnel] cloudflared ${result}`);
+          outputChannel.info(formatExtensionLogLine('info', `cloudflared ${result}`, {
+            scope: 'extension',
+            code: result === 'installed' ? 'EXT_CLOUDFLARED_INSTALLED' : 'EXT_CLOUDFLARED_ALREADY',
+          }));
           await refreshAddons();
           void vscode.window.showInformationMessage(
             result === 'installed'
@@ -135,8 +156,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          outputChannel.warn(`[WebTunnel] Install failed: ${msg}`);
-          void vscode.window.showErrorMessage(`CursorHandoff: ${msg}`);
+          outputChannel.warn(formatExtensionLogLine('warn', `Install failed: ${msg}`, {
+            scope: 'extension',
+            code: 'EXT_CLOUDFLARED_INSTALL_FAIL',
+          }));
+          showDedupedErrorToast(`CursorHandoff: ${msg}`, 'EXT_CLOUDFLARED_INSTALL_FAIL');
         }
       })();
     }),
@@ -144,12 +168,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void (async () => {
         try {
           const result = await installAgentSkills(context);
-          outputChannel.info(`[Agent skills] Installed: ${result.skills.join(', ')}`);
+          outputChannel.info(formatExtensionLogLine('info', `Installed: ${result.skills.join(', ')}`, {
+            scope: 'extension',
+            code: 'EXT_SKILLS_INSTALLED',
+          }));
           presentAgentSkillsInstallResult(context, result);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          outputChannel.warn(`[Agent skills] Install failed: ${msg}`);
-          void vscode.window.showErrorMessage(`CursorHandoff: ${msg}`);
+          outputChannel.warn(formatExtensionLogLine('warn', `Install failed: ${msg}`, {
+            scope: 'extension',
+            code: 'EXT_SKILLS_INSTALL_FAIL',
+          }));
+          showDedupedErrorToast(`CursorHandoff: ${msg}`, 'EXT_SKILLS_INSTALL_FAIL');
         }
       })();
     }),
@@ -162,13 +192,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void (async () => {
     try {
       const result = await installAgentSkills(context);
-      outputChannel.info(
-        `[Agent skills] Auto-install: ${result.skills.length} skill(s), rules=${result.rules}`,
-      );
+      outputChannel.info(formatExtensionLogLine('info',
+        `Auto-install: ${result.skills.length} skill(s), rules=${result.rules}`,
+        { scope: 'extension', code: 'EXT_SKILLS_AUTO_INSTALL' },
+      ));
       presentAgentSkillsInstallResult(context, result, { quietIfAlready: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      outputChannel.warn(`[Agent skills] Auto-install failed: ${msg}`);
+      outputChannel.warn(formatExtensionLogLine('warn', `Auto-install failed: ${msg}`, {
+        scope: 'extension',
+        code: 'EXT_SKILLS_AUTO_INSTALL_FAIL',
+      }));
     }
   })();
 
@@ -214,8 +248,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  void applyWakeStartupSetting(config.get<boolean>('wake.startupEnabled', true)).catch((err) => {
-    outputChannel.warn(`[CursorWake] Startup sync: ${err instanceof Error ? err.message : err}`);
+  void applyWakeStartupSetting(
+    config.get<boolean>('wake.startupEnabled', true),
+    (msg) => outputChannel.info(`[CursorWake] ${msg}`),
+  ).catch((err) => {
+    outputChannel.warn(formatExtensionLogLine('warn', `Startup sync: ${err instanceof Error ? err.message : err}`, {
+      scope: 'wake',
+      code: 'WAKE_STARTUP_SYNC_FAIL',
+    }));
   });
 }
 

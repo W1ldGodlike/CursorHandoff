@@ -1,10 +1,16 @@
 import { spawn } from 'child_process';
-import { existsSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import type { CDPBridge } from '../ide/cdp-session.js';
 import type { CursorWindow } from '../core/types.js';
 import { getDataDir } from '../core/paths.js';
+import { logInfo, logWarn, normalizeError, sanitizePathForUi } from '../core/log-event.js';
+import type { LogContext } from '../core/log-event.js';
 import { normalizeWindowTitle, type TopicMapping } from '../telegram/topics/manager.js';
+
+function launchCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'bridge', op, ...extra };
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -59,44 +65,65 @@ export function resolveProjectPath(mapping: TopicMapping): string | null {
 
 /** Asks the CursorHandoff extension to open a folder (more reliable than spawn from server child). */
 export function requestOpenViaExtension(dataDir: string, workspacePath: string): boolean {
+  const safePath = sanitizePathForUi(workspacePath);
   try {
+    mkdirSync(dataDir, { recursive: true });
     const reqPath = join(dataDir, 'open-project.json');
     writeFileSync(reqPath, JSON.stringify({ path: workspacePath, ts: Date.now() }), 'utf-8');
     return true;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[project-launcher] Extension open request failed: ${msg}`);
+    const { message, errno } = normalizeError(err);
+    logWarn(
+      'LAUNCH_EXT_FAIL',
+      `Extension open request failed for ${safePath}: ${message}`,
+      launchCtx('open_project', { hint: safePath, errno }),
+    );
     return false;
   }
 }
 
 export function launchCursorProject(workspacePath: string): void {
+  const safePath = sanitizePathForUi(workspacePath);
   const dataDir = process.env.DATA_DIR?.trim() || getDataDir();
   if (requestOpenViaExtension(dataDir, workspacePath)) {
-    console.log(`[project-launcher] Extension open request: "${workspacePath}"`);
+    logInfo(
+      'LAUNCH_EXT_OK',
+      `Extension open request: ${safePath}`,
+      launchCtx('open_project', { hint: safePath }),
+    );
     return;
   }
 
   const exe = defaultCursorExecutable();
-  // Fallback when server runs outside the extension (dev/CLI).
   const args = ['--new-window', workspacePath];
   const child = spawn(exe, args, {
     detached: true,
     stdio: 'ignore',
     windowsHide: true,
   });
+  child.on('spawn', () => {
+    logInfo(
+      'LAUNCH_SPAWN_OK',
+      `Spawned Cursor: ${args.map((a) => `"${sanitizePathForUi(a)}"`).join(' ')} via ${sanitizePathForUi(exe)}`,
+      launchCtx('open_project', { hint: safePath }),
+    );
+  });
   child.on('error', (err) => {
-    console.warn(`[project-launcher] Spawn failed: ${err.message}`);
+    const { message, errno } = normalizeError(err);
+    logWarn(
+      'LAUNCH_SPAWN_FAIL',
+      `Spawn failed for ${safePath}: ${message}`,
+      launchCtx('open_project', { hint: safePath, errno }),
+    );
   });
   child.unref();
-  console.log(`[project-launcher] Spawned Cursor: ${args.map((a) => `"${a}"`).join(' ')} via ${exe}`);
 }
 
 export async function waitForProjectWindow(
   cdpBridge: CDPBridge,
   windowTitle: string,
   timeoutMs = 90_000,
-  pollMs = 2000
+  pollMs = 2000,
 ): Promise<CursorWindow | null> {
   const want = normalizeWindowTitle(windowTitle).toLowerCase();
   const deadline = Date.now() + timeoutMs;
@@ -120,8 +147,10 @@ export async function waitForProjectWindow(
   }
 
   const titles = cdpBridge.windows.map((w) => w.title).join(', ') || '(none)';
-  console.warn(
-    `[project-launcher] Timed out waiting for window "${windowTitle}" (${timeoutMs}ms). CDP windows: ${titles}`
+  logWarn(
+    'LAUNCH_TIMEOUT',
+    `Timed out waiting for window "${windowTitle}" (${timeoutMs}ms). CDP windows: ${titles}`,
+    launchCtx('open_project', { windowTitle, durationMs: timeoutMs }),
   );
   return null;
 }

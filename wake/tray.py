@@ -75,11 +75,11 @@ class TrayApp:
                 "CursorWake",
                 self._build_menu(),
             )
-            log_line(self.cfg, "[tray] Starting (main thread)")
+            log_line(self.cfg, "[tray] Starting (main thread)", code="WAKE_TRAY_START")
             self._icon.run()
-            log_line(self.cfg, "[tray] Stopped")
+            log_line(self.cfg, "[tray] Stopped", code="WAKE_TRAY_STOP")
         except Exception as err:
-            log_line(self.cfg, f"[tray] Error: {err}")
+            log_line(self.cfg, f"[tray] Error: {err}", code="WAKE_TRAY_ERR")
             raise
 
     def refresh_menu(self) -> None:

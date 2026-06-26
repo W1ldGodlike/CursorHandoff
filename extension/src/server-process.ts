@@ -4,7 +4,7 @@ import { join } from 'path';
 import { mkdirSync, existsSync, writeFileSync, unlinkSync, readFileSync, watch, type FSWatcher } from 'fs';
 import { EventEmitter } from 'events';
 import { buildEnvFromConfig } from './config-bridge.js';
-import { resolveDataDir } from './paths-settings.js';
+import { DATA_DIR_NOT_WRITABLE, resolveDataDir, verifyDataDirWritable } from './paths-settings.js';
 import { killStaleBundleServers } from './spawn-hygiene.js';
 import {
   claimServerOwner,
@@ -15,13 +15,19 @@ import {
 } from './owner-lock.js';
 import { ensureCloudflaredQuickTunnel } from './tunnel-launcher.js';
 import { appendLogLine, type UnifiedOutputChannel } from './output-channel.js';
+import {
+  classifyServerStdoutLine,
+  isServerStderrNoiseLine,
+  pickDataDirMessageFromStderr,
+  splitChildLogChunk,
+} from './server-log-detect.js';
+import { resetExtensionToastDedupe, showDedupedErrorToast, showDedupedWarningToast } from './extension-toast.js';
 import { updateStatusBar, type HealthData, type ServerState } from './status-bar.js';
 import { loadLocaleStrings, normalizeLocale, tr } from './extension-locale.js';
 
 const HEALTH_POLL_INTERVAL_MS = 5000;
 const SHUTDOWN_TIMEOUT_MS = 3000;
 const MAX_TAKEOVER_JITTER_MS = 3000;
-
 export class ServerManager extends EventEmitter {
   private context: vscode.ExtensionContext;
   private outputChannel: UnifiedOutputChannel;
@@ -209,6 +215,8 @@ export class ServerManager extends EventEmitter {
       return;
     }
 
+    resetExtensionToastDedupe();
+
     const { port, host } = this.getHealthUrl();
     const env = buildEnvFromConfig(this.context);
     const dataDir = env.DATA_DIR;
@@ -258,8 +266,16 @@ export class ServerManager extends EventEmitter {
     }
 
     markServerStarting(dataDir, this.windowName);
-    if (!existsSync(dataDir)) {
-      mkdirSync(dataDir, { recursive: true });
+    try {
+      verifyDataDirWritable(dataDir);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      clearServerStarting(dataDir);
+      this.outputChannel.error(`[${this.windowName}] ${msg}`);
+      this.outputChannel.show(true);
+      showDedupedErrorToast(msg, DATA_DIR_NOT_WRITABLE);
+      this.setState('error');
+      return;
     }
 
     const extRoot = this.context.extensionPath;
@@ -297,7 +313,7 @@ export class ServerManager extends EventEmitter {
     this.child.stdout?.on('data', (data: Buffer) => {
       if (this.shuttingDown) return;
       try {
-        const lines = data.toString().split('\n').filter(l => l.trim());
+        const lines = splitChildLogChunk(data.toString());
         for (const line of lines) {
           appendLogLine(this.outputChannel, line);
           this.detectStatusFromLog(line);
@@ -312,7 +328,7 @@ export class ServerManager extends EventEmitter {
       stderrBuffer += text;
       const lines = text.split('\n').filter(l => l.trim());
       for (const line of lines) {
-        if (line.includes('DEP0040') || (line.includes('punycode') && line.includes('deprecated'))) continue;
+        if (isServerStderrNoiseLine(line)) continue;
         appendLogLine(this.outputChannel, line);
       }
     });
@@ -333,6 +349,10 @@ export class ServerManager extends EventEmitter {
 
         if (code !== 0 && code !== null) {
           this.outputChannel.show(true);
+          if (stderrBuffer.includes(DATA_DIR_NOT_WRITABLE)) {
+            const line = pickDataDirMessageFromStderr(stderrBuffer, DATA_DIR_NOT_WRITABLE);
+            if (line) showDedupedErrorToast(line, DATA_DIR_NOT_WRITABLE);
+          }
           this.setState('error');
           this.scheduleErrorRecovery();
         } else {
@@ -462,27 +482,34 @@ export class ServerManager extends EventEmitter {
   }
 
   private detectStatusFromLog(raw: string): void {
-    try {
-      const parsed = JSON.parse(raw);
-      const msg: string = parsed.msg ?? '';
-      if (msg.includes('[cdp-bridge] Connected to')) {
-        this.setState('running');
-      } else if (msg.includes('[cdp-bridge] Disconnected') || msg.includes('[cdp-bridge] Connection lost')) {
-        this.setState('disconnected');
-      } else if (msg.includes('[CRASH]')) {
+    const action = classifyServerStdoutLine(raw, {
+      dataDirNotWritablePrefix: DATA_DIR_NOT_WRITABLE,
+      staleBundleMessage: tr(
+        this.localeDict(),
+        'ext.server.staleBundle',
+        'CursorHandoff: server started with STALE bundle — see Output / server.log',
+      ),
+      staleKeyboardMessage: tr(
+        this.localeDict(),
+        'ext.server.staleKeyboards',
+        'Detected OLD code (auto-keyboards on connect) — rebuild bundle + Reload Window',
+      ),
+    });
+
+    switch (action.kind) {
+      case 'set_state':
+        this.setState(action.state);
+        break;
+      case 'error_toast':
         this.setState('error');
-      } else if (msg.includes('[startup-audit] STALE OR INVALID BUILD')) {
+        showDedupedErrorToast(action.message, action.dedupeKey);
+        break;
+      case 'warn_toast':
         this.setState('error');
-        void vscode.window.showWarningMessage(
-          tr(this.localeDict(), 'ext.server.staleBundle', 'CursorHandoff: server started with STALE bundle — see Output / server.log'),
-        );
-      } else if (msg.includes('Chat keyboard init starting') || msg.includes('Posting chat keyboards to')) {
-        this.outputChannel.error(
-          `[${this.windowName}] ${tr(this.localeDict(), 'ext.server.staleKeyboards', 'Detected OLD code (auto-keyboards on connect) — rebuild bundle + Reload Window')}`,
-        );
-      }
-    } catch {
-      // non-JSON log line — skip
+        showDedupedWarningToast(action.message, action.dedupeKey);
+        break;
+      case 'none':
+        break;
     }
   }
 

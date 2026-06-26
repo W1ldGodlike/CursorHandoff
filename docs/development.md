@@ -134,6 +134,18 @@ Target: `CursorWake.exe` installed with CursorHandoff **1.0.0+**.
 - CursorWake: `data/cursor-wake.log`
 - Handoff server: `data/handoff-server.log` (or **CursorHandoff: Show logs** in the extension Output channel)
 
+**Grep by event code** (from repo root, log file path as needed):
+
+```bash
+rg "code=TG_POLL_(ERROR|CONFLICT)" data/handoff-server.log
+rg "threadId=" data/handoff-server.log
+rg "code=CDP_RECONNECT_LOST" data/handoff-server.log
+rg "code=WAKE_" data/cursor-wake.log
+rg "code=QUEUE_" data/handoff-server.log
+```
+
+Set `LOG_FORMAT=json` for machine-readable lines with the same `code` and context fields.
+
 ---
 
 ## Tests and build
@@ -141,8 +153,16 @@ Target: `CursorWake.exe` installed with CursorHandoff **1.0.0+**.
 ```bash
 npm test          # full suite; pretest kills stale runners
 npm run build     # compile only
-npm run package   # VSIX → releases/
+npm run package   # Standard + Complete VSIX → releases/ (+ CursorWake-windows.exe when wake/dist exists)
 ```
+
+**CursorWake rebuild** (required after `wake/*.py` changes; Complete VSIX embeds the exe):
+
+```powershell
+.\scripts\install\build-cursor-wake.ps1
+```
+
+Then `npm run package` (or `npm run package:complete`) so `extension/media/wake/CursorWake.exe` and `releases/CursorWake-windows.exe` match sources.
 
 **Git vs GitHub Release assets**
 

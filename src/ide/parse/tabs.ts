@@ -11,9 +11,15 @@ import type {
 } from '../../core/types.js';
 import { applyDerivedActivityToState } from '../activity-derive.js';
 import { applyApprovalFilter } from '../approval-filter.js';
+import { logInfo, logWarn } from '../../core/log-event.js';
+import type { LogContext } from '../../core/log-event.js';
 
 const EVALUATE_TIMEOUT_MS = 5000;
 const MAX_POLL_BACKOFF_MS = 5000;
+
+function extractCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'cdp', op, ...extra };
+}
 
 /** Canonical tab title cleanup — matches cleanTabTitle extractionFunction for consistent lookup. */
 export function cleanTabTitle(raw: string): string {
@@ -1964,7 +1970,7 @@ export class DOMExtractor {
     this.basePollIntervalMs = intervalMs;
     this.currentPollIntervalMs = intervalMs;
     this.failureStreak = 0;
-    console.log(`[dom-extractor] Starting polling every ${intervalMs}ms`);
+    logInfo('EXTRACT_START', `polling every ${intervalMs}ms`, extractCtx('extract_poll', { durationMs: intervalMs }));
     this.scheduleNextPoll(0);
   }
 
@@ -2003,7 +2009,11 @@ export class DOMExtractor {
       );
       if (nextInterval !== this.currentPollIntervalMs) {
         this.currentPollIntervalMs = nextInterval;
-        console.warn(`[dom-extractor] Backing off poll interval to ${this.currentPollIntervalMs}ms after ${message}`);
+        logWarn(
+          'EXTRACT_FAIL',
+          `Backing off poll interval to ${this.currentPollIntervalMs}ms after ${message}`,
+          extractCtx('extract_backoff', { durationMs: this.currentPollIntervalMs, hint: String(this.failureStreak) }),
+        );
       }
     }
     this.onExtract(null, message);
@@ -2065,33 +2075,16 @@ export class DOMExtractor {
 
       if (derivedState && !this.loggedFirstExtraction) {
         this.loggedFirstExtraction = true;
-        console.log(`[dom-extractor] First successful extraction:`);
-        console.log(`  status: ${derivedState.agentStatus}${derivedState.agentActivityText ? ` (${derivedState.agentActivityText})` : ''}`);
-        console.log(`  messages: ${derivedState.messages.length}`);
-        console.log(`  approvals: ${derivedState.pendingApprovals.length}`);
-        console.log(`  inputAvailable: ${derivedState.inputAvailable}`);
-        console.log(`  chatTabs: ${derivedState.chatTabs.length}`);
-        console.log(`  mode: ${derivedState.mode.current}, model: ${derivedState.model.current}`);
-        if (derivedState.messages.length > 0) {
-          const last = derivedState.messages[derivedState.messages.length - 1];
-          const preview = last.type === 'human' ? last.text
-            : last.type === 'assistant' ? last.text
-            : last.type === 'tool' ? `${last.action} ${last.details}`
-            : last.type === 'thought' ? `thought ${last.duration}`
-            : last.type === 'plan' ? `${last.label}: ${last.title}`
-            : last.type === 'run_command' ? `run: ${last.command.substring(0, 60)}`
-            : last.type === 'todo_list' ? `todos: ${last.todosCompleted}/${last.todosTotal}`
-            : 'loading';
-          console.log(`  last element (${last.type}): "${preview.substring(0, 80)}..."`);
-        }
+        logInfo(
+          'EXTRACT_FIRST_OK',
+          `status=${derivedState.agentStatus} msgs=${derivedState.messages.length} approvals=${derivedState.pendingApprovals.length} tabs=${derivedState.chatTabs.length}`,
+          extractCtx('extract', { hint: derivedState.agentStatus }),
+        );
       }
 
       this.onExtract(derivedState, null);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (!message.includes('WebSocket closed') && !message.includes('Intentional disconnect')) {
-        console.warn(`[dom-extractor] Extraction failed: ${message}`);
-      }
       this.handleFailure(message);
     } finally {
       this.pollInFlight = false;

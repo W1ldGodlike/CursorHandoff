@@ -1,6 +1,12 @@
 import type { TelegramApiClient, BotContext, TgReplyKeyboard } from '../types.js';
 import { KEYBOARD_PLACEHOLDER_TEXT } from '../types.js';
 import { t } from '../../i18n/t.js';
+import { logInfo, logWarn, normalizeError } from '../../core/log-event.js';
+import type { LogContext } from '../../core/log-event.js';
+
+function menuCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'telegram', op, ...extra };
+}
 
 const GENERAL_MENU_DEFS = [
   { command: 'status', icon: '📊', descKey: 'tg.cmd.status', descFallback: 'Connection and bridge status' },
@@ -85,16 +91,23 @@ export async function setupGeneralMenuButton(api: TelegramApiClient): Promise<vo
   try {
     await api.setChatMenuButton({ type: 'commands' });
   } catch (err) {
-    console.warn(`[telegram] setChatMenuButton failed: ${err instanceof Error ? err.message : err}`);
+    const norm = normalizeError(err);
+    logWarn('TG_MENU_BUTTON_FAIL', `setChatMenuButton failed: ${norm.message}`, menuCtx('set_menu_button', { errno: norm.errno }));
   }
 }
 
 /** Show # General tiles on demand (/menu). */
 export async function showGeneralKeyboard(api: TelegramApiClient, groupId: number): Promise<void> {
-  await api.sendMessage(groupId, KEYBOARD_PLACEHOLDER_TEXT, {
-    reply_markup: buildGeneralReplyKeyboard(),
-  });
-  console.log('[telegram] General reply keyboard posted');
+  try {
+    await api.sendMessage(groupId, KEYBOARD_PLACEHOLDER_TEXT, {
+      reply_markup: buildGeneralReplyKeyboard(),
+    });
+    logInfo('TG_MENU_KEYBOARD_GENERAL', 'General reply keyboard posted', menuCtx('show_general_keyboard', { chatId: groupId }));
+  } catch (err) {
+    const norm = normalizeError(err);
+    logWarn('TG_MENU_KEYBOARD_FAIL', `general keyboard post failed: ${norm.message}`, menuCtx('show_general_keyboard', { chatId: groupId, errno: norm.errno }));
+    throw err;
+  }
 }
 
 const CHAT_MENU_DEFS = [
@@ -168,9 +181,15 @@ export async function showChatKeyboard(
   chatId: number,
   threadId: number,
 ): Promise<void> {
-  await api.sendMessage(chatId, KEYBOARD_PLACEHOLDER_TEXT, {
-    message_thread_id: threadId,
-    reply_markup: buildChatReplyKeyboard(),
-  });
-  console.log(`[telegram] Chat reply keyboard posted (thread ${threadId})`);
+  try {
+    await api.sendMessage(chatId, KEYBOARD_PLACEHOLDER_TEXT, {
+      message_thread_id: threadId,
+      reply_markup: buildChatReplyKeyboard(),
+    });
+    logInfo('TG_MENU_KEYBOARD_CHAT', `Chat reply keyboard posted (thread ${threadId})`, menuCtx('show_chat_keyboard', { chatId, threadId }));
+  } catch (err) {
+    const norm = normalizeError(err);
+    logWarn('TG_MENU_KEYBOARD_FAIL', `chat keyboard post failed: ${norm.message}`, menuCtx('show_chat_keyboard', { chatId, threadId, errno: norm.errno }));
+    throw err;
+  }
 }

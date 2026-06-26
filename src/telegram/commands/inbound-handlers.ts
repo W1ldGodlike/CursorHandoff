@@ -10,6 +10,8 @@ import { type TopicMapping } from '../topics/manager.js';
 import { resolveTargetWindow } from '../routing/window-resolver.js';
 import type { StateManager } from '../../state/broadcast.js';
 import { getDataDir } from '../../core/paths.js';
+import { logInfo, logWarn } from '../../core/log-event.js';
+import type { LogContext } from '../../core/log-event.js';
 import { saveInboundFromTelegram } from '../../media/lifecycle.js';
 import { isInboundImagePath, isSupportedImageMime } from '../../media/lifecycle.js';
 import {
@@ -76,6 +78,10 @@ import {
 } from './mode-model.js';
 import { handleOpenProject, handleProjects, handleWebUrl } from './projects-web.js';
 import { handleSetupTgSend } from './register-callbacks.js';
+
+function inboundCtx(op: string, extra?: Omit<LogContext, 'scope' | 'op'>): LogContext {
+  return { scope: 'telegram', op, ...extra };
+}
 
 // --- Reply keyboard on demand (/menu) ---
 
@@ -509,8 +515,10 @@ async function deliverQuestionnaireFreeformToCursor(
     return { ok: false, error: setResult.error ?? t('tg.msg.err.sendFailed', 'Could not send') };
   }
 
-  console.log(
-    `[telegram] questionnaire freeform thread ${mapping.threadId} (${trimmed.length} chars)`,
+  logInfo(
+    'TG_QUESTIONNAIRE_FREEFORM_OK',
+    `questionnaire freeform thread ${mapping.threadId} (${trimmed.length} chars)`,
+    inboundCtx('questionnaire_freeform', { threadId: mapping.threadId }),
   );
   await maybeAdvanceQuestionnaireAfterFreeform(mapping, deps);
   return { ok: true };
@@ -529,9 +537,10 @@ async function maybeAdvanceQuestionnaireAfterFreeform(
   const now = deps.stateManager.getCurrentState().questionnaire;
   if (!now?.questions.length) return;
   if (now.activeIndex > beforeIdx) {
-    console.log(
-      `[telegram] questionnaire step already ${beforeIdx + 1}→${now.activeIndex + 1} `
-      + `thread ${mapping.threadId}`,
+    logInfo(
+      'TG_QUESTIONNAIRE_STEP_OK',
+      `questionnaire step already ${beforeIdx + 1}→${now.activeIndex + 1} thread ${mapping.threadId}`,
+      inboundCtx('questionnaire_advance', { threadId: mapping.threadId }),
     );
     return;
   }
@@ -539,9 +548,9 @@ async function maybeAdvanceQuestionnaireAfterFreeform(
   const commandId = genId();
   const tabReady = await ensureMappingTabActive(mapping, deps, commandId);
   if (!tabReady.ok) {
-    console.warn(
-      `[telegram] questionnaire step advance thread ${mapping.threadId}: ${tabReady.error}`,
-    );
+    logWarn('TG_QUESTIONNAIRE_ADVANCE_FAIL', `questionnaire step advance thread ${mapping.threadId}: ${tabReady.error}`, inboundCtx('questionnaire_advance', {
+      threadId: mapping.threadId,
+    }));
     return;
   }
 
@@ -550,9 +559,10 @@ async function maybeAdvanceQuestionnaireAfterFreeform(
 
   const after = deps.stateManager.getCurrentState().questionnaire;
   if (after && after.activeIndex > beforeIdx) {
-    console.log(
-      `[telegram] questionnaire step ${beforeIdx + 1}→${after.activeIndex + 1} `
-      + `thread ${mapping.threadId}`,
+    logInfo(
+      'TG_QUESTIONNAIRE_STEP_OK',
+      `questionnaire step ${beforeIdx + 1}→${after.activeIndex + 1} thread ${mapping.threadId}`,
+      inboundCtx('questionnaire_advance', { threadId: mapping.threadId }),
     );
   }
 }
@@ -600,16 +610,19 @@ export async function dispatchTopicMessage(
 
   const tabReady = await ensureMappingTabActive(mapping, deps, commandId);
   if (!tabReady.ok) {
-    console.warn(
-      `[telegram] dispatchTopicMessage thread ${mapping.threadId}: ${tabReady.error}`,
-    );
+    logWarn('TG_DISPATCH_TAB_FAIL', `dispatchTopicMessage thread ${mapping.threadId}: ${tabReady.error}`, inboundCtx('dispatch_topic', {
+      threadId: mapping.threadId,
+      windowId: mapping.windowId,
+    }));
     return { ok: false, error: tabReady.error };
   }
 
   const hasImages = (imagePaths?.length ?? 0) > 0;
-  console.log(
-    `[telegram] dispatchTopicMessage thread ${mapping.threadId} → send `
+  logInfo(
+    'TG_DISPATCH_START',
+    `dispatchTopicMessage thread ${mapping.threadId} → send `
     + `(${text.length} chars, images=${imagePaths?.length ?? 0}, submit=${submit}, tab="${mapping.tabTitle}")`,
+    inboundCtx('dispatch_topic', { threadId: mapping.threadId, windowId: mapping.windowId, hint: mapping.tabTitle }),
   );
 
   const mappingComposer = isPersistableComposerId(mapping.composerId) ? mapping.composerId : undefined;
@@ -632,12 +645,17 @@ export async function dispatchTopicMessage(
       : { ok: false, error: t('tg.msg.err.tabNotActive', 'Tab «{tab}» not active before send', { tab: mapping.tabTitle }) };
 
   if (!result.ok) {
-    console.warn(
-      `[telegram] dispatchTopicMessage thread ${mapping.threadId} send failed: ${result.error ?? 'unknown'}`,
-    );
+    logWarn('TG_DISPATCH_SEND_FAIL', `dispatchTopicMessage thread ${mapping.threadId} send failed: ${result.error ?? 'unknown'}`, inboundCtx('dispatch_topic', {
+      threadId: mapping.threadId,
+      windowId: mapping.windowId,
+    }));
     return { ok: false, error: result.error ?? t('tg.msg.err.sendFailed', 'Could not send') };
   }
-  console.log(`[telegram] dispatchTopicMessage thread ${mapping.threadId} send ok`);
+  logInfo(
+    'TG_DISPATCH_OK',
+    `dispatchTopicMessage thread ${mapping.threadId} send ok`,
+    inboundCtx('dispatch_topic', { threadId: mapping.threadId, windowId: mapping.windowId }),
+  );
 
   const pathsToClean = attachmentPaths ?? imagePaths;
   if (pathsToClean?.length) {
@@ -886,7 +904,11 @@ export async function handleTextMessage(ctx: BotContext, deps: CommandDeps): Pro
 
   const chatId = deps.chatId ?? ctx.chat?.id;
   if (chatId != null && !shouldProcessInboundMessage(chatId, ctx.message?.message_id)) {
-    console.log(`[telegram] Skip duplicate inbound msg ${ctx.message?.message_id} (thread ${threadId})`);
+    logInfo(
+      'TG_INBOUND_DEDUP',
+      `Skip duplicate inbound msg ${ctx.message?.message_id} (thread ${threadId})`,
+      inboundCtx('inbound_text', { threadId, chatId }),
+    );
     return;
   }
 

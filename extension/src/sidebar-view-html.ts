@@ -19,6 +19,10 @@ export interface SidebarViewState {
   accessMode: SidebarAccessMode;
   webTunnelEnabled: boolean;
   showCloudflare: boolean;
+  serverPort: number;
+  portOwnerPid: number | null;
+  portOwnerName: string;
+  portOwnerIsHandoff: boolean;
 }
 
 function escapeHtml(str: string): string {
@@ -158,6 +162,22 @@ export function renderSidebarHtml(
     accessValue(state, dict),
     accessTone(state),
     accessSub,
+  ));
+
+  const portOwnerValue = state.portOwnerPid == null
+    ? t('ext.sidebar.portFree', 'Free')
+    : state.portOwnerIsHandoff
+      ? trParam(dict, 'ext.sidebar.portOwnedByHandoff', 'Owned by CursorHandoff (PID {pid})', { pid: state.portOwnerPid })
+      : trParam(dict, 'ext.sidebar.portOccupied', 'Occupied by {name} (PID {pid})', {
+          name: state.portOwnerName || 'process',
+          pid: state.portOwnerPid,
+        });
+  const portOwnerTone: 'ok' | 'warn' | 'bad' | 'muted' =
+    state.portOwnerPid == null || state.portOwnerIsHandoff ? 'ok' : 'warn';
+  rows.push(statusRow(
+    trParam(dict, 'ext.sidebar.portLabel', 'Port {port}:', { port: state.serverPort }),
+    portOwnerValue,
+    portOwnerTone,
   ));
 
   if (state.isWindows && state.wake) {
@@ -365,6 +385,10 @@ export function renderSidebarHtml(
   ${powerAction}
   <div class="divider"></div>
   ${actionRow('openHandoffSettings', '⚙', t('ext.sidebar.settings', 'Settings'))}
+  ${actionRow('checkPortOwner', '↻', t('ext.sidebar.checkPortOwner', 'Check owner'))}
+  ${state.portOwnerPid != null && !state.portOwnerIsHandoff
+    ? actionRow('killPortOwner', '🗑', t('ext.sidebar.killPortOwner', 'Kill process'))
+    : ''}
   ${actionRow('openWebClient', '↗', t('ext.sidebar.openWebClient', 'Open web client'))}
   ${actionRow('showLogs', '≡', t('ext.sidebar.showLogs', 'Show logs'))}
   <script>

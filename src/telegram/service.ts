@@ -28,9 +28,21 @@ import { wrapTelegramApiWithQueue } from './transport/api-queue.js';
 import { RawTelegramApiClient } from './transport/raw-api.js';
 import { markTelegramPollEstablished, setTelegramPollActive } from '../web/poll-status.js';
 import { isManualPollAbort } from './transport/poll-errors.js';
+import { logError, logInfo, logWarn } from '../core/log-event.js';
+import type { LogContext } from '../core/log-event.js';
 
 const POLL_TIMEOUT_S = 30;
 const POLL_ERROR_BACKOFF_MS = 5_000;
+
+function serviceCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'telegram', op, ...extra };
+}
+
+interface PollUpdateMeta {
+  update_id?: number;
+  message?: { message_thread_id?: number; chat?: { id?: number } };
+  callback_query?: { message?: { message_thread_id?: number; chat?: { id?: number } } };
+}
 
 function grammyApiAdapter(bot: Bot): TelegramApiClient {
   // bot.api.raw — Proxy: any method name goes to Bot API as-is.
@@ -218,27 +230,35 @@ export class TelegramTransport extends BaseTelegramTransport {
         result?: { id: number; username?: string; first_name?: string };
       };
       if (!data.ok || !data.result) {
-        console.error('[telegram] getMe before start: ok=false');
+        logError('TG_GETME_FAIL', 'getMe before start: ok=false', serviceCtx('get_me'));
         return;
       }
       const me = data.result;
       const bot = this.bot as unknown as { botInfo?: typeof me; me?: typeof me };
       bot.botInfo = me;
       bot.me = me;
-      console.log(`[telegram] Bot ready: @${me.username ?? username} (id ${me.id})`);
+      logInfo(
+        'TG_GETME_OK',
+        `@${me.username ?? username} (id ${me.id})`,
+        serviceCtx('get_me', { hint: me.username ?? username }),
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[telegram] getMe before start failed: ${msg}`);
+      logError('TG_GETME_FAIL', `getMe before start failed: ${msg}`, serviceCtx('get_me'));
       return;
     }
 
     void registerBotCommands(this.rawApi, this.groupId);
 
-    console.log('[telegram] Starting long-poll (native fetch)...');
+    logInfo('TG_POLL_START', 'Starting long-poll (native fetch)', serviceCtx('poll_loop'));
 
     const dataDir = getDataDir();
     if (hasPendingItems(dataDir)) {
-      console.log('[telegram] Pending queue — waiting 5s for CursorWake handoff...');
+      logInfo(
+        'TG_POLL_QUEUE_HANDOFF',
+        'Pending queue — waiting 5s for CursorWake handoff',
+        serviceCtx('poll_loop', { hint: '5s' }),
+      );
       await sleep(5000);
     }
 
@@ -246,7 +266,7 @@ export class TelegramTransport extends BaseTelegramTransport {
     this.onBotConnected();
     this.pollLoop().catch((err) => {
       if (this.pollRunning) {
-        console.error('[telegram] Poll loop crashed:', err instanceof Error ? err.message : err);
+        logError('TG_POLL_CRASH', err instanceof Error ? err.message : String(err), serviceCtx('poll_loop'));
       }
     });
   }
@@ -259,7 +279,11 @@ export class TelegramTransport extends BaseTelegramTransport {
         const stale = await this.rawApi.getUpdates(-1, 0);
         if (stale.length > 0) {
           offset = stale[stale.length - 1].update_id + 1;
-          console.log(`[telegram] Dropped ${stale.length} pending update(s), offset ${offset}`);
+          logInfo(
+            'TG_POLL_STALE_DROP',
+            `Dropped ${stale.length} pending update(s), offset ${offset}`,
+            serviceCtx('poll_loop', { hint: String(stale.length) }),
+          );
         }
       } catch {
         offset = 0;
@@ -270,10 +294,18 @@ export class TelegramTransport extends BaseTelegramTransport {
       this.pollAbort = new AbortController();
       try {
         const updates = await this.rawApi.getUpdates(offset, POLL_TIMEOUT_S, this.pollAbort.signal);
-        markTelegramPollEstablished();
+        markTelegramPollEstablished({ chatId: this.groupId });
         for (const update of updates) {
           if (update.update_id >= offset) offset = update.update_id + 1;
-          await this.bot.handleUpdate(update as never);
+          try {
+            await this.bot.handleUpdate(update as never);
+          } catch (err) {
+            const meta = update as PollUpdateMeta;
+            logError('TG_DISPATCH_FAIL', err instanceof Error ? err.message : String(err), serviceCtx('dispatch_update', {
+              threadId: meta.message?.message_thread_id ?? meta.callback_query?.message?.message_thread_id,
+              chatId: meta.message?.chat?.id ?? meta.callback_query?.message?.chat?.id,
+            }));
+          }
         }
       } catch (err) {
         if (!this.pollRunning) break;
@@ -281,18 +313,18 @@ export class TelegramTransport extends BaseTelegramTransport {
         const msg = err instanceof Error ? err.message : String(err);
         const code = (err as { error_code?: number }).error_code;
         if (code === 409) {
-          console.warn('[telegram] 409 Conflict — retry in 3s');
+          logWarn('TG_POLL_CONFLICT', '409 Conflict — retry in 3s', serviceCtx('poll_loop'));
           await sleep(3000);
           continue;
         }
-        console.warn(`[telegram] Poll error: ${msg}`);
+        logWarn('TG_POLL_ERROR', msg, serviceCtx('poll_loop'));
         await sleep(POLL_ERROR_BACKOFF_MS);
       } finally {
         this.pollAbort = null;
       }
     }
     setTelegramPollActive(false);
-    console.log('[telegram] Poll loop ended');
+    logInfo('TG_POLL_END', 'Poll loop ended', serviceCtx('poll_loop'));
   }
 
   async stop(): Promise<void> {
@@ -300,7 +332,7 @@ export class TelegramTransport extends BaseTelegramTransport {
     this.pollAbort?.abort();
     setTelegramPollActive(false);
     await this.onStop();
-    console.log('[telegram] Bot stopped');
+    logInfo('TG_BOT_STOP', 'Bot stopped', serviceCtx('stop'));
   }
 
   private setupRouting(): void {
@@ -316,10 +348,18 @@ export class TelegramTransport extends BaseTelegramTransport {
       const text = ctx.message?.text;
       const who = ctx.from?.username ? `@${ctx.from.username}` : String(userId);
       if (text?.startsWith('/')) {
-        console.log(`[telegram] ${who} → ${text.split(/\s/)[0]}`);
+        logInfo(
+          'TG_ROUTING_CMD',
+          `${who} → ${text.split(/\s/)[0]}`,
+          serviceCtx('routing', { hint: text.split(/\s/)[0] }),
+        );
       } else if (text && ctx.message?.message_thread_id != null) {
         const preview = text.length > 40 ? `${text.slice(0, 40)}…` : text;
-        console.log(`[telegram] ${who} → thread ${ctx.message.message_thread_id}: ${preview}`);
+        logInfo(
+          'TG_ROUTING_THREAD_MSG',
+          `${who} → thread ${ctx.message.message_thread_id}: ${preview}`,
+          serviceCtx('routing', { threadId: ctx.message.message_thread_id, hint: preview }),
+        );
       }
       await next();
     });
@@ -367,7 +407,11 @@ export class TelegramTransport extends BaseTelegramTransport {
     });
 
     this.bot.catch((err) => {
-      console.error('[telegram] Bot error:', err.message ?? err);
+      const ctx = 'ctx' in err ? (err as { ctx?: import('grammy').Context }).ctx : undefined;
+      logError('TG_BOT_ERROR', err.message ?? String(err), serviceCtx('bot_catch', {
+        threadId: ctx?.message?.message_thread_id ?? ctx?.callbackQuery?.message?.message_thread_id,
+        chatId: ctx?.chat?.id ?? ctx?.callbackQuery?.message?.chat?.id,
+      }));
     });
   }
 }

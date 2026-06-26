@@ -2,10 +2,16 @@ import type { CDPBridge } from '../ide/cdp-session.js';
 import type { StateManager } from './broadcast.js';
 import type { WindowMonitor } from './windows.js';
 import type { TopicManager } from '../telegram/topics/manager.js';
+import { logWarn, normalizeError } from '../core/log-event.js';
+import type { LogContext } from '../core/log-event.js';
 
 const FAIL_THRESHOLD = 4;
 const HOME_FAIL_THRESHOLD = 5;
 const NOTIFY_COOLDOWN_MS = 60_000;
+
+function hangCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'state', op, ...extra };
+}
 
 export interface WindowHangMonitorOptions {
   cdpBridge: CDPBridge;
@@ -93,10 +99,14 @@ export class WindowHangMonitor {
     if (count < threshold) return;
     if (!this.hasOtherHealthyWindows(windowId)) return;
 
-    await this.closeHungWindow(windowId, windowTitle);
+    await this.closeHungWindow(windowId, windowTitle, count);
   }
 
-  private async closeHungWindow(windowId: string, windowTitle: string): Promise<void> {
+  private async closeHungWindow(
+    windowId: string,
+    windowTitle: string,
+    failCount: number,
+  ): Promise<void> {
     if (this.closing.has(windowId)) return;
     this.closing.add(windowId);
 
@@ -108,21 +118,29 @@ export class WindowHangMonitor {
       const label = windowTitle || windowId.substring(0, 8);
       await this.opts.onNotify(
         threadId,
-        `⚠️ Window <b>${label}</b> hung — closing; will reopen on the next message in this topic…`
+        `⚠️ Window <b>${label}</b> hung — closing; will reopen on the next message in this topic…`,
       ).catch(() => {});
     }
 
-    console.warn(`[window-hang-monitor] Closing hung window "${windowTitle}" (${windowId.substring(0, 8)})`);
+    logWarn(
+      'STATE_WINDOW_HANG_CLOSE',
+      `Closing hung window "${windowTitle}" (${windowId.substring(0, 8)})`,
+      hangCtx('hang_recovery', { windowId, windowTitle, threadId, hint: `failCount=${failCount}` }),
+    );
 
     try {
       const closed = await this.opts.cdpBridge.closeTarget(windowId);
       if (!closed) {
-        console.warn(`[window-hang-monitor] closeTarget returned false for ${windowId.substring(0, 8)}`);
+        logWarn(
+          'STATE_WINDOW_HANG_CLOSE_FAIL',
+          `closeTarget returned false for ${windowId.substring(0, 8)}`,
+          hangCtx('hang_recovery', { windowId, threadId, hint: 'closeTarget_false' }),
+        );
       }
       await this.opts.cdpBridge.refreshWindows();
       this.opts.stateManager.updateWindows(
         this.opts.cdpBridge.windows,
-        this.opts.cdpBridge.activeTargetId
+        this.opts.cdpBridge.activeTargetId,
       );
 
       if (this.opts.cdpBridge.activeTargetId === windowId) {
@@ -133,8 +151,11 @@ export class WindowHangMonitor {
         }
       }
     } catch (err) {
-      console.warn(
-        `[window-hang-monitor] Failed to close window: ${err instanceof Error ? err.message : err}`
+      const { message, errno } = normalizeError(err);
+      logWarn(
+        'STATE_WINDOW_HANG_CLOSE_FAIL',
+        `Failed to close window: ${message}`,
+        hangCtx('hang_recovery', { windowId, threadId, errno, hint: 'closeTarget_throw' }),
       );
     } finally {
       this.failCounts.delete(windowId);

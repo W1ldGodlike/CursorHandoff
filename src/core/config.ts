@@ -2,6 +2,8 @@ import 'dotenv/config';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import type { ServerConfig, SelectorConfig } from './types.js';
+import { logWarn } from './log-event.js';
+import { startupCtx } from './startup-boot.js';
 import { getDataDir } from './paths.js';
 
 export function loadConfig(): ServerConfig {
@@ -20,9 +22,10 @@ export function loadConfig(): ServerConfig {
   const isLoopback = ['127.0.0.1', 'localhost', '::1'].includes(requestedHost);
   let serverHost = requestedHost;
   if (!isLoopback && webappPassword.length === 0) {
-    console.warn(
-      `[config] SERVER_HOST=${requestedHost} without WEBAPP_PASSWORD is unsafe. Forcing 127.0.0.1. ` +
-      'Set a password to allow network access.'
+    logWarn(
+      'CONFIG_UNSAFE_HOST',
+      `SERVER_HOST=${requestedHost} without WEBAPP_PASSWORD is unsafe. Forcing 127.0.0.1. Set a password to allow network access.`,
+      startupCtx('config_load'),
     );
     serverHost = '127.0.0.1';
   }
@@ -55,7 +58,7 @@ export function loadSelectors(config: ServerConfig): SelectorConfig {
     const raw = readFileSync(fullPath, 'utf-8');
     return JSON.parse(raw) as SelectorConfig;
   } catch (err) {
-    console.warn(`[config] Could not load selectors from ${fullPath}, using defaults`);
+    logWarn('CONFIG_SELECTORS_FALLBACK', `Could not load selectors from ${fullPath}, using defaults`, startupCtx('load_selectors', { hint: fullPath }));
     return getDefaultSelectors();
   }
 }

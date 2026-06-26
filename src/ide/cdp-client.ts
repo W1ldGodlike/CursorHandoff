@@ -1,7 +1,13 @@
 import { WebSocket } from 'ws';
 import { EventEmitter } from 'events';
+import { logError, logWarn } from '../core/log-event.js';
+import type { LogContext } from '../core/log-event.js';
 
 const DEFAULT_TIMEOUT_MS = 10000;
+
+function cdpCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
+  return { scope: 'cdp', op, ...extra };
+}
 
 interface CdpMessage {
   id?: number;
@@ -38,9 +44,10 @@ export class CdpClient extends EventEmitter {
 
       this.ws.on('error', (err) => {
         if (!this._connected) {
+          logError('CDP_CONNECT_FAIL', err.message, cdpCtx('connect'));
           reject(err);
         } else {
-          console.error('[cdp-client] WebSocket error:', err.message);
+          logError('CDP_WS_ERROR', `WebSocket error: ${err.message}`, cdpCtx('ws'));
         }
       });
 
@@ -88,6 +95,7 @@ export class CdpClient extends EventEmitter {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
+        logWarn('CDP_TIMEOUT', `CDP timeout for ${method} (${timeoutMs}ms)`, cdpCtx(method, { durationMs: timeoutMs }));
         reject(new Error(`CDP timeout for ${method} (${timeoutMs}ms)`));
       }, timeoutMs);
 

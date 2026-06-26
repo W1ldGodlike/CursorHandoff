@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 
 function readPackageName(dir: string): string | undefined {
@@ -50,4 +50,33 @@ export function ensureDataDirEnv(cwd?: string): string {
   }
   mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/** Stable prefix for logs and extension UI when DATA_DIR cannot be written. */
+export const DATA_DIR_NOT_WRITABLE = 'DATA_DIR is not writable';
+
+export function verifyDataDirWritable(dir: string): void {
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch (err) {
+    throw dataDirWriteError(dir, err);
+  }
+  const probe = join(dir, `.write-test-${process.pid}`);
+  try {
+    writeFileSync(probe, 'ok', 'utf8');
+    unlinkSync(probe);
+  } catch (err) {
+    throw dataDirWriteError(dir, err);
+  }
+}
+
+function dataDirWriteError(dir: string, err: unknown): Error {
+  const e = err as NodeJS.ErrnoException;
+  const code = e.code ?? 'unknown';
+  const detail = e.message ?? String(err);
+  const wrapped = new Error(`${DATA_DIR_NOT_WRITABLE}: ${dir} (${code}: ${detail})`);
+  if (code !== 'unknown') {
+    (wrapped as NodeJS.ErrnoException).code = code;
+  }
+  return wrapped;
 }

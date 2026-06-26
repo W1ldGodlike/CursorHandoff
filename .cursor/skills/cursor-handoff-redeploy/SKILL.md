@@ -5,6 +5,8 @@ description: Rebuild and redeploy CursorHandoff after server/extension edits. Us
 
 # CursorHandoff redeploy
 
+**AUTO-REDEPLOY: PAUSED** — см. `.cursor/rules/cursor-handoff-redeploy.mdc` (первая строка после заголовка). Пока не ставить флаг после правок; только по явной просьбе.
+
 ## Main rule
 
 The agent **rebuilds and redeploys itself**. Do not ask the user for Reload / Restart / Stop Server.
