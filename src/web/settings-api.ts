@@ -11,6 +11,7 @@ export interface WebClientSettings {
   compactFeed?: boolean;
   quickPhrases?: string[];
   sendSound?: boolean;
+  approveSound?: boolean;
   onboardingDone?: boolean;
 }
 
@@ -27,6 +28,7 @@ const DEFAULT_SETTINGS: WebClientSettings = {
   compactFeed: false,
   quickPhrases: [] as string[],
   sendSound: false,
+  approveSound: false,
   onboardingDone: false,
 };
 
@@ -49,6 +51,7 @@ export function normalizeWebClientSettings(raw: unknown): WebClientSettings {
     compactFeed: !!o.compactFeed,
     quickPhrases,
     sendSound: !!o.sendSound,
+    approveSound: !!o.approveSound,
     onboardingDone: !!o.onboardingDone,
   };
 }

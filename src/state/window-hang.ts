@@ -5,7 +5,6 @@ import type { TopicManager } from '../telegram/topics/manager.js';
 import { logWarn, normalizeError } from '../core/log-event.js';
 import type { LogContext } from '../core/log-event.js';
 
-const FAIL_THRESHOLD = 4;
 const HOME_FAIL_THRESHOLD = 5;
 const NOTIFY_COOLDOWN_MS = 60_000;
 
@@ -22,8 +21,8 @@ export interface WindowHangMonitorOptions {
 }
 
 /**
- * Detects per-window extraction failures (PartialHang) and closes only the hung
- * window via CDP — without killing the entire Cursor process.
+ * Closes only the home CDP target when main extraction fails repeatedly.
+ * Parallel-polled aux windows (e.g. Cursor Agents) are never auto-closed.
  */
 export class WindowHangMonitor {
   private readonly failCounts = new Map<string, number>();
@@ -36,26 +35,14 @@ export class WindowHangMonitor {
   start(): void {
     if (this.running) return;
     this.running = true;
-    this.opts.windowMonitor.on('window:poll-failed', this.onPollFailed);
-    this.opts.windowMonitor.on('window:poll-ok', this.onPollOk);
     this.opts.stateManager.on('state:patch', this.onStatePatch);
   }
 
   stop(): void {
     if (!this.running) return;
     this.running = false;
-    this.opts.windowMonitor.off('window:poll-failed', this.onPollFailed);
-    this.opts.windowMonitor.off('window:poll-ok', this.onPollOk);
     this.opts.stateManager.off('state:patch', this.onStatePatch);
   }
-
-  private onPollFailed = (payload: { windowId: string; windowTitle: string }): void => {
-    void this.recordFailure(payload.windowId, payload.windowTitle);
-  };
-
-  private onPollOk = (payload: { windowId: string }): void => {
-    this.failCounts.delete(payload.windowId);
-  };
 
   private onStatePatch = (patch: Partial<import('../core/types.js').CursorState>): void => {
     if (patch.consecutiveExtractionFailures === undefined) return;
@@ -92,11 +79,7 @@ export class WindowHangMonitor {
     const count = (this.failCounts.get(windowId) ?? 0) + 1;
     this.failCounts.set(windowId, count);
 
-    const threshold = windowId === this.opts.cdpBridge.activeTargetId
-      ? HOME_FAIL_THRESHOLD
-      : FAIL_THRESHOLD;
-
-    if (count < threshold) return;
+    if (count < HOME_FAIL_THRESHOLD) return;
     if (!this.hasOtherHealthyWindows(windowId)) return;
 
     await this.closeHungWindow(windowId, windowTitle, count);

@@ -138,6 +138,7 @@ ctx.$settingTheme = document.getElementById('setting-theme');
 ctx.$settingCompactFeed = document.getElementById('setting-compact-feed');
 ctx.$settingQuickPhrases = document.getElementById('setting-quick-phrases');
 ctx.$settingSendSound = document.getElementById('setting-send-sound');
+ctx.$settingApproveSound = document.getElementById('setting-approve-sound');
 ctx.$settingTimezone = document.getElementById('setting-timezone');
 ctx.$settingsDiagnostics = document.getElementById('settings-diagnostics');
 ctx.$btnCopyDiagnostics = document.getElementById('btn-copy-diagnostics');

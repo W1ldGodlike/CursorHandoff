@@ -9,20 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Window hang recovery** — Auto-close applies only to the home CDP target after repeated main extraction failures; parallel-polled aux windows (e.g. Cursor Agents) are no longer closed after null polls.
+- **Parallel window poll** — Background CDP polls skip non-home targets with no workspace folder (e.g. Cursor Agents), eliminating repeated `STATE_WINDOW_POLL_NULL` log noise.
 - **Telegram long-poll resilience** — Poll loops no longer stop on abort-like transient fetch errors after Telegram API failures; they now terminate only on explicit local stop abort.
 - **Telegram command dedup** — `dispatchCommand` no longer throws at build time when logging duplicate inbound commands (`threadId` used before declaration).
 
 ### Added
 
+- **`/last_commit`** — Forum thread command returns short git hash and subject for the linked workspace.
+- **Handoff settings probes** — **Test CDP** and **Test Telegram bot** in sidebar (under Show logs); `getMe` / CDP `/json` without starting the server.
+- **Approve sound (web)** — Optional setting in ⚙ (default off): short tone when a pending approve appears.
+- **`/thread_status` metrics** — Reply now includes composer queue length and pending approve count for the bound chat.
+- **Restart server (sidebar)** — Owner gets one-click stop → start next to the power control.
+- **Handoff settings add-on buttons** — Wake/Cloudflare actions use delegated clicks; settings panel no longer full-reloads every 5s on addon poll.
+- **Tunnel stop (Handoff settings)** — Stop runs the script synchronously, clears `web-tunnel-url.json`, shows a toast, and refreshes status immediately.
+- **Tunnel start (Handoff settings)** — Start waits for the script to finish (pid + URL), updates sidebar via `refreshAddons`, then shows success or failure toast.
 - **Logging test coverage** — 3100+ unit tests assert stable `code=` tails, context helpers, and path matrices across server, Telegram, CDP, extension, and Wake zones.
 
 ### Changed
 
-- **Handoff settings (runtime path)** — Added Runtime data folder controls: path display, source label (custom/project/global storage), copy path, and open folder.
-- **Port diagnostics (`:3000`)** — Added live owner diagnostics in sidebar and Handoff settings: Free / Owned by CursorHandoff / Occupied by process, plus `Check owner` and guarded `Kill process` actions.
+- **Cloudflare access chip (web)** — No longer shows ✓ from a stale tunnel URL when the server connection is down.
+- **Tunnel start notification** — Progress dismisses once pid and URL are on disk, not after the full PowerShell log poll (up to 90s).
 - **DATA_DIR write check** — Server and extension verify the runtime data folder is writable before startup; failures surface as a single clear error instead of silent runtime breakage.
 - **Structured server logging** — `log-event.ts` adds stable `code=` tails (`TG_*`, `CDP_*`, `QUEUE_*`, `RELAY_*`, `TUNNEL_*`) with `threadId`/`windowId`/`op` context, secret masking, optional JSON mode (`LOG_FORMAT=json`), and dedupe for noisy repeats. Extension Output parses `code=` from child logs; deduped error toasts for DATA_DIR and stale keyboard markers.
 - **CursorWake structured logging** — `wake/config.py` `log_line()` appends `code=WAKE_*` on launch, health, poll, and tray events in `data/cursor-wake.log`. Rebuild with `scripts/install/build-cursor-wake.ps1` (or install from a fresh Complete VSIX) after pulling these changes.
+
+### Removed
+
+- **Sidebar port diagnostics** — Removed manual port-owner check/kill UI; stale `bundle.mjs` cleanup before spawn (`spawn-hygiene`) remains automatic on Windows.
 
 ### Documentation
 

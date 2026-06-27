@@ -150,7 +150,7 @@ function makeHarness(overrides: {
       { id: 'win-hung', title: 'Hung', wsUrl: 'ws://a' },
       { id: 'win-ok', title: 'Healthy', wsUrl: 'ws://b' },
     ],
-    activeTargetId: overrides.activeTargetId ?? 'win-ok',
+    activeTargetId: overrides.activeTargetId ?? 'win-hung',
     closeTarget: async () => true,
     refreshWindows: async () => {},
     switchWindow: async () => {},
@@ -175,9 +175,22 @@ async function pollFail(
   windowId: string,
   windowTitle: string,
   times: number,
+  opts?: { seedOk?: boolean },
 ): Promise<void> {
+  if (opts?.seedOk !== false) {
+    windowMonitor.emit('window:poll-ok', { windowId });
+  }
   for (let i = 0; i < times; i++) {
     windowMonitor.emit('window:poll-failed', { windowId, windowTitle });
+  }
+  await sleep(50);
+}
+
+async function emitHomeExtractFails(harness: Harness, times: number, level = 5): Promise<void> {
+  harness.cdpBridge.activeTargetId = harness.cursorState.activeWindowId;
+  for (let i = 0; i < times; i++) {
+    harness.cursorState.consecutiveExtractionFailures = level;
+    harness.stateManager.emit('state:patch', { consecutiveExtractionFailures: level });
   }
   await sleep(50);
 }
@@ -186,7 +199,7 @@ const WINDOW_HANG_PATH_MATRIX = [
   {
     kind: 'log' as const,
     code: 'STATE_WINDOW_HANG_CLOSE',
-    marker: 'poll-failed threshold logs STATE_WINDOW_HANG_CLOSE with threadId',
+    marker: 'home extraction threshold logs STATE_WINDOW_HANG_CLOSE with threadId',
   },
   {
     kind: 'log' as const,
@@ -200,19 +213,23 @@ const WINDOW_HANG_PATH_MATRIX = [
   },
   {
     kind: 'silent' as const,
-    marker: 'poll-failed below threshold stays silent on hang log codes',
+    marker: 'parallel poll-failed after poll-ok stays silent on hang log codes',
   },
   {
     kind: 'silent' as const,
-    marker: 'single window at threshold stays silent on hang log codes',
+    marker: 'parallel poll-failed at threshold stays silent on hang log codes',
   },
   {
     kind: 'silent' as const,
-    marker: 'poll-ok clears fail count before threshold stays silent on hang log codes',
+    marker: 'single window home extract at threshold stays silent on hang log codes',
   },
   {
     kind: 'silent' as const,
-    marker: 'home window below HOME_FAIL_THRESHOLD stays silent on hang log codes',
+    marker: 'parallel poll-ok before poll-failed stays silent on hang log codes',
+  },
+  {
+    kind: 'silent' as const,
+    marker: 'state patch HOME below threshold stays silent on hang log codes',
   },
   {
     kind: 'silent' as const,
@@ -232,10 +249,6 @@ const WINDOW_HANG_PATH_MATRIX = [
   },
   {
     kind: 'silent' as const,
-    marker: 'no healthy peer when all windows failed stays silent on hang log codes',
-  },
-  {
-    kind: 'silent' as const,
     marker: 'recordFailure while closing stays silent on hang log codes',
   },
   {
@@ -243,17 +256,8 @@ const WINDOW_HANG_PATH_MATRIX = [
     marker: 'start when already running stays silent on hang log codes',
   },
   {
-    kind: 'log' as const,
-    code: 'STATE_WINDOW_HANG_CLOSE',
-    marker: 'home window fifth poll-failed logs STATE_WINDOW_HANG_CLOSE',
-  },
-  {
     kind: 'silent' as const,
     marker: 'stop when not running stays silent on hang log codes',
-  },
-  {
-    kind: 'silent' as const,
-    marker: 'active window close switchWindow stays silent on hang log codes',
   },
   {
     kind: 'silent' as const,
@@ -261,11 +265,16 @@ const WINDOW_HANG_PATH_MATRIX = [
   },
   {
     kind: 'silent' as const,
-    marker: 'active close without wsUrl peer skips switchWindow silently',
+    marker: 'active window close switchWindow stays silent on hang log codes',
   },
   {
     kind: 'silent' as const,
-    marker: 'state patch HOME below threshold stays silent on hang log codes',
+    marker: 'active close without wsUrl peer skips switchWindow silently',
+  },
+  {
+    kind: 'log' as const,
+    code: 'STATE_WINDOW_HANG_CLOSE',
+    marker: 'state patch HOME threshold logs STATE_WINDOW_HANG_CLOSE',
   },
   {
     kind: 'log' as const,
@@ -276,11 +285,6 @@ const WINDOW_HANG_PATH_MATRIX = [
     kind: 'log' as const,
     code: 'STATE_WINDOW_HANG_CLOSE',
     marker: 'empty windowTitle still logs STATE_WINDOW_HANG_CLOSE with windowId',
-  },
-  {
-    kind: 'log' as const,
-    code: 'STATE_WINDOW_HANG_CLOSE',
-    marker: 'state patch HOME threshold logs STATE_WINDOW_HANG_CLOSE',
   },
   {
     kind: 'log' as const,
@@ -324,21 +328,21 @@ describe('state window-hang logging', () => {
     harness.monitor.stop();
   });
 
-  it('poll-failed threshold logs STATE_WINDOW_HANG_CLOSE with threadId', async () => {
+  it('home extraction threshold logs STATE_WINDOW_HANG_CLOSE with threadId', async () => {
     let closedId = '';
     harness.cdpBridge.closeTarget = async (id) => {
       closedId = id;
       return true;
     };
     const lines = await captureAll(async () => {
-      await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 4);
+      await emitHomeExtractFails(harness, 5);
     });
     assert.equal(closedId, 'win-hung');
     assertHangLogOnce(lines, 'STATE_WINDOW_HANG_CLOSE', {
       op: 'hang_recovery',
       windowId: 'win-hung',
       threadId: 42,
-      failCount: '4',
+      failCount: '5',
       text: 'Closing hung window "Hung"',
     });
     const closeLine = lines.find((l) => lineHasExactCode(l, 'STATE_WINDOW_HANG_CLOSE'))!;
@@ -348,7 +352,7 @@ describe('state window-hang logging', () => {
   it('closeTarget false logs STATE_WINDOW_HANG_CLOSE_FAIL closeTarget_false', async () => {
     harness.cdpBridge.closeTarget = async () => false;
     const lines = await captureAll(async () => {
-      await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 4);
+      await emitHomeExtractFails(harness, 5);
     });
     assertHangLogOnce(lines, 'STATE_WINDOW_HANG_CLOSE', { op: 'hang_recovery', threadId: 42 });
     assertHangLogOnce(lines, 'STATE_WINDOW_HANG_CLOSE_FAIL', {
@@ -364,7 +368,7 @@ describe('state window-hang logging', () => {
       throw Object.assign(new Error('cdp gone'), { code: 'ECONNRESET' });
     };
     const lines = await captureAll(async () => {
-      await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 4);
+      await emitHomeExtractFails(harness, 5);
     });
     assertHangLogOnce(lines, 'STATE_WINDOW_HANG_CLOSE', { op: 'hang_recovery', threadId: 42 });
     const failLine = assertHangLogOnce(lines, 'STATE_WINDOW_HANG_CLOSE_FAIL', {
@@ -376,42 +380,44 @@ describe('state window-hang logging', () => {
     assert.match(failLine, /errno=ECONNRESET/);
   });
 
-  it('poll-failed below threshold stays silent on hang log codes', async () => {
+  it('parallel poll-failed after poll-ok stays silent on hang log codes', async () => {
     const lines = await captureAll(async () => {
-      await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 3);
+      await pollFail(harness.windowMonitor, 'win-ok', 'Cursor Agents', 6);
     });
     assertNoHangLogs(lines);
   });
 
-  it('single window at threshold stays silent on hang log codes', async () => {
+  it('parallel poll-failed at threshold stays silent on hang log codes', async () => {
+    const lines = await captureAll(async () => {
+      await pollFail(harness.windowMonitor, 'win-ok', 'Cursor Agents', 6, { seedOk: false });
+    });
+    assertNoHangLogs(lines);
+  });
+
+  it('single window home extract at threshold stays silent on hang log codes', async () => {
     harness.cdpBridge.windows = [{ id: 'win-hung', title: 'Hung', wsUrl: 'ws://a' }];
     const lines = await captureAll(async () => {
-      await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 4);
+      await emitHomeExtractFails(harness, 5);
     });
     assertNoHangLogs(lines);
   });
 
-  it('poll-ok clears fail count before threshold stays silent on hang log codes', async () => {
-    await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 3);
-    harness.windowMonitor.emit('window:poll-ok', { windowId: 'win-hung' });
+  it('parallel poll-ok before poll-failed stays silent on hang log codes', async () => {
+    await pollFail(harness.windowMonitor, 'win-ok', 'Cursor Agents', 3);
+    harness.windowMonitor.emit('window:poll-ok', { windowId: 'win-ok' });
     const lines = await captureAll(async () => {
-      harness.windowMonitor.emit('window:poll-failed', { windowId: 'win-hung', windowTitle: 'Hung' });
+      harness.windowMonitor.emit('window:poll-failed', { windowId: 'win-ok', windowTitle: 'Cursor Agents' });
       await sleep(30);
     });
     assertNoHangLogs(lines);
   });
 
-  it('home window below HOME_FAIL_THRESHOLD stays silent on hang log codes', async () => {
-    harness.cdpBridge.activeTargetId = 'win-hung';
-    let closeCalls = 0;
-    harness.cdpBridge.closeTarget = async () => {
-      closeCalls += 1;
-      return true;
-    };
+  it('state patch HOME below threshold stays silent on hang log codes', async () => {
+    harness.cursorState.consecutiveExtractionFailures = 4;
     const lines = await captureAll(async () => {
-      await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 4);
+      harness.stateManager.emit('state:patch', { consecutiveExtractionFailures: 4 });
+      await sleep(20);
     });
-    assert.equal(closeCalls, 0);
     assertNoHangLogs(lines);
   });
 
@@ -443,23 +449,11 @@ describe('state window-hang logging', () => {
   });
 
   it('state patch zero clears fail count stays silent on hang log codes', async () => {
-    await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 3);
+    await emitHomeExtractFails(harness, 4);
     harness.cursorState.consecutiveExtractionFailures = 0;
     harness.stateManager.emit('state:patch', { consecutiveExtractionFailures: 0 });
     const lines = await captureAll(async () => {
-      harness.windowMonitor.emit('window:poll-failed', { windowId: 'win-hung', windowTitle: 'Hung' });
-      await sleep(30);
-    });
-    assertNoHangLogs(lines);
-  });
-
-  it('no healthy peer when all windows failed stays silent on hang log codes', async () => {
-    await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 3);
-    harness.windowMonitor.emit('window:poll-failed', { windowId: 'win-ok', windowTitle: 'Healthy' });
-    await sleep(20);
-    const lines = await captureAll(async () => {
-      harness.windowMonitor.emit('window:poll-failed', { windowId: 'win-hung', windowTitle: 'Hung' });
-      await sleep(30);
+      await emitHomeExtractFails(harness, 4);
     });
     assertNoHangLogs(lines);
   });
@@ -473,10 +467,11 @@ describe('state window-hang logging', () => {
       await closeGate;
       return true;
     };
-    void pollFail(harness.windowMonitor, 'win-hung', 'Hung', 4);
+    void emitHomeExtractFails(harness, 5);
     await sleep(20);
     const lines = await captureAll(async () => {
-      harness.windowMonitor.emit('window:poll-failed', { windowId: 'win-hung', windowTitle: 'Hung' });
+      harness.cursorState.consecutiveExtractionFailures = 5;
+      harness.stateManager.emit('state:patch', { consecutiveExtractionFailures: 5 });
       await sleep(20);
     });
     releaseClose();
@@ -502,32 +497,18 @@ describe('state window-hang logging', () => {
   it('stop then poll-failed stays silent on hang log codes', async () => {
     harness.monitor.stop();
     const lines = await captureAll(async () => {
-      await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 4);
+      await pollFail(harness.windowMonitor, 'win-ok', 'Cursor Agents', 6);
     });
     assertNoHangLogs(lines);
   });
 
-  it('home window fifth poll-failed logs STATE_WINDOW_HANG_CLOSE', async () => {
-    harness.cdpBridge.activeTargetId = 'win-hung';
-    const lines = await captureAll(async () => {
-      await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 5);
-    });
-    assertHangLogOnce(lines, 'STATE_WINDOW_HANG_CLOSE', {
-      op: 'hang_recovery',
-      windowId: 'win-hung',
-      threadId: 42,
-      failCount: '5',
-    });
-  });
-
   it('active window close switchWindow stays silent on hang log codes', async () => {
     let switchedId = '';
-    harness.cdpBridge.activeTargetId = 'win-hung';
     harness.cdpBridge.switchWindow = async (id) => {
       switchedId = id;
     };
     const lines = await captureAll(async () => {
-      await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 5);
+      await emitHomeExtractFails(harness, 5);
     });
     assert.equal(switchedId, 'win-ok');
     assert.equal(
@@ -542,35 +523,19 @@ describe('state window-hang logging', () => {
       { id: 'win-hung', title: 'Hung', wsUrl: 'ws://a' },
       { id: 'win-ok', title: 'Healthy' },
     ];
-    harness.cdpBridge.activeTargetId = 'win-hung';
     harness.cdpBridge.switchWindow = async () => {
       switched = true;
     };
     const lines = await captureAll(async () => {
-      await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 5);
+      await emitHomeExtractFails(harness, 5);
     });
     assert.equal(switched, false);
     assertHangLogOnce(lines, 'STATE_WINDOW_HANG_CLOSE', { windowId: 'win-hung' });
   });
 
-  it('state patch HOME below threshold stays silent on hang log codes', async () => {
-    harness.cdpBridge.activeTargetId = 'win-hung';
-    harness.cursorState.consecutiveExtractionFailures = 4;
-    const lines = await captureAll(async () => {
-      harness.stateManager.emit('state:patch', { consecutiveExtractionFailures: 4 });
-      await sleep(20);
-    });
-    assertNoHangLogs(lines);
-  });
-
   it('state patch HOME threshold logs STATE_WINDOW_HANG_CLOSE', async () => {
-    harness.cdpBridge.activeTargetId = 'win-hung';
     const lines = await captureAll(async () => {
-      for (let i = 0; i < 5; i++) {
-        harness.cursorState.consecutiveExtractionFailures = 5;
-        harness.stateManager.emit('state:patch', { consecutiveExtractionFailures: 5 });
-      }
-      await sleep(50);
+      await emitHomeExtractFails(harness, 5);
     });
     assertHangLogOnce(lines, 'STATE_WINDOW_HANG_CLOSE', {
       op: 'hang_recovery',
@@ -586,7 +551,7 @@ describe('state window-hang logging', () => {
       mappings: [{ threadId: 77, windowId: 'other-id', windowTitle: 'Hung' }],
     });
     const lines = await captureAll(async () => {
-      await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 4);
+      await emitHomeExtractFails(harness, 5);
     });
     assertHangLogOnce(lines, 'STATE_WINDOW_HANG_CLOSE', { threadId: 77 });
   });
@@ -597,14 +562,22 @@ describe('state window-hang logging', () => {
       mappings: [{ threadId: 88, windowId: 'other-id', windowTitle: 'hung' }],
     });
     const lines = await captureAll(async () => {
-      await pollFail(harness.windowMonitor, 'win-hung', 'HUNG', 4);
+      await emitHomeExtractFails(harness, 5);
     });
     assertHangLogOnce(lines, 'STATE_WINDOW_HANG_CLOSE', { threadId: 88 });
   });
 
   it('empty windowTitle still logs STATE_WINDOW_HANG_CLOSE with windowId', async () => {
+    harness.cursorState.windows = [
+      { id: 'win-hung', title: '', url: 'app://hung' },
+      { id: 'win-ok', title: 'Healthy', url: 'app://ok' },
+    ];
+    harness.cdpBridge.windows = [
+      { id: 'win-hung', title: '', wsUrl: 'ws://a' },
+      { id: 'win-ok', title: 'Healthy', wsUrl: 'ws://b' },
+    ];
     const lines = await captureAll(async () => {
-      await pollFail(harness.windowMonitor, 'win-hung', '', 4);
+      await emitHomeExtractFails(harness, 5);
     });
     assertHangLogOnce(lines, 'STATE_WINDOW_HANG_CLOSE', {
       op: 'hang_recovery',
@@ -621,7 +594,7 @@ describe('state window-hang logging', () => {
       },
     });
     const lines = await captureAll(async () => {
-      await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 4);
+      await emitHomeExtractFails(harness, 5);
     });
     assertHangLogOnce(lines, 'STATE_WINDOW_HANG_CLOSE', { threadId: 42 });
   });
@@ -634,10 +607,10 @@ describe('state window-hang logging', () => {
         notifyCalls += 1;
       },
     });
-    await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 4);
+    await emitHomeExtractFails(harness, 5);
     assert.equal(notifyCalls, 1);
     const lines = await captureAll(async () => {
-      await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 4);
+      await emitHomeExtractFails(harness, 5);
     });
     assert.equal(notifyCalls, 1);
     assert.equal(
@@ -655,7 +628,7 @@ describe('state window-hang logging', () => {
       ],
     });
     const lines = await captureAll(async () => {
-      await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 4);
+      await emitHomeExtractFails(harness, 5);
     });
     assertHangLogOnce(lines, 'STATE_WINDOW_HANG_CLOSE', { threadId: 42 });
   });
@@ -681,16 +654,16 @@ describe('state window-hang logging', () => {
     harness.monitor.stop();
     harness = makeHarness({ mappings: [] });
     const lines = await captureAll(async () => {
-      await pollFail(harness.windowMonitor, 'win-hung', 'Hung', 4);
+      await emitHomeExtractFails(harness, 5);
     });
     const line = assertHangLogOnce(lines, 'STATE_WINDOW_HANG_CLOSE', { op: 'hang_recovery' });
     assert.ok(!line.includes('threadId='), 'expected no threadId when unmapped');
   });
 
   it('WINDOW_HANG_PATH_MATRIX log and silent row counts are consistent', () => {
-    assert.equal(WINDOW_HANG_PATH_MATRIX.length, 29);
-    assert.equal(WINDOW_HANG_PATH_MATRIX.filter((r) => r.kind === 'log').length, 12);
-    assert.equal(WINDOW_HANG_PATH_MATRIX.filter((r) => r.kind === 'silent').length, 17);
+    assert.equal(WINDOW_HANG_PATH_MATRIX.length, 27);
+    assert.equal(WINDOW_HANG_PATH_MATRIX.filter((r) => r.kind === 'log').length, 11);
+    assert.equal(WINDOW_HANG_PATH_MATRIX.filter((r) => r.kind === 'silent').length, 16);
   });
 
   it('every covered code has assertHangLog in behavioral tests', () => {
@@ -742,9 +715,8 @@ describe('state window-hang logging', () => {
     assert.match(zone, /consecutiveExtractionFailures === 0/);
   });
 
-  it('recordFailure uses FAIL_THRESHOLD and HOME_FAIL_THRESHOLD in source', () => {
+  it('recordFailure uses HOME_FAIL_THRESHOLD in source', () => {
     const zone = hangZoneSrc();
-    assert.match(zone, /FAIL_THRESHOLD/);
     assert.match(zone, /HOME_FAIL_THRESHOLD/);
     assert.match(zone, /hasOtherHealthyWindows/);
   });
@@ -773,6 +745,13 @@ describe('state window-hang logging', () => {
     const zone = hangZoneSrc();
     const body = zone.slice(zone.indexOf('private async closeHungWindow'));
     assert.match(body, /if \(this\.closing\.has\(windowId\)\) return;/);
+  });
+
+  it('hang monitor listens only to state patch in source', () => {
+    const zone = hangZoneSrc();
+    assert.match(zone, /stateManager\.on\('state:patch'/);
+    assert.ok(!zone.includes("window:poll-failed"));
+    assert.ok(!zone.includes("window:poll-ok"));
   });
 
   it('recordFailure skips when closing in source', () => {
@@ -805,6 +784,6 @@ describe('state window-hang logging', () => {
   });
 
   it('behavioral it count matches WINDOW_HANG_PATH_MATRIX row count', () => {
-    assert.equal(WINDOW_HANG_PATH_MATRIX.length, 29);
+    assert.equal(WINDOW_HANG_PATH_MATRIX.length, 27);
   });
 });

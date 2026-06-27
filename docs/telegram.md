@@ -167,6 +167,7 @@ Registered for the BotFather menu (`src/telegram/commands/registry.ts`):
 | `/web_url` | HTTPS link to the web client (# General) |
 | `/setup_tg_send` | Enable file relay for this workspace |
 | `/thread_status` | Poll, agent, and queue state |
+| `/last_commit` | Latest git commit (hash + subject) for the thread workspace |
 | `/whereami` | Window, composer, and tab routing |
 | `/thread_rename` | Rename the thread for the current task |
 | `/notify_mode` | Notification level: full / quiet / final |

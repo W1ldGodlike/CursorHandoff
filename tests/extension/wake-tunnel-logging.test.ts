@@ -118,7 +118,7 @@ const WAKE_TUNNEL_PATH_MATRIX = [
   { kind: 'tunnel' as const, marker: 'runTunnelQuickSpawn win32 uses powershell -File' },
   { kind: 'tunnel' as const, marker: 'runTunnelQuickSpawn linux uses bash script' },
   { kind: 'tunnel' as const, marker: 'ensureCloudflared disabled logs TUNNEL_QUICK_DISABLED' },
-  { kind: 'tunnel' as const, marker: 'runTunnelQuickEnsureIfEnabled enabled spawns ensure' },
+  { kind: 'tunnel' as const, marker: 'runTunnelQuickEnsureIfEnabled enabled awaits ensure spawn' },
   { kind: 'tunnel' as const, marker: 'runTunnelQuickSpawn passes Port and DataDir args' },
   { kind: 'tunnel' as const, marker: 'runTunnelQuickEnsureIfEnabled enabled script missing SCRIPT_MISSING' },
   { kind: 'tunnel' as const, marker: 'runTunnelQuickSpawn spawn error logs SPAWN then SPAWN_ERR' },
@@ -435,19 +435,9 @@ describe('tunnel-launcher logging', () => {
     assertNoCodes(lines, ['TUNNEL_QUICK_SPAWN']);
   });
 
-  it('runTunnelQuickEnsureIfEnabled enabled spawns ensure', async () => {
-    const lines = await captureLog((log) => {
-      runTunnelQuickEnsureIfEnabled(true, {
-        platform: 'win32',
-        port: 3000,
-        dataDir: 'C:\\data',
-        script: 'C:\\scripts\\run.ps1',
-        log,
-        spawnFn: makeSpawn(),
-      });
-    });
-    assertTunnelLog(lines, 'TUNNEL_QUICK_SPAWN', { op: 'ensure' });
-    assertNoCodes(lines, ['TUNNEL_QUICK_DISABLED']);
+  it('runTunnelQuickEnsureIfEnabled enabled awaits ensure spawn', () => {
+    const src = readFileSync(new URL('../../extension/src/tunnel-quick-spawn.ts', import.meta.url), 'utf8');
+    assert.match(src, /void runTunnelQuickSpawnAwait\(\{ \.\.\.params, action: 'ensure' \}\)/);
   });
 
   it('runTunnelQuickSpawn passes Port and DataDir args', () => {
@@ -635,7 +625,7 @@ describe('wake-tunnel-logging meta', () => {
   it('handoff-settings wires emitExtensionUiLog wake tunnel startup', () => {
     const handoff = readFileSync(new URL('../../extension/src/handoff-settings.ts', import.meta.url), 'utf-8');
     assert.match(handoff, /applyWakeStartupSetting\(enabled, \(line\) => emitExtensionUiLog\(line\)\)/);
-    assert.match(handoff, /startCloudflaredQuickTunnel\(this\.context, \(line\) => emitExtensionUiLog\(line\)\)/);
+    assert.match(handoff, /waitForTunnelStart\(this\.context, \(line\) => emitExtensionUiLog\(line\)\)/);
     assert.match(handoff, /stopCloudflaredQuickTunnel\(this\.context, \(line\) => emitExtensionUiLog\(line\)\)/);
     assert.match(handoff, /restartCursorWake\(resolveDataDir\(this\.context\), \(msg\) =>/);
   });
@@ -745,7 +735,10 @@ describe('wake-tunnel-logging meta', () => {
       'TUNNEL_QUICK_SPAWN',
       'child.unref',
       'powershell.exe',
-      "spawnFn('bash'",
+      "command: 'bash'",
+      'runTunnelQuickSpawnSync',
+      'runTunnelQuickSpawnAwait',
+      'TUNNEL_QUICK_START_OK',
     ]) {
       assert.ok(wake.includes(needle) || tunnel.includes(needle), `zone missing branch: ${needle}`);
     }

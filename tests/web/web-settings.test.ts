@@ -37,6 +37,11 @@ describe('web-settings', () => {
     assert.equal(normalizeWebClientSettings({}).sendSound, false);
   });
 
+  it('normalizes approveSound flag', () => {
+    assert.equal(normalizeWebClientSettings({ approveSound: true }).approveSound, true);
+    assert.equal(normalizeWebClientSettings({}).approveSound, false);
+  });
+
   it('writes and reads record from data dir', () => {
     const dir = mkdtempSync(join(tmpdir(), 'handoff-web-settings-'));
     try {

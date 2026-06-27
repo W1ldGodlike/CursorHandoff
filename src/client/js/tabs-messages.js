@@ -410,22 +410,31 @@ export async function deliverSendMessage(text, submit, photos) {
 
 export function playSendSound() {
   if (!ctx.webSettings.sendSound) return;
+  playTone(880, 0.1, 0.07);
+}
+
+export function playApproveSound() {
+  if (!ctx.webSettings.approveSound) return;
+  playTone(523, 0.15, 0.09);
+}
+
+function playTone(freqHz, durationSec, gainPeak) {
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
     if (!ctx.sendSoundCtx) ctx.sendSoundCtx = new Ctx();
-    if (ctx.sendSoundCtx.ctx.state === 'suspended') void ctx.sendSoundCtx.resume();
+    if (ctx.sendSoundCtx.state === 'suspended') void ctx.sendSoundCtx.resume();
     const osc = ctx.sendSoundCtx.createOscillator();
     const gain = ctx.sendSoundCtx.createGain();
     osc.type = 'sine';
-    osc.frequency.value = 880;
+    osc.frequency.value = freqHz;
     osc.connect(gain);
     gain.connect(ctx.sendSoundCtx.destination);
-    const t = ctx.sendSoundCtx.currentTime;
-    gain.gain.setValueAtTime(0.07, t);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
-    osc.start(t);
-    osc.stop(t + 0.1);
+    const t0 = ctx.sendSoundCtx.currentTime;
+    gain.gain.setValueAtTime(gainPeak, t0);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + durationSec);
+    osc.start(t0);
+    osc.stop(t0 + durationSec);
   } catch {
     /* autoplay policy */
   }

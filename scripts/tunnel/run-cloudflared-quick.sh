@@ -175,6 +175,7 @@ stop_tunnel() {
     echo "stopped cloudflared (pid=$process_id)"
   fi
   rm -f "$pidfile"
+  rm -f "$(url_path "$dir")"
   return 0
 }
 

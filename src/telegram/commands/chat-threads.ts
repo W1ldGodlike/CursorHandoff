@@ -12,10 +12,12 @@ import { type TopicMapping } from '../topics/manager.js';
 import { resolveTargetWindow } from '../routing/window-resolver.js';
 import { resolveProjectPath } from '../../workspace/launcher.js';
 import { countPending } from '../../workspace/offline-queue.js';
+import { readLastCommit } from '../../workspace/git-last-commit.js';
 import { getDataDir } from '../../core/paths.js';
 import { logError, logInfo, logWarn, normalizeError } from '../../core/log-event.js';
 import type { LogContext } from '../../core/log-event.js';
 import type { WindowSnapshot } from '../../state/windows.js';
+import type { StateManager } from '../../state/broadcast.js';
 import type { BotContext } from '../types.js';
 import { t } from '../../i18n/t.js';
 import {
@@ -283,6 +285,30 @@ export async function handleNewChat(ctx: BotContext, deps: CommandDeps): Promise
 }
 // --- /thread_status ---
 
+export function resolveThreadWindowMetrics(
+  mapping: TopicMapping,
+  snapshot: WindowSnapshot | undefined,
+  state: ReturnType<StateManager['getCurrentState']>,
+): { composerQueue: number | null; pendingApprove: number | null } {
+  if (snapshot) {
+    return {
+      composerQueue: snapshot.composerQueue?.items?.length ?? 0,
+      pendingApprove: snapshot.pendingApprovals?.length ?? 0,
+    };
+  }
+  if (state.activeWindowId === mapping.windowId) {
+    return {
+      composerQueue: state.composerQueue?.items?.length ?? 0,
+      pendingApprove: state.pendingApprovals?.length ?? 0,
+    };
+  }
+  return { composerQueue: null, pendingApprove: null };
+}
+
+function formatThreadMetricCount(value: number | null): string {
+  return value !== null ? String(value) : '—';
+}
+
 export async function handleThreadStatus(ctx: BotContext, deps: CommandDeps): Promise<void> {
   const threadId = ctx.message?.message_thread_id;
   if (!threadId) {
@@ -307,6 +333,7 @@ export async function handleThreadStatus(ctx: BotContext, deps: CommandDeps): Pr
   const dataDir = getDataDir();
   const pending = countPending(dataDir);
   const composer = mapping.composerId ? `${mapping.composerId.substring(0, 8)}…` : '—';
+  const metrics = resolveThreadWindowMetrics(mapping, snapshot, state);
 
   const lines = [
     `<b>${escapeHtml(formatMappingForumTopicDisplay(mapping))}</b>`,
@@ -320,6 +347,12 @@ export async function handleThreadStatus(ctx: BotContext, deps: CommandDeps): Pr
       activity: activity !== '—' ? ` · ${escapeHtml(activity)}` : '',
     }),
     t('tg.msg.threadStatus.queueLine', 'TG queue: {count} pending', { count: pending }),
+    t('tg.msg.threadStatus.composerQueueLine', 'Composer queue: {count}', {
+      count: formatThreadMetricCount(metrics.composerQueue),
+    }),
+    t('tg.msg.threadStatus.approveLine', 'Pending approve: {count}', {
+      count: formatThreadMetricCount(metrics.pendingApprove),
+    }),
     t('tg.msg.threadStatus.bindingLine', 'Binding: composer {composer} · windowId {windowId}…', {
       composer: escapeHtml(composer),
       windowId: escapeHtml(mapping.windowId.substring(0, 8)),
@@ -327,6 +360,54 @@ export async function handleThreadStatus(ctx: BotContext, deps: CommandDeps): Pr
   ];
 
   await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
+}
+// --- /last_commit ---
+
+export async function handleLastCommit(ctx: BotContext, deps: CommandDeps): Promise<void> {
+  const threadId = ctx.message?.message_thread_id;
+  if (!threadId) {
+    await ctx.reply(t('tg.msg.lastCommit.generalOnly', '⚠️ /last_commit — only in a project thread, not in # General.'));
+    return;
+  }
+
+  const mapping = deps.topicManager.resolveThread(threadId);
+  if (!mapping) {
+    await ctx.reply(t('tg.msg.threadNotLinked', '⚠️ Thread not linked. Run /bridge.'));
+    return;
+  }
+
+  const snapshot = deps.windowMonitor.getSnapshot(mapping.windowId);
+  const workspacePath = mapping.workspacePath || snapshot?.workspacePath;
+  if (!workspacePath) {
+    await ctx.reply(t('tg.msg.lastCommit.noWorkspace', '⚠️ Workspace path unknown for this thread.'));
+    return;
+  }
+
+  const commit = await readLastCommit(workspacePath);
+  if (!commit.ok) {
+    if (commit.reason === 'no_git') {
+      await ctx.reply(t('tg.msg.lastCommit.noGit', '⚠️ Not a git repository: <code>{path}</code>', {
+        path: escapeHtml(workspacePath),
+      }), { parse_mode: 'HTML' });
+      return;
+    }
+    if (commit.reason === 'empty') {
+      await ctx.reply(t('tg.msg.lastCommit.empty', '⚠️ No commits in this repository yet.'));
+      return;
+    }
+    await ctx.reply(t('tg.msg.lastCommit.gitError', '⚠️ git failed: {detail}', {
+      detail: escapeHtml(commit.detail ?? 'unknown'),
+    }), { parse_mode: 'HTML' });
+    return;
+  }
+
+  await ctx.reply(
+    t('tg.msg.lastCommit.ok', '<code>{hash}</code> {subject}', {
+      hash: escapeHtml(commit.hash),
+      subject: escapeHtml(commit.subject),
+    }),
+    { parse_mode: 'HTML' },
+  );
 }
 // --- /whereami ---
 

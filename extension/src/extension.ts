@@ -97,7 +97,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const refreshAddons = async (): Promise<void> => {
     await refreshWakeStatus();
     await refreshTunnelStatus();
-    HandoffSettings.refreshIfOpen();
     statusSidebar.refresh();
   };
 
@@ -113,6 +112,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void vscode.commands.executeCommand('workbench.view.extension.cursorHandoff');
     }),
     vscode.commands.registerCommand('cursorHandoff.openHandoffSettings', () => HandoffSettings.createOrShow(context)),
+    vscode.commands.registerCommand('cursorHandoff.refreshAddons', () => refreshAddons()),
     vscode.commands.registerCommand('cursorHandoff.openDoc', (rel?: string) => {
       void openHandoffDoc(context, rel ?? '', loadDict(context));
     }),

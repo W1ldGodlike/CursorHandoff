@@ -52,7 +52,7 @@ flowchart LR
 ### State (`src/state/`)
 
 - Diff successive `CursorState` snapshots, debounce ~300 ms, emit `state:patch`.
-- **Window monitor** — background polls for inactive windows (5 s when active, 10 s when idle).
+- **Window monitor** — background polls for inactive **project** windows (vscode workspace folder present; 5 s when active, 10 s when idle). Shells without a workspace (e.g. Cursor Agents) are skipped.
 - **Hang monitor** — if one window stops responding while siblings are fine, `Target.closeTarget` on the stuck target.
 
 ### Web (`src/web/`)

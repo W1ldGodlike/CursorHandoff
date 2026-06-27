@@ -5,6 +5,7 @@ import * as tabs from './tabs-messages.js';
 import * as questionnaireLocal from './questionnaire-local.js';
 
 let freeformSyncTimer = 0;
+let lastPendingApprovalCount = 0;
 
 function questionnaireSessionKey(q) {
   return q.questions.map((qq) => qq.text).join('\0');
@@ -64,7 +65,11 @@ function scheduleFreeformSync(selectorPath, text) {
 }
 
 export function renderApprovals() {
-  if (ctx.state.pendingApprovals.length > 0) {
+  const count = ctx.state.pendingApprovals.length;
+  if (count > 0) {
+    if (ctx.webSettings.approveSound && count > lastPendingApprovalCount) {
+      tabs.playApproveSound();
+    }
     ctx.$approvalBar.classList.remove('hidden');
     const approval = ctx.state.pendingApprovals[0];
     ctx.$approvalDesc.textContent = approval.description || t('web.feed.approvalDefault', 'Action requires confirmation');
@@ -81,6 +86,7 @@ export function renderApprovals() {
   } else {
     ctx.$approvalBar.classList.add('hidden');
   }
+  lastPendingApprovalCount = count;
 }
 
 export function renderQuestionnaire() {

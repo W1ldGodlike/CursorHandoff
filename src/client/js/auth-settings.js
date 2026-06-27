@@ -12,6 +12,7 @@ export const DEFAULT_WEB_SETTINGS = {
   compactFeed: false,
   quickPhrases: [],
   sendSound: false,
+  approveSound: false,
   onboardingDone: false,
   updatedAt: 0,
 };
@@ -178,7 +179,7 @@ export function accessRouteLabel(route = detectAccessRoute()) {
 export function formatAccessChip(serverOk, webTunnelUrl) {
   const route = detectAccessRoute();
   if (route === 'cloudflare') {
-    if (webTunnelUrl) {
+    if (serverOk && webTunnelUrl) {
       return { text: t('web.header.chip.access.cloudflare.ok', 'Cloudflare ✓'), tone: 'ok' };
     }
     if (isTunnelAccess()) {
@@ -257,6 +258,7 @@ export function normalizeWebSettings(parsed) {
     compactFeed: !!src.compactFeed,
     quickPhrases: normalizeQuickPhrases(src.quickPhrases),
     sendSound: !!src.sendSound,
+    approveSound: !!src.approveSound,
     onboardingDone: !!src.onboardingDone,
     updatedAt: Number(src.updatedAt) || 0,
   };
@@ -310,6 +312,7 @@ export async function pushWebSettingsToServer() {
           compactFeed: ctx.webSettings.compactFeed,
           quickPhrases: normalizeQuickPhrases(ctx.webSettings.quickPhrases),
           sendSound: ctx.webSettings.sendSound,
+          approveSound: ctx.webSettings.approveSound,
           onboardingDone: ctx.webSettings.onboardingDone,
         },
       }),
@@ -437,6 +440,9 @@ export function syncSettingsForm() {
   }
   if (ctx.$settingSendSound) {
     ctx.$settingSendSound.checked = !!ctx.webSettings.sendSound;
+  }
+  if (ctx.$settingApproveSound) {
+    ctx.$settingApproveSound.checked = !!ctx.webSettings.approveSound;
   }
   if (ctx.$settingTimezone) {
     ctx.$settingTimezone.value = ctx.webSettings.timezone;
@@ -641,6 +647,10 @@ export function initSettingsPanel() {
   });
   ctx.$settingSendSound?.addEventListener('change', () => {
     ctx.webSettings.sendSound = !!ctx.$settingSendSound.checked;
+    applyWebSettingsChange();
+  });
+  ctx.$settingApproveSound?.addEventListener('change', () => {
+    ctx.webSettings.approveSound = !!ctx.$settingApproveSound.checked;
     applyWebSettingsChange();
   });
   ctx.$settingTimezone?.addEventListener('change', () => {

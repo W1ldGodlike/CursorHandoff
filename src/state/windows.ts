@@ -129,10 +129,10 @@ function elementsSignature(messages: ChatElement[]): string {
 }
 
 /**
- * Monitors all Cursor windows via parallel CDP connections.
+ * Monitors project Cursor windows via parallel CDP connections.
  * "Home" window uses main CDPBridge (continuous poll).
- * Others get temporary CDP connections every CYCLE_INTERVAL_MS.
- * No window switching — UI stays on home window.
+ * Other windows with a workspace folder get temporary CDP polls on an adaptive schedule.
+ * Non-project shells (e.g. Cursor Agents) are skipped — no chat DOM to mirror.
  */
 export class WindowMonitor extends EventEmitter {
   private cdpBridge: CDPBridge;
@@ -150,6 +150,8 @@ export class WindowMonitor extends EventEmitter {
   private windowFirstSeenAt = new Map<string, number>();
   private lastPolledAt = new Map<string, number>();
   private nextPollDue = new Map<string, number>();
+  /** Non-home targets with no vscode workspace folder — skip parallel poll until closed. */
+  private readonly skipParallelNoWorkspace = new Set<string>();
 
   get isCycling(): boolean {
     return this._cycling;
@@ -324,6 +326,10 @@ export class WindowMonitor extends EventEmitter {
     }
 
     const windows = this.cdpBridge.windows;
+    const liveIds = new Set(windows.map((w) => w.id));
+    for (const id of this.skipParallelNoWorkspace) {
+      if (!liveIds.has(id)) this.skipParallelNoWorkspace.delete(id);
+    }
 
     for (const w of windows) {
       this.markWindowSeen(w.id);
@@ -349,6 +355,7 @@ export class WindowMonitor extends EventEmitter {
     const now = Date.now();
     const otherWindows = windows
       .filter(w => w.id !== homeId && w.wsUrl)
+      .filter((w) => !this.skipParallelNoWorkspace.has(w.id))
       .filter((w) => {
         const due = this.nextPollDue.get(w.id) ?? 0;
         return now >= due;
@@ -388,8 +395,13 @@ export class WindowMonitor extends EventEmitter {
     try {
       await client.connect(win.wsUrl);
 
-      const workspaceName = await extractWorkspaceName(client, this.config.windowTitleQualifier);
       const workspacePath = await extractWorkspacePath(client);
+      if (!workspacePath) {
+        this.skipParallelNoWorkspace.add(win.id);
+        return;
+      }
+
+      const workspaceName = await extractWorkspaceName(client, this.config.windowTitleQualifier);
       const windowTitle = workspaceName ?? win.title;
       if (workspaceName && workspaceName !== win.title) {
         win.title = workspaceName;

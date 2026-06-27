@@ -704,7 +704,7 @@ export abstract class BaseTelegramTransport implements Transport {
       }
     }
     if (threadId != null) {
-      const chatCmds = new Set(['menu', 'thread_status', 'whereami', 'thread_rename', 'notify_mode', 'close_chat', 'new_chat', 'setup_tg_send']);
+      const chatCmds = new Set(['menu', 'thread_status', 'last_commit', 'whereami', 'thread_rename', 'notify_mode', 'close_chat', 'new_chat', 'setup_tg_send']);
       if (chatCmds.has(cmd)) {
         return dispatchChatCommand(cmd, ctx, deps);
       }

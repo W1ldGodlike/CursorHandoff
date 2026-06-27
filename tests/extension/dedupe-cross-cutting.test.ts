@@ -49,7 +49,6 @@ const DEDUPE_CROSS_MATRIX = [
   { kind: 'meta' as const, marker: 'main.ts enableLogDedupe before relay start and cdp connect' },
   { kind: 'meta' as const, marker: 'extension.ts install fail uses showDedupedErrorToast' },
   { kind: 'meta' as const, marker: 'handoff-settings SETTINGS_ADDON_FAIL deduped toast' },
-  { kind: 'meta' as const, marker: 'ui-sidebar SIDEBAR_PORT_KILL_FAIL deduped toast' },
   { kind: 'meta' as const, marker: 'server-process pre-spawn DATA_DIR deduped toast' },
   { kind: 'meta' as const, marker: 'server-process start resets extension toast dedupe' },
   { kind: 'meta' as const, marker: 'server-process exit stderr DATA_DIR deduped toast' },
@@ -62,10 +61,10 @@ const DEDUPE_CROSS_MATRIX = [
   { kind: 'meta' as const, marker: 'behavioral it count matches non-meta PATH_MATRIX rows' },
   { kind: 'meta' as const, marker: 'branch audit classify toast paths complete' },
   { kind: 'meta' as const, marker: 'navigation-logging captureAll resets log dedupe state' },
-  { kind: 'meta' as const, marker: 'extension zone eight showDedupedErrorToast call sites' },
+  { kind: 'meta' as const, marker: 'extension zone nine showDedupedErrorToast call sites' },
   { kind: 'meta' as const, marker: 'server-process detectStatusFromLog switch no showErrorMessage' },
   { kind: 'meta' as const, marker: 'extension-toast imports createToastDedupe from server-log-detect' },
-  { kind: 'meta' as const, marker: 'extension four files import showDeduped from extension-toast' },
+  { kind: 'meta' as const, marker: 'extension three files import showDeduped from extension-toast' },
   { kind: 'meta' as const, marker: 'server-process one showDedupedWarningToast call site' },
   { kind: 'meta' as const, marker: 'main.ts sole enableLogDedupe boot call in src' },
   { kind: 'meta' as const, marker: 'extension dedupe key constants inventory complete' },
@@ -110,7 +109,7 @@ function captureLog(run: () => void): string[] {
 
 describe('dedupe-cross-cutting PATH_MATRIX', () => {
   it(`covers ${DEDUPE_CROSS_MATRIX.length} rows`, () => {
-    assert.equal(DEDUPE_CROSS_MATRIX.length, 55);
+    assert.equal(DEDUPE_CROSS_MATRIX.length, 54);
   });
 });
 
@@ -466,11 +465,6 @@ describe('dedupe-cross-cutting meta', () => {
     assert.ok(src.includes("showDedupedErrorToast(line, 'SETTINGS_ADDON_FAIL')"));
   });
 
-  it('ui-sidebar SIDEBAR_PORT_KILL_FAIL deduped toast', () => {
-    const src = readFileSync(new URL('../../extension/src/ui-sidebar.ts', import.meta.url), 'utf-8');
-    assert.ok(src.includes("showDedupedErrorToast(line, 'SIDEBAR_PORT_KILL_FAIL')"));
-  });
-
   it('server-process detectStatusFromLog showDeduped helpers', () => {
     const src = readFileSync(new URL('../../extension/src/server-process.ts', import.meta.url), 'utf-8');
     const block = src.slice(src.indexOf('private detectStatusFromLog'), src.indexOf('private async fallbackToObserver'));
@@ -554,14 +548,14 @@ describe('dedupe-cross-cutting meta', () => {
     assert.match(src, /async function captureAll[\s\S]*?resetLogDedupe\(\)/);
   });
 
-  it('extension zone eight showDedupedErrorToast call sites', () => {
+  it('extension zone nine showDedupedErrorToast call sites', () => {
     let count = 0;
     for (const name of readdirSync(extensionSrcDir())) {
       if (!name.endsWith('.ts') || name === 'extension-toast.ts') continue;
       const src = readFileSync(join(extensionSrcDir(), name), 'utf-8');
       count += (src.match(/showDedupedErrorToast\(/g) ?? []).length;
     }
-    assert.equal(count, 8);
+    assert.equal(count, 9);
   });
 
   it('server-process detectStatusFromLog switch no showErrorMessage', () => {
@@ -580,8 +574,8 @@ describe('dedupe-cross-cutting meta', () => {
     assert.ok(!src.includes('const TOAST_DEDUPE_MS ='));
   });
 
-  it('extension four files import showDeduped from extension-toast', () => {
-    const importers = ['extension.ts', 'server-process.ts', 'handoff-settings.ts', 'ui-sidebar.ts'];
+  it('extension three files import showDeduped from extension-toast', () => {
+    const importers = ['extension.ts', 'server-process.ts', 'handoff-settings.ts'];
     for (const name of importers) {
       const src = readFileSync(join(extensionSrcDir(), name), 'utf-8');
       assert.ok(src.includes("from './extension-toast.js'"), `${name} missing extension-toast import`);
@@ -611,7 +605,6 @@ describe('dedupe-cross-cutting meta', () => {
       'EXT_CLOUDFLARED_INSTALL_FAIL',
       'EXT_SKILLS_INSTALL_FAIL',
       'SETTINGS_ADDON_FAIL',
-      'SIDEBAR_PORT_KILL_FAIL',
       'DATA_DIR_NOT_WRITABLE',
       'STARTUP_AUDIT_FAIL',
       'STARTUP_AUDIT_STALE',
@@ -620,7 +613,6 @@ describe('dedupe-cross-cutting meta', () => {
     const blobs = [
       readFileSync(new URL('../../extension/src/extension.ts', import.meta.url), 'utf-8'),
       readFileSync(new URL('../../extension/src/handoff-settings.ts', import.meta.url), 'utf-8'),
-      readFileSync(new URL('../../extension/src/ui-sidebar.ts', import.meta.url), 'utf-8'),
       readFileSync(new URL('../../extension/src/server-process.ts', import.meta.url), 'utf-8'),
       readFileSync(new URL('../../extension/src/server-log-detect.ts', import.meta.url), 'utf-8'),
     ].join('\n');

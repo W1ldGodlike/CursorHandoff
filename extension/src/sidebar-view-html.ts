@@ -19,10 +19,6 @@ export interface SidebarViewState {
   accessMode: SidebarAccessMode;
   webTunnelEnabled: boolean;
   showCloudflare: boolean;
-  serverPort: number;
-  portOwnerPid: number | null;
-  portOwnerName: string;
-  portOwnerIsHandoff: boolean;
 }
 
 function escapeHtml(str: string): string {
@@ -164,22 +160,6 @@ export function renderSidebarHtml(
     accessSub,
   ));
 
-  const portOwnerValue = state.portOwnerPid == null
-    ? t('ext.sidebar.portFree', 'Free')
-    : state.portOwnerIsHandoff
-      ? trParam(dict, 'ext.sidebar.portOwnedByHandoff', 'Owned by CursorHandoff (PID {pid})', { pid: state.portOwnerPid })
-      : trParam(dict, 'ext.sidebar.portOccupied', 'Occupied by {name} (PID {pid})', {
-          name: state.portOwnerName || 'process',
-          pid: state.portOwnerPid,
-        });
-  const portOwnerTone: 'ok' | 'warn' | 'bad' | 'muted' =
-    state.portOwnerPid == null || state.portOwnerIsHandoff ? 'ok' : 'warn';
-  rows.push(statusRow(
-    trParam(dict, 'ext.sidebar.portLabel', 'Port {port}:', { port: state.serverPort }),
-    portOwnerValue,
-    portOwnerTone,
-  ));
-
   if (state.isWindows && state.wake) {
     const w = state.wake;
     let wakeText: string;
@@ -251,6 +231,10 @@ export function renderSidebarHtml(
   const powerAction = state.serverState === 'stopped'
     ? actionRow('start', '▶', t('ext.sidebar.startServer', 'Start server'))
     : actionRow('stop', '■', t('ext.sidebar.stopServer', 'Stop server'));
+
+  const restartAction = state.isOwner && state.serverState !== 'stopped'
+    ? actionRow('restartServer', '↻', t('ext.sidebar.restartServer', 'Restart server'))
+    : '';
 
   return /*html*/ `<!DOCTYPE html>
 <html lang="${state.locale}">
@@ -383,16 +367,18 @@ export function renderSidebarHtml(
   <div class="section">${rows.join('')}</div>
   <div class="divider"></div>
   ${powerAction}
+  ${restartAction}
   <div class="divider"></div>
   ${actionRow('openHandoffSettings', '⚙', t('ext.sidebar.settings', 'Settings'))}
-  ${actionRow('checkPortOwner', '↻', t('ext.sidebar.checkPortOwner', 'Check owner'))}
-  ${state.portOwnerPid != null && !state.portOwnerIsHandoff
-    ? actionRow('killPortOwner', '🗑', t('ext.sidebar.killPortOwner', 'Kill process'))
-    : ''}
   ${actionRow('openWebClient', '↗', t('ext.sidebar.openWebClient', 'Open web client'))}
   ${actionRow('showLogs', '≡', t('ext.sidebar.showLogs', 'Show logs'))}
+  ${actionRow('testCdp', '⎔', t('ext.sidebar.testCdp', 'Test CDP'))}
+  ${actionRow('testTelegram', '✈', t('ext.sidebar.testTelegram', 'Test Telegram bot'))}
   <script>
-    const vscode = acquireVsCodeApi();
+    if (!window.__handoffSidebarVsCodeApi) {
+      window.__handoffSidebarVsCodeApi = acquireVsCodeApi();
+    }
+    const vscode = window.__handoffSidebarVsCodeApi;
     document.querySelectorAll('[data-action]').forEach((el) => {
       el.addEventListener('click', () => {
         const action = el.dataset.action;

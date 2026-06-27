@@ -111,7 +111,11 @@ function tgStep(n: number, title: string, body: string, done: boolean): string {
   </div>`;
 }
 
-export function renderHandoffSettingsHtml(state: HandoffSettingsViewState, dict: Record<string, string>): string {
+export function renderHandoffSettingsHtml(
+  state: HandoffSettingsViewState,
+  dict: Record<string, string>,
+  cspSource = '',
+): string {
   const t = makeTr(dict);
   const networkMode = state.serverHost === '127.0.0.1' ? 'localhost'
     : state.serverHost === '0.0.0.0' ? 'lan' : 'custom';
@@ -323,7 +327,7 @@ export function renderHandoffSettingsHtml(state: HandoffSettingsViewState, dict:
            <p class="hint">${escapeHtml(t('ext.handoffSettings.cloud.lead', 'Public HTTPS link without opening your router or installing VPN on the phone.'))}</p>
            ${cloudAbout}
            ${statusLine(tunnelTone(state), tunnelStatusLabel(state, t))}
-           ${state.tunnelUrl ? `<p class="hint">${t('ext.handoffSettings.cloud.urlHint', 'URL: {url} · /web_url in # General').replace('{url}', `<a href="#" class="lnk" data-action="openExternal" data-url="${escapeHtml(state.tunnelUrl)}">${escapeHtml(state.tunnelUrl)}</a>`)}</p>` : ''}
+           ${state.tunnelRunning && state.tunnelUrl ? `<p class="hint">${t('ext.handoffSettings.cloud.urlHint', 'URL: {url} · /web_url in # General').replace('{url}', `<a href="#" class="lnk" data-action="openExternal" data-url="${escapeHtml(state.tunnelUrl)}">${escapeHtml(state.tunnelUrl)}</a>`)}</p>` : ''}
            <div class="act-list">${state.cloudflaredInstalled
              ? `${actBtn('startTunnel', '▶', t('ext.handoffSettings.cloud.start', 'Start'), 'ok')}${actBtn('stopTunnel', '■', t('ext.handoffSettings.cloud.stop', 'Stop'), 'bad')}${actBtn('uninstallCloudflared', '🗑', t('ext.handoffSettings.cloud.uninstall', 'Remove cloudflared'), 'bad')}`
              : actBtn('installCloudflared', '▶', t('ext.handoffSettings.cloud.install', 'Download & install cloudflared'), 'ok')}
@@ -339,6 +343,7 @@ export function renderHandoffSettingsHtml(state: HandoffSettingsViewState, dict:
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';${cspSource ? ` font-src ${cspSource};` : ''}" />
   <title>${escapeHtml(t('ext.handoffSettings.title', 'Handoff settings'))}</title>
   <style>
     :root {
@@ -595,8 +600,94 @@ export function renderHandoffSettingsHtml(state: HandoffSettingsViewState, dict:
   </div>
 
   <script>
-    const vscode = acquireVsCodeApi();
-    function sendMsg(m) { vscode.postMessage(m); }
+    const vscode = (function() {
+      if (window.__handoffVsCodeApi) return window.__handoffVsCodeApi;
+      try {
+        window.__handoffVsCodeApi = acquireVsCodeApi();
+      } catch (err) {
+        console.warn('[handoff-settings] acquireVsCodeApi failed', err);
+      }
+      return window.__handoffVsCodeApi;
+    })();
+    function sendMsg(m) { if (vscode) vscode.postMessage(m); }
+
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[id]');
+      if (!btn || btn.disabled) return;
+      switch (btn.id) {
+        case 'installWake': sendMsg({ type: 'installWake' }); break;
+        case 'uninstallWake': sendMsg({ type: 'uninstallWake' }); break;
+        case 'restartWake': sendMsg({ type: 'restartWake' }); break;
+        case 'pauseWake': sendMsg({ type: 'pauseWake' }); break;
+        case 'resumeWake': sendMsg({ type: 'resumeWake' }); break;
+        case 'installCloudflared': sendMsg({ type: 'installCloudflared' }); break;
+        case 'uninstallCloudflared': sendMsg({ type: 'uninstallCloudflared' }); break;
+        case 'startTunnel': sendMsg({ type: 'startTunnel' }); break;
+        case 'stopTunnel': sendMsg({ type: 'stopTunnel' }); break;
+        case 'refreshAddons': sendMsg({ type: 'refresh' }); break;
+        case 'saveNetworking': {
+          const netSelect = document.getElementById('netModeSelect');
+          const mode = netSelect?.value || 'localhost';
+          const address = mode === 'custom'
+            ? (document.getElementById('customAddress')?.value?.trim() || '')
+            : '';
+          if (mode === 'custom' && !address) {
+            sendMsg({ type: 'setNetworking', mode, address: '' });
+            break;
+          }
+          const msg = { type: 'setNetworking', mode };
+          if (mode === 'custom') msg.address = address;
+          sendMsg(msg);
+          setTimeout(() => sendMsg({ type: 'restartServer' }), 500);
+          break;
+        }
+        case 'copyEndpoint': {
+          const url = document.getElementById('endpointUrl')?.textContent?.trim();
+          if (url) navigator.clipboard.writeText(url).catch(() => {});
+          break;
+        }
+        case 'copyPassword': {
+          const pw = document.getElementById('passwordInput')?.value ?? '';
+          sendMsg({ type: 'copyPassword', password: pw });
+          break;
+        }
+        case 'copyDataDir': {
+          const p = document.getElementById('dataDirPath')?.textContent?.trim();
+          if (p) navigator.clipboard.writeText(p).then(() => sendMsg({ type: 'copyDataDir', path: p })).catch(() => sendMsg({ type: 'copyDataDir', path: p }));
+          break;
+        }
+        case 'openDataDir': sendMsg({ type: 'openDataDir' }); break;
+        case 'savePassword':
+          sendMsg({ type: 'savePassword', password: document.getElementById('passwordInput')?.value || '' });
+          break;
+        case 'saveToken': {
+          const token = document.getElementById('botTokenInput')?.value ?? '';
+          sendMsg({ type: 'saveTelegramToken', token });
+          break;
+        }
+        case 'saveAllowedUsers':
+          sendMsg({ type: 'saveAllowedUsers', allowedUsers: document.getElementById('allowedUsersInput')?.value || '' });
+          break;
+        case 'copyRegister': {
+          const c = document.querySelector('.code');
+          if (c) navigator.clipboard.writeText(c.textContent.trim());
+          break;
+        }
+        case 'saveTgImpl': {
+          const impl = document.getElementById('tgImplSelect')?.value;
+          if (impl) { sendMsg({ type: 'setTelegramImpl', impl }); setTimeout(() => sendMsg({ type: 'restartServer' }), 500); }
+          break;
+        }
+        default: break;
+      }
+    });
+
+    document.addEventListener('change', (e) => {
+      const t = e.target;
+      if (!(t instanceof HTMLInputElement)) return;
+      if (t.id === 'wakeStartup') sendMsg({ type: 'setWakeStartup', enabled: t.checked });
+      if (t.id === 'tunnelAutostart') sendMsg({ type: 'setTunnelAutostart', enabled: t.checked });
+    });
 
     const railLinks = document.querySelectorAll('.rail-a');
     const cards = document.querySelectorAll('.card');
@@ -608,7 +699,7 @@ export function renderHandoffSettingsHtml(state: HandoffSettingsViewState, dict:
         e.preventDefault();
         document.getElementById(a.dataset.jump)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         setActive(a.dataset.jump);
-        vscode.setState({ section: a.dataset.jump });
+        vscode?.setState({ section: a.dataset.jump });
       });
     });
     if (cards.length && 'IntersectionObserver' in window) {
@@ -619,7 +710,7 @@ export function renderHandoffSettingsHtml(state: HandoffSettingsViewState, dict:
       }, { rootMargin: '-30% 0px -55% 0px', threshold: 0 });
       cards.forEach(c => obs.observe(c));
     }
-    const saved = vscode.getState()?.section;
+    const saved = vscode?.getState()?.section;
     if (saved) setActive(saved);
 
     document.querySelectorAll('[data-action="openExternal"]').forEach(el => {
@@ -670,66 +761,12 @@ export function renderHandoffSettingsHtml(state: HandoffSettingsViewState, dict:
     document.getElementById('customAddress')?.addEventListener('input', () => updateEndpoint());
     document.getElementById('passwordInput')?.addEventListener('input', () => updateEndpoint());
 
-    document.getElementById('saveNetworking')?.addEventListener('click', () => {
-      const mode = netSelect?.value || 'localhost';
-      const msg = { type: 'setNetworking', mode };
-      if (mode === 'custom') msg.address = document.getElementById('customAddress')?.value || '';
-      sendMsg(msg);
-      setTimeout(() => sendMsg({ type: 'restartServer' }), 500);
-    });
-    document.getElementById('copyEndpoint')?.addEventListener('click', () => {
-      const url = document.getElementById('endpointUrl')?.textContent?.trim();
-      if (url) navigator.clipboard.writeText(url).catch(() => {});
-    });
-    document.getElementById('copyPassword')?.addEventListener('click', () => {
-      const pw = document.getElementById('passwordInput')?.value;
-      if (pw) navigator.clipboard.writeText(pw).then(() => sendMsg({ type: 'copyPassword' })).catch(() => sendMsg({ type: 'copyPassword' }));
-      else sendMsg({ type: 'copyPassword' });
-    });
-    document.getElementById('copyDataDir')?.addEventListener('click', () => {
-      const p = document.getElementById('dataDirPath')?.textContent?.trim();
-      if (p) {
-        navigator.clipboard.writeText(p).then(() => sendMsg({ type: 'copyDataDir', path: p })).catch(() => sendMsg({ type: 'copyDataDir', path: p }));
-      }
-    });
-    document.getElementById('openDataDir')?.addEventListener('click', () => sendMsg({ type: 'openDataDir' }));
-    document.getElementById('savePassword')?.addEventListener('click', () => {
-      sendMsg({ type: 'savePassword', password: document.getElementById('passwordInput')?.value || '' });
-    });
-    document.getElementById('saveToken')?.addEventListener('click', () => {
-      const token = document.getElementById('botTokenInput')?.value;
-      if (token) sendMsg({ type: 'saveTelegramToken', token });
-    });
-    document.getElementById('saveAllowedUsers')?.addEventListener('click', () => {
-      sendMsg({ type: 'saveAllowedUsers', allowedUsers: document.getElementById('allowedUsersInput')?.value || '' });
-    });
-    document.getElementById('copyRegister')?.addEventListener('click', () => {
-      const c = document.querySelector('.code');
-      if (c) navigator.clipboard.writeText(c.textContent.trim());
-    });
-
     const tgImplSelect = document.getElementById('tgImplSelect');
     document.querySelectorAll('.impl-pick').forEach(p => p.addEventListener('click', () => {
       if (tgImplSelect) tgImplSelect.value = p.dataset.impl;
       document.querySelectorAll('.impl-pick').forEach(x => x.classList.toggle('on', x.dataset.impl === p.dataset.impl));
     }));
-    document.getElementById('saveTgImpl')?.addEventListener('click', () => {
-      const impl = tgImplSelect?.value;
-      if (impl) { sendMsg({ type: 'setTelegramImpl', impl }); setTimeout(() => sendMsg({ type: 'restartServer' }), 500); }
-    });
 
-    document.getElementById('installWake')?.addEventListener('click', () => sendMsg({ type: 'installWake' }));
-    document.getElementById('uninstallWake')?.addEventListener('click', () => sendMsg({ type: 'uninstallWake' }));
-    document.getElementById('restartWake')?.addEventListener('click', () => sendMsg({ type: 'restartWake' }));
-    document.getElementById('pauseWake')?.addEventListener('click', () => sendMsg({ type: 'pauseWake' }));
-    document.getElementById('resumeWake')?.addEventListener('click', () => sendMsg({ type: 'resumeWake' }));
-    document.getElementById('wakeStartup')?.addEventListener('change', e => sendMsg({ type: 'setWakeStartup', enabled: e.target.checked }));
-    document.getElementById('installCloudflared')?.addEventListener('click', () => sendMsg({ type: 'installCloudflared' }));
-    document.getElementById('uninstallCloudflared')?.addEventListener('click', () => sendMsg({ type: 'uninstallCloudflared' }));
-    document.getElementById('startTunnel')?.addEventListener('click', () => sendMsg({ type: 'startTunnel' }));
-    document.getElementById('stopTunnel')?.addEventListener('click', () => sendMsg({ type: 'stopTunnel' }));
-    document.getElementById('tunnelAutostart')?.addEventListener('change', e => sendMsg({ type: 'setTunnelAutostart', enabled: e.target.checked }));
-    document.getElementById('refreshAddons')?.addEventListener('click', () => sendMsg({ type: 'refresh' }));
     const startT = document.getElementById('startTunnel');
     const stopT = document.getElementById('stopTunnel');
     if (startT) startT.disabled = ${JSON.stringify(state.tunnelRunning)};

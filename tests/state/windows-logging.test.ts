@@ -21,6 +21,11 @@ const WINDOW_LOG_CODES = [
 
 const CYCLE_TICK_MS = 2000;
 
+const STUB_WORKSPACE_URI = JSON.stringify({
+  path: '/c/Users/test/CursorHandoff',
+  authority: '',
+});
+
 const origConnect = CdpClient.prototype.connect;
 const origDisconnect = CdpClient.prototype.disconnect;
 const origEvaluate = CdpClient.prototype.evaluate;
@@ -259,12 +264,14 @@ const WINDOWS_PATH_MATRIX = [
   { kind: 'silent' as const, marker: 'STATE_WINDOW_FIRST_CYCLE emits exactly once across cycles' },
   { kind: 'silent' as const, marker: 'exactly one STATE_WINDOW_START per single start call' },
   { kind: 'log' as const, code: 'STATE_WINDOW_START', marker: 'restart start logs STATE_WINDOW_START again' },
+  { kind: 'silent' as const, marker: 'non-workspace parallel target stays silent on poll logs' },
+  { kind: 'silent' as const, marker: 'non-workspace skip caches window id until target closes' },
   { kind: 'silent' as const, marker: 'successful parallel poll stays silent on POLL_FAIL and POLL_NULL' },
   { kind: 'silent' as const, marker: 'refresh fail non-Error coerces message for STATE_WINDOW_REFRESH_FAIL' },
   { kind: 'silent' as const, marker: 'poll failure emits window poll-failed event without duplicate logs' },
   { kind: 'log' as const, code: 'STATE_WINDOW_START', marker: 'STATE_WINDOW_START text includes adaptive poll phrase' },
   { kind: 'log' as const, code: 'STATE_WINDOW_FIRST_CYCLE', marker: 'STATE_WINDOW_FIRST_CYCLE text includes window count' },
-  { kind: 'log' as const, code: 'STATE_WINDOW_POLL_NULL', marker: 'STATE_WINDOW_POLL_NULL text includes window title' },
+  { kind: 'log' as const, code: 'STATE_WINDOW_POLL_NULL', marker: 'STATE_WINDOW_POLL_NULL text includes workspace folder title' },
   { kind: 'log' as const, code: 'STATE_WINDOW_POLL_FAIL', marker: 'STATE_WINDOW_POLL_FAIL text includes poll failed phrase' },
   { kind: 'log' as const, code: 'STATE_WINDOW_NO_WS', marker: 'STATE_WINDOW_NO_WS text includes no wsUrl phrase' },
   { kind: 'silent' as const, marker: 'STATE_WINDOW_POLL_FAIL includes windowTitle in log context' },
@@ -306,7 +313,7 @@ describe('windows WindowMonitor logging', () => {
   beforeEach(() => {
     clientStub = {
       connect: async () => {},
-      evaluate: async () => null,
+      evaluate: async () => STUB_WORKSPACE_URI,
       callFunctionWithTimeout: async () => minimalExtractState(),
     };
     CdpClient.prototype.connect = async function connect(wsUrl: string) {
@@ -516,6 +523,37 @@ describe('windows WindowMonitor logging', () => {
     assert.equal(windowOnly(lines).filter((l) => l.includes('STATE_WINDOW_START')).length, 2);
   });
 
+  it('non-workspace parallel target stays silent on poll logs', async () => {
+    clientStub.evaluate = async () => null;
+    const monitor = makeMonitor(
+      makeBridge({
+        windows: [
+          { id: 'win-home', title: 'Home Project', url: 'app://home', wsUrl: 'ws://home' },
+          { id: 'win-agents', title: 'Cursor Agents', url: 'app://agents', wsUrl: 'ws://agents' },
+        ],
+        activeTargetId: 'win-home',
+      }),
+      makeStateManager(),
+    );
+    const lines = await captureAll(async () => {
+      await runCycle(monitor);
+    });
+    assert.ok(!lines.some((l) => l.includes('code=STATE_WINDOW_POLL_NULL')));
+    assert.ok(!lines.some((l) => l.includes('code=STATE_WINDOW_POLL_FAIL')));
+  });
+
+  it('non-workspace skip caches window id until target closes', async () => {
+    clientStub.evaluate = async () => null;
+    let connectCount = 0;
+    clientStub.connect = async () => {
+      connectCount += 1;
+    };
+    const monitor = makeMonitor(twoWindowBridge('ws://agents'), makeStateManager());
+    await runCycle(monitor);
+    await runCycle(monitor);
+    assert.equal(connectCount, 1);
+  });
+
   it('successful parallel poll stays silent on POLL_FAIL and POLL_NULL', async () => {
     const monitor = makeMonitor(twoWindowBridge('ws://other'), makeStateManager());
     const lines = await captureAll(async () => {
@@ -572,13 +610,13 @@ describe('windows WindowMonitor logging', () => {
     assert.ok(lines.some((l) => l.includes('code=STATE_WINDOW_FIRST_CYCLE') && l.includes('2 window(s)')));
   });
 
-  it('STATE_WINDOW_POLL_NULL text includes window title', async () => {
+  it('STATE_WINDOW_POLL_NULL text includes workspace folder title', async () => {
     clientStub.callFunctionWithTimeout = async () => null;
     const monitor = makeMonitor(twoWindowBridge('ws://other'), makeStateManager());
     const lines = await captureAll(async () => {
       await runCycle(monitor);
     });
-    assert.ok(lines.some((l) => l.includes('code=STATE_WINDOW_POLL_NULL') && l.includes('Other Project')));
+    assert.ok(lines.some((l) => l.includes('code=STATE_WINDOW_POLL_NULL') && l.includes('CursorHandoff')));
   });
 
   it('STATE_WINDOW_POLL_FAIL text includes poll failed phrase', async () => {
@@ -989,7 +1027,7 @@ describe('windows WindowMonitor logging coverage', () => {
     for (const row of WINDOWS_PATH_MATRIX) {
       assert.ok(src.includes(row.marker), `matrix row missing test: ${row.marker}`);
     }
-    assert.equal(WINDOWS_PATH_MATRIX.length, 58);
+    assert.equal(WINDOWS_PATH_MATRIX.length, 60);
   });
 
   it('behavioral it count matches path matrix row count', () => {
@@ -1120,6 +1158,25 @@ describe('windows WindowMonitor logging coverage', () => {
     assert.match(body, /} catch \{[\s\S]*return null;/);
     assert.ok(!body.includes('logWarn'));
     assert.ok(!body.includes('logInfo'));
+  });
+
+  it('pollWindowParallel skips parallel poll when workspace path missing in source', () => {
+    const zone = windowsZoneSrc();
+    const body = zone.slice(zone.indexOf('private async pollWindowParallel'));
+    assert.match(body, /const workspacePath = await extractWorkspacePath\(client\)/);
+    assert.match(body, /if \(!workspacePath\)/);
+    assert.match(body, /this\.skipParallelNoWorkspace\.add\(win\.id\)/);
+    assert.match(body, /return;/);
+    const extractIdx = body.indexOf('extractFromClient');
+    const gateIdx = body.indexOf('if (!workspacePath)');
+    assert.ok(gateIdx >= 0 && extractIdx > gateIdx, 'workspace gate must run before extractFromClient');
+  });
+
+  it('cycle filters skipParallelNoWorkspace before parallel poll in source', () => {
+    const zone = windowsZoneSrc();
+    const body = zone.slice(zone.indexOf('private async cycle'), zone.indexOf('private async pollWindowParallel'));
+    assert.match(body, /skipParallelNoWorkspace/);
+    assert.match(body, /!this\.skipParallelNoWorkspace\.has\(w\.id\)/);
   });
 
   it('POLL_NULL includes windowId and windowTitle in stateCtx source', () => {

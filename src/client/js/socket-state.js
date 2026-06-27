@@ -68,6 +68,7 @@ export async function checkRelayHealth() {
   }
   if (ok === ctx.relayReachable) return;
   ctx.relayReachable = ok;
+  if (!ok) ctx.headerMetrics.webTunnelUrl = null;
   applyRelayConnectivity();
   renderAll();
 }
@@ -284,9 +285,12 @@ export async function refreshHeaderMetrics() {
       ctx.headerMetrics.telegramTopicUrl = typeof data.telegramTopicUrl === 'string'
         ? data.telegramTopicUrl
         : null;
+    } else {
+      ctx.headerMetrics.webTunnelUrl = null;
     }
   } catch {
     ctx.headerMetrics.latencyMs = null;
+    ctx.headerMetrics.webTunnelUrl = null;
   }
   renderHeaderStatus();
 }

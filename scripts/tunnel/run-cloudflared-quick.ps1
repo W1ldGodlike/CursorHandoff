@@ -125,6 +125,7 @@ function Poll-LogForUrl {
   $deadline = (Get-Date).AddSeconds($TimeoutSec)
   while ((Get-Date) -lt $deadline) {
     $url = Read-LatestUrlFromLog -Dir $Dir
+    if (-not $url) { $url = Read-SavedTunnelUrl -Dir $Dir }
     if ($url) {
       [void](Write-WebTunnelUrl -Dir $Dir -Url $url)
       return $url
@@ -196,6 +197,10 @@ function Stop-Tunnel {
     Write-Host "stopped cloudflared (pid=$processId)"
   }
   Remove-Item -LiteralPath $pidPath -Force -ErrorAction SilentlyContinue
+  $urlPath = Get-UrlPath $Dir
+  if (Test-Path -LiteralPath $urlPath) {
+    Remove-Item -LiteralPath $urlPath -Force -ErrorAction SilentlyContinue
+  }
   return 0
 }
 

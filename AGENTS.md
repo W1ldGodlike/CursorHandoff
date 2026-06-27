@@ -46,8 +46,6 @@ Extension never imports server modules — it spawns `dist/server/bundle.mjs` as
 
 **After changing `src/` or `extension/src/`:** request redeploy by creating `data/redeploy-requested` (stop-hook runs `scripts/redeploy/redeploy-restart-cursor.ps1`). Do not ask the user to reload manually.
 
-**AUTO-REDEPLOY: PAUSED** — пока не ставить флаг после правок; только по явной просьбе. См. `.cursor/rules/cursor-handoff-redeploy.mdc`.
-
 **Tests:** always `npm test` — never bare `npx tsx --test` (stale runners leak memory).
 
 ## Product skills (optional globals)

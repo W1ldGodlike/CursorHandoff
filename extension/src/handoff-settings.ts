@@ -11,7 +11,7 @@ import { installCloudflared } from './install-cloudflared.js';
 import { uninstallCloudflared } from './uninstall-cloudflared.js';
 import { applyWakeStartupSetting } from './wake-startup.js';
 import { restartCursorWake, writeRaiseCursor } from './wake-launcher.js';
-import { startCloudflaredQuickTunnel, stopCloudflaredQuickTunnel } from './tunnel-launcher.js';
+import { startCloudflaredQuickTunnel, stopCloudflaredQuickTunnel, waitForTunnelStart } from './tunnel-launcher.js';
 import { loadLocaleStrings, normalizeLocale, tr } from './extension-locale.js';
 import { emitExtensionUiLog, formatSettingsAddonFail } from './extension-ui-log.js';
 import { showDedupedErrorToast } from './extension-toast.js';
@@ -88,34 +88,35 @@ export class HandoffSettings {
     switch (msg.type) {
       case 'setNetworking': {
         const mode = msg.mode as string;
-        if (mode === 'localhost') {
-          await config.update('serverHost', '127.0.0.1', vscode.ConfigurationTarget.Global);
-        } else if (mode === 'custom') {
+        if (mode === 'custom') {
           const addr = (msg.address as string || '').trim();
-          if (addr) {
-            await config.update('serverHost', addr, vscode.ConfigurationTarget.Global);
+          if (!addr) {
+            vscode.window.showWarningMessage(
+              tr(this.dict, 'ext.handoffSettings.msg.customAddressRequired', 'Enter a custom bind address first.'),
+            );
+            break;
           }
+          await config.update('serverHost', addr, vscode.ConfigurationTarget.Global);
+        } else if (mode === 'localhost') {
+          await config.update('serverHost', '127.0.0.1', vscode.ConfigurationTarget.Global);
         } else {
           await config.update('serverHost', '0.0.0.0', vscode.ConfigurationTarget.Global);
         }
-        this.updateWebview();
-        break;
-      }
-      case 'copySettingsFilter': {
-        vscode.env.clipboard.writeText('@ext:cursor-handoff.cursor-handoff');
-        vscode.window.showInformationMessage(
-          tr(this.dict, 'ext.handoffSettings.msg.filterCopied', 'Filter copied — paste into Settings search.')
-        );
+        void this.updateWebview();
         break;
       }
       case 'copyPassword': {
-        const pw = config.get<string>('webappPassword', '');
-        if (pw) {
-          await vscode.env.clipboard.writeText(pw);
-          vscode.window.showInformationMessage(
-            tr(this.dict, 'ext.handoffSettings.msg.passwordCopied', 'Password copied.')
+        const pw = ((msg.password as string | undefined) ?? config.get<string>('webappPassword', '')).trim();
+        if (!pw) {
+          vscode.window.showWarningMessage(
+            tr(this.dict, 'ext.handoffSettings.msg.passwordEmpty', 'No password to copy.'),
           );
+          break;
         }
+        await vscode.env.clipboard.writeText(pw);
+        vscode.window.showInformationMessage(
+          tr(this.dict, 'ext.handoffSettings.msg.passwordCopied', 'Password copied.'),
+        );
         break;
       }
       case 'copyDataDir': {
@@ -144,11 +145,15 @@ export class HandoffSettings {
       }
       case 'saveTelegramToken': {
         const token = (msg.token as string).trim();
-        if (token) {
-          await config.update('telegram.botToken', token, vscode.ConfigurationTarget.Global);
-          await config.update('telegram.enabled', true, vscode.ConfigurationTarget.Global);
-          this.updateWebview();
+        if (!token) {
+          vscode.window.showWarningMessage(
+            tr(this.dict, 'ext.handoffSettings.msg.tokenEmpty', 'Paste a bot token first.'),
+          );
+          break;
         }
+        await config.update('telegram.botToken', token, vscode.ConfigurationTarget.Global);
+        await config.update('telegram.enabled', true, vscode.ConfigurationTarget.Global);
+        this.updateWebview();
         break;
       }
       case 'saveAllowedUsers': {
@@ -221,16 +226,25 @@ export class HandoffSettings {
         await restartCursorWake(resolveDataDir(this.context), (msg) => {
           emitExtensionUiLog(msg);
         });
+        vscode.window.showInformationMessage(
+          tr(this.dict, 'ext.handoffSettings.msg.wakeRestarted', 'CursorWake restarted.'),
+        );
         void this.updateWebview();
         break;
       }
       case 'pauseWake': {
         writeRaiseCursor(resolveDataDir(this.context), false, (m) => emitExtensionUiLog(m));
+        vscode.window.showInformationMessage(
+          tr(this.dict, 'ext.handoffSettings.msg.wakePaused', 'CursorWake paused.'),
+        );
         void this.updateWebview();
         break;
       }
       case 'resumeWake': {
         writeRaiseCursor(resolveDataDir(this.context), true, (m) => emitExtensionUiLog(m));
+        vscode.window.showInformationMessage(
+          tr(this.dict, 'ext.handoffSettings.msg.wakeResumed', 'CursorWake resumed.'),
+        );
         void this.updateWebview();
         break;
       }
@@ -273,13 +287,39 @@ export class HandoffSettings {
         break;
       }
       case 'startTunnel': {
-        startCloudflaredQuickTunnel(this.context, (line) => emitExtensionUiLog(line));
-        setTimeout(() => { void this.updateWebview(); }, 2000);
+        const { ok, tunnel } = await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: tr(this.dict, 'ext.handoffSettings.msg.tunnelStarting', 'Starting Cloudflare tunnel…'),
+            cancellable: false,
+          },
+          () => waitForTunnelStart(this.context, (line) => emitExtensionUiLog(line)),
+        );
+        await vscode.commands.executeCommand('cursorHandoff.refreshAddons');
+        void this.updateWebview();
+        if (ok && tunnel.running) {
+          const url = tunnel.url ?? '';
+          vscode.window.showInformationMessage(
+            url
+              ? tr(this.dict, 'ext.handoffSettings.msg.tunnelStarted', 'Cloudflare tunnel running: {url}').replace('{url}', url)
+              : tr(this.dict, 'ext.handoffSettings.msg.tunnelStartedNoUrl', 'Cloudflare tunnel started.'),
+          );
+        } else {
+          vscode.window.showInformationMessage(
+            tr(this.dict, 'ext.handoffSettings.msg.tunnelStartFailed', 'Could not start tunnel — see Handoff logs.'),
+          );
+        }
         break;
       }
       case 'stopTunnel': {
-        stopCloudflaredQuickTunnel(this.context, (line) => emitExtensionUiLog(line));
-        setTimeout(() => { void this.updateWebview(); }, 800);
+        const ok = stopCloudflaredQuickTunnel(this.context, (line) => emitExtensionUiLog(line));
+        await vscode.commands.executeCommand('cursorHandoff.refreshAddons');
+        vscode.window.showInformationMessage(
+          ok
+            ? tr(this.dict, 'ext.handoffSettings.msg.tunnelStopped', 'Cloudflare tunnel stopped.')
+            : tr(this.dict, 'ext.handoffSettings.msg.tunnelStopFailed', 'Could not stop tunnel — see Handoff logs.'),
+        );
+        void this.updateWebview();
         break;
       }
       case 'refresh': {
@@ -343,7 +383,7 @@ export class HandoffSettings {
       tunnelAutostartEnabled: config.get<boolean>('webTunnel.enabled', true),
     };
     this.panel.title = tr(this.dict, 'ext.handoffSettings.title', 'Handoff settings');
-    this.panel.webview.html = renderHandoffSettingsHtml(state, this.dict);
+    this.panel.webview.html = renderHandoffSettingsHtml(state, this.dict, this.panel.webview.cspSource);
   }
 
   private dispose(): void {
