@@ -646,6 +646,40 @@ header {
   display: none;
 }
 
+.cursor-upgrade-banner {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px max(14px, env(safe-area-inset-right)) 8px max(14px, env(safe-area-inset-left));
+  background: rgba(255, 193, 7, 0.14);
+  border-bottom: 1px solid var(--accent-yellow);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.cursor-upgrade-banner.hidden {
+  display: none;
+}
+
+.cursor-upgrade-banner-text {
+  flex: 1;
+  text-align: left;
+}
+
+.cursor-upgrade-banner-dismiss {
+  flex-shrink: 0;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .message-filter-bar {
   display: flex;
   gap: 6px;

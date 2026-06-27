@@ -2,8 +2,22 @@ import { readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const localesDir = resolve(__dirname, '../../locales');
+let localesDir: string | null = null;
+
+function getLocalesDir(): string {
+  if (localesDir) return localesDir;
+  try {
+    const meta = import.meta as ImportMeta | undefined;
+    if (meta?.url) {
+      localesDir = resolve(dirname(fileURLToPath(meta.url)), '../../locales');
+      return localesDir;
+    }
+  } catch {
+    /* extension CJS bundle — import.meta.url is empty */
+  }
+  localesDir = resolve(process.cwd(), 'locales');
+  return localesDir;
+}
 
 let locale = (process.env.CURSOR_HANDOFF_LOCALE ?? process.env.HANDOFF_LOCALE ?? 'en').trim() || 'en';
 const cache = new Map<string, Record<string, string>>();
@@ -19,7 +33,7 @@ export function getLocale(): string {
 function loadLocale(code: string): Record<string, string> {
   if (cache.has(code)) return cache.get(code)!;
   try {
-    const raw = readFileSync(resolve(localesDir, `${code}.json`), 'utf-8');
+    const raw = readFileSync(resolve(getLocalesDir(), `${code}.json`), 'utf-8');
     const parsed = JSON.parse(raw) as Record<string, string>;
     cache.set(code, parsed);
     return parsed;

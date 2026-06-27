@@ -147,6 +147,9 @@ ctx.$headerSettingsBtn = document.getElementById('header-settings-btn');
 ctx.$planModalClose = document.getElementById('plan-modal-close');
 ctx.$appChrome = document.getElementById('app-chrome');
 ctx.$offlineBanner = document.getElementById('offline-banner');
+ctx.$cursorUpgradeBanner = document.getElementById('cursor-upgrade-banner');
+ctx.$cursorUpgradeBannerText = document.getElementById('cursor-upgrade-banner-text');
+ctx.$cursorUpgradeBannerDismiss = document.getElementById('cursor-upgrade-banner-dismiss');
 
 ctx.relayReachable = true;
 ctx.relayWasOffline = false;
@@ -333,6 +336,10 @@ ctx.$btnLogout?.addEventListener('click', () => {
 ctx.$headerPlanBar?.addEventListener('click', () => {
   const plan = planUi.findActivePlanMessage();
   if (plan) planUi.openPlanModal(plan);
+});
+
+ctx.$cursorUpgradeBannerDismiss?.addEventListener('click', () => {
+  socketState.dismissCursorUpgradeBanner();
 });
 
 

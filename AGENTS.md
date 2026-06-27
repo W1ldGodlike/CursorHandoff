@@ -14,7 +14,7 @@ The server reads Cursor state over CDP (`--remote-debugging-port=9222`), serves 
 CursorHandoff/
 ├── extension/src/     # VS Code extension (spawn server, Handoff settings webview, sidebar)
 ├── src/
-│   ├── core/          # Entry (main.ts), config, paths, shutdown, build fingerprint
+│   ├── core/          # Entry (main.ts), config, paths, shutdown, compatVersion audit
 │   ├── ide/           # CDP session, DOM extraction, command executor
 │   ├── state/         # State diff/broadcast, window monitor, hang recovery
 │   ├── web/           # Express + socket.io, tunnel helpers

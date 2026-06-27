@@ -136,9 +136,22 @@ sequenceDiagram
 - Web: `inbound-images.ts` — same split for browser uploads (≤10 attachments, 20 MB Bot API cap).
 - Redeploy: `flushOutboxForWorkspace` drains pending sends.
 
-### Compatibility fingerprint
+### compatVersion contract
 
-`src/core/fingerprint.ts` stamps `compatVersion: 1` into `/health` and the bundle manifest. Extension and server must agree.
+Extension and server bundle must share the same **`compatVersion`** integer. Bump it in `scripts/build/compat-version.json` and `src/core/compat-version.ts` (`HANDOFF_COMPAT_VERSION`) when extension and `bundle.mjs` must ship together.
+
+| Artifact | Role |
+|----------|------|
+| `scripts/build/compat-version.json` | Source of truth at build time |
+| `dist/server/build-manifest.json` | Written by `scripts/build/write-build-manifest.mjs`; includes `compatVersion`, bundle SHA |
+| `dist/compat-version.json` | Short stamp (`version` + `compatVersion`) for the extension pre-spawn gate |
+| `GET /health` → `build.compatVersion` | Runtime check for web clients and smoke tests |
+
+**Server:** `src/core/fingerprint.ts` runs a startup audit; success logs `BUILD OK compatVersion=1`. Mismatch violations use `compatVersion-mismatch`.
+
+**Extension:** `extension/src/compat-version.ts` → `verifyBundleBeforeSpawn()` in `server-process.ts` blocks spawn when manifest, stamp, package version, or SHA disagree.
+
+**Cursor upgrade:** {#cursor-upgrade} extension toast, Telegram # General, and web banner when running Cursor ≠ pinned `testedCursorVersion`. Fires after CDP is healthy on each server start; `data/cursor-upgrade-server-notify.json` dedupes redeploy within 120s (per server `pid` and channel). Web dismiss hides until the next notify wave (`cursorUpgradeServerNotifyAt` on `/health`).
 
 ---
 
@@ -149,7 +162,9 @@ Spawns `dist/server/bundle.mjs` as a child process — never imports server code
 | Module | Responsibility |
 |--------|----------------|
 | `extension.ts` | Activation, commands, auto-start, password generation |
-| `server-process.ts` | Owner/observer singleton, health poll, takeover |
+| `server-process.ts` | Owner/observer singleton, health poll, takeover, `compatVersion` gate before spawn |
+| `compat-version.ts` | `verifyBundleBeforeSpawn()` — manifest + `dist/compat-version.json` + package version |
+| `cursor-upgrade-advisory.ts` | Publishes `cursor-host.json`; extension toast on server-ready health |
 | `config-bridge.ts` | Settings → environment |
 | `handoff-settings.ts` / `handoff-settings-view.ts` | Handoff settings webview |
 | `ui-sidebar.ts` | Status tree |
@@ -200,7 +215,7 @@ Build pipeline: esbuild → `dist/extension.cjs` + `dist/server/bundle.mjs`; cli
 
 ```
 src/
-├── core/           entry, config, paths, fingerprint
+├── core/           entry, config, paths, compatVersion audit (fingerprint.ts)
 ├── ide/            CDP session, parse/*, actions/*
 ├── state/          broadcast, window monitor, hang recovery
 ├── web/            routes, socket hub, tunnel, plans

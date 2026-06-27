@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`/last_commit`** — Forum thread command returns short git hash and subject for the linked workspace.
+- **compatVersion gate (extension)** — Before spawning `bundle.mjs`, verify `build-manifest.json`, `dist/compat-version.json`, and package version align; block spawn with one clear error on mismatch.
+- **Cursor upgrade advisory** — Warns when running Cursor ≠ `testedCursorVersion` (pinned at `npm run package` via `scripts/build/pin-cursor-compat.mjs` / `resolve-cursor-version.mjs`). Extension writes `data/cursor-host.json` from `cursor.version` before spawn; `/health` exposes `cursorUpgradeAdvisory`, `cursorVersion`, `testedCursorVersion`, and `cursorUpgradeServerNotifyAt`. **Extension** — toast after CDP is healthy; **Telegram** — # General post (with retry after redeploy dedupe window); **web** — dismissible banner until the next notify wave. Dedup: `data/cursor-upgrade-server-notify.json` — one notify per channel per server `pid`, 120s blocks redeploy double-posts (same window as startup OK). Locales: `ext.cursorUpgrade.*`, `web.cursorUpgrade.*`, `tg.msg.cursorUpgrade`.
 - **Handoff settings probes** — **Test CDP** and **Test Telegram bot** in sidebar (under Show logs); `getMe` / CDP `/json` without starting the server.
 - **Approve sound (web)** — Optional setting in ⚙ (default off): short tone when a pending approve appears.
 - **`/thread_status` metrics** — Reply now includes composer queue length and pending approve count for the bound chat.
@@ -89,7 +90,7 @@ First public release.
 - **Distribution** — Two release packages: `cursor-handoff-{version}.vsix` (Standard) and `cursor-handoff-{version}-complete.vsix` (Complete); shared extension ID `cursor-handoff.cursor-handoff`.
 - **Multi-window** — One server owner per PC; other Cursor windows observe; generation-based handoff when the owner stops.
 - **Agent skills** — On activation: installs `cursor-handoff-telegram-send` and `plan-widget-tg` global skills and patches User Rules.
-- **Build fingerprint** — `compatVersion: 1` in `/health` for extension/server compatibility checks.
+- **compatVersion contract** — `compatVersion: 1` in `/health`, `dist/compat-version.json`, and extension pre-spawn gate; bump `scripts/build/compat-version.json` when extension and bundle must ship together.
 - **Documentation** — `docs/guide.md`, `docs/telegram.md`, `docs/reference.md`, `docs/architecture.md`, `docs/development.md`; in-editor walkthrough.
 
 ### Security

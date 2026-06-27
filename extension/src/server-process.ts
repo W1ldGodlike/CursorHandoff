@@ -14,6 +14,11 @@ import {
   releaseServerOwner,
 } from './owner-lock.js';
 import { ensureCloudflaredQuickTunnel } from './tunnel-launcher.js';
+import {
+  COMPAT_VERSION_MISMATCH,
+  formatCompatVersionCheckLog,
+  verifyBundleBeforeSpawn,
+} from './compat-version.js';
 import { appendLogLine, type UnifiedOutputChannel } from './output-channel.js';
 import {
   classifyServerStdoutLine,
@@ -285,6 +290,22 @@ export class ServerManager extends EventEmitter {
     }
 
     const serverScript = join(extRoot, 'dist', 'server', 'bundle.mjs');
+    const compatVersionCheck = verifyBundleBeforeSpawn(extRoot);
+    if (!compatVersionCheck.ok) {
+      clearServerStarting(dataDir);
+      const logLine = formatCompatVersionCheckLog(serverScript, compatVersionCheck.violations);
+      this.outputChannel.error(`[${this.windowName}] ${logLine}`);
+      this.outputChannel.show(true);
+      const detail = compatVersionCheck.violations.join('; ');
+      const msg = tr(
+        this.localeDict(),
+        'ext.server.compatVersionMismatch',
+        'Handoff server bundle compatVersion mismatch ({detail}). Rebuild or install a matching VSIX.',
+      ).replace('{detail}', detail);
+      showDedupedErrorToast(msg, COMPAT_VERSION_MISMATCH);
+      this.setState('error');
+      return;
+    }
 
     this.outputChannel.info(`[${this.windowName}] Starting server: ${serverScript}`);
 
@@ -334,6 +355,7 @@ export class ServerManager extends EventEmitter {
     });
 
     this.child.on('exit', (code, signal) => {
+      const intentionalStop = this.shuttingDown;
       this.outputChannel.info(`[${this.windowName}] Server exited (code=${code}, signal=${signal})`);
       if (ownerPid) releaseServerOwner(dataDir, ownerPid);
       clearServerStarting(dataDir);
@@ -354,9 +376,12 @@ export class ServerManager extends EventEmitter {
             if (line) showDedupedErrorToast(line, DATA_DIR_NOT_WRITABLE);
           }
           this.setState('error');
-          this.scheduleErrorRecovery();
+          this.scheduleSpawnRecovery('Error recovery — re-attaching to server.');
         } else {
           this.setState('stopped');
+          if (!intentionalStop) {
+            this.scheduleSpawnRecovery('Server stopped externally — restarting.');
+          }
         }
         this.emit('stopped');
       })();
@@ -373,7 +398,7 @@ export class ServerManager extends EventEmitter {
       void (async () => {
         if (await this.fallbackToObserver()) return;
         this.setState('error');
-        this.scheduleErrorRecovery();
+        this.scheduleSpawnRecovery('Error recovery — re-attaching to server.');
       })();
     });
 
@@ -526,12 +551,17 @@ export class ServerManager extends EventEmitter {
     return false;
   }
 
-  private scheduleErrorRecovery(): void {
-    if (this.errorRecoveryTimer || this.isManualStopped()) return;
+  private isRedeployInProgress(): boolean {
+    return existsSync(join(resolveDataDir(this.context), 'redeploy.lock'));
+  }
+
+  private scheduleSpawnRecovery(logLine: string): void {
+    if (this.errorRecoveryTimer || this.isManualStopped() || this.isRedeployInProgress()) return;
     this.errorRecoveryTimer = setTimeout(() => {
       this.errorRecoveryTimer = null;
-      if (this.child || this._serverState !== 'error') return;
-      this.outputChannel.info(`[${this.windowName}] Error recovery — re-attaching to server.`);
+      if (this.child || this.isManualStopped() || this.isRedeployInProgress()) return;
+      if (this._serverState !== 'error' && this._serverState !== 'stopped') return;
+      this.outputChannel.info(`[${this.windowName}] ${logLine}`);
       void this.start().catch(() => { /* next health cycle */ });
     }, 4000);
   }

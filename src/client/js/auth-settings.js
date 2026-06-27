@@ -3,6 +3,7 @@ import * as tabs from './tabs-messages.js';
 import * as socketState from './socket-state.js';
 export const AUTH_TOKEN_KEY = 'cursor-handoff-token';
 export const WEB_SETTINGS_KEY = 'cursor-handoff-web-settings';
+export const CURSOR_UPGRADE_DISMISS_AT_KEY = 'cursor-handoff-cursor-upgrade-dismissed-at';
 const MAX_QUICK_PHRASES = 6;
 export const DEFAULT_WEB_SETTINGS = {
   showMessageTimes: false,
@@ -458,7 +459,10 @@ export function formatDiagnosticsLines() {
     ? `${route} (${tunnel})`
     : route;
   const lines = [
-    `${t('web.diagnostics.server', 'Server:')} ${h?.build?.version ?? '—'} (epoch ${h?.build?.compatVersion ?? '—'})`,
+    tp('web.diagnostics.serverBuild', 'Server: {version} (compatVersion {compatVersion})', {
+      version: h?.build?.version ?? '—',
+      compatVersion: h?.build?.compatVersion ?? '—',
+    }),
     `${t('web.diagnostics.extension', 'Extension:')} ${h?.build?.version ?? '—'}`,
     `${t('web.diagnostics.access', 'Access:')} ${accessDetail}`,
     `Latency: ${ctx.headerMetrics.latencyMs != null ? `${ctx.headerMetrics.latencyMs} ms` : '—'}`,
@@ -508,6 +512,7 @@ export async function refreshDiagnostics() {
     ctx.diagnosticsHealth = null;
   }
   renderDiagnosticsPanel();
+  socketState.renderCursorUpgradeBanner();
   socketState.renderHeaderStatus();
 }
 

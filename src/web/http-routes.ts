@@ -8,6 +8,7 @@ import { readFileSync, existsSync } from 'fs';
 import type { ServerConfig, CursorState, CommandPayload, CommandResult } from '../core/types.js';
 import type { StateManager } from '../state/broadcast.js';
 import { getServerBuildInfo } from '../core/build-meta.js';
+import { getCursorUpgradeHealthPayload } from '../core/cursor-upgrade-advisory.js';
 import { getDataDir } from '../core/paths.js';
 import { readWebTunnelUrl } from './tunnel.js';
 import type { CommandExecutor } from '../ide/actions/navigation.js';
@@ -530,11 +531,13 @@ export class Relay {
       const state = this.stateManager.getCurrentState();
       const sessionOk = !this.authEnabled || this.resolveHttpSession(req) !== undefined;
       const build = getServerBuildInfo();
+      const cursorUpgrade = getCursorUpgradeHealthPayload(getDataDir(), build);
       // Without session — liveness only (CursorWake and redeploy check).
       // State details (windows, tabs, approvals) — valid session only.
       res.json({
         ok: true,
         build: build ?? undefined,
+        ...cursorUpgrade,
         authRequired: this.authEnabled,
         sessionValid: sessionOk,
         webTunnelUrl: readWebTunnelUrl(getDataDir()),

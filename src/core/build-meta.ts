@@ -6,6 +6,7 @@ export interface ServerBuildInfo {
   version: string;
   builtAt: string;
   compatVersion: number;
+  testedCursorVersion?: string;
   fingerprint: string;
   bundleSha256: string;
 }
@@ -26,6 +27,7 @@ export function getServerBuildInfo(): ServerBuildInfo | null {
       version: raw.version ?? 'unknown',
       builtAt: raw.builtAt ?? 'unknown',
       compatVersion: raw.compatVersion ?? -1,
+      testedCursorVersion: raw.testedCursorVersion,
       fingerprint: raw.fingerprint ?? '',
       bundleSha256: raw.bundleSha256 ?? '',
     };

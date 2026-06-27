@@ -6,7 +6,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   BUILD_FINGERPRINT,
-  SERVER_COMPAT_VERSION,
+  HANDOFF_COMPAT_VERSION,
   logStartupAudit,
   runStartupAudit,
 } from '../../src/core/fingerprint.js';
@@ -32,7 +32,7 @@ describe('startup-audit', () => {
   it('passes when markers present and manifest matches', () => {
     const src = `ok\nGlobal 429 cooldown\n${BUILD_FINGERPRINT}\n`;
     const result = runStartupAuditFromSrc(src, {
-      compatVersion: SERVER_COMPAT_VERSION,
+      compatVersion: HANDOFF_COMPAT_VERSION,
       bundleSha256: sha(src),
     });
     assert.equal(result.ok, true);

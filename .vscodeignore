@@ -28,6 +28,7 @@ __pycache__/
 .gitignore
 dist/server/**
 !dist/server/bundle.mjs
+!dist/server/build-manifest.json
 dist/discovery/
 dist/extension.cjs.map
 local/

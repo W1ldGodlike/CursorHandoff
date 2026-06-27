@@ -64,7 +64,7 @@ Invoke-WebRequest http://127.0.0.1:3000/health -TimeoutSec 5 -UseBasicParsing
 OK: `connected=true`, `compatVersion=1`, Wake ≥ 1.
 
 Extension log (latest `CursorHandoff.log` in `%APPDATA%\Cursor\logs\*\exthost\cursor-handoff.cursor-handoff\`):
-- `BUILD OK epoch=1`
+- `BUILD OK compatVersion=1`
 - `Starting server: ...dist/server/bundle.mjs`
 - Wake already running — not stopped
 - No fresh `Chat keyboard setup` (compatVersion=1)

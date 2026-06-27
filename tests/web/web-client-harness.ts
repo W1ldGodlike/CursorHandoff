@@ -166,7 +166,7 @@ export async function createTestEnv(opts?: {
         if (String(url).includes('/health')) {
           const body: Record<string, unknown> = {
             authRequired: false,
-            build: { version: '1.0.0', compatVersion: 1, fingerprint: 'handoff-1.0.0-compat-1' },
+            build: { version: '1.0.0', compatVersion: 1, fingerprint: 'handoff-1.0.0-compatVersion-1' },
             webTunnelUrl: 'https://diag.test',
             connected: true,
             extractorStatus: 'ok',

@@ -61,7 +61,7 @@ const DEDUPE_CROSS_MATRIX = [
   { kind: 'meta' as const, marker: 'behavioral it count matches non-meta PATH_MATRIX rows' },
   { kind: 'meta' as const, marker: 'branch audit classify toast paths complete' },
   { kind: 'meta' as const, marker: 'navigation-logging captureAll resets log dedupe state' },
-  { kind: 'meta' as const, marker: 'extension zone nine showDedupedErrorToast call sites' },
+  { kind: 'meta' as const, marker: 'extension zone ten showDedupedErrorToast call sites' },
   { kind: 'meta' as const, marker: 'server-process detectStatusFromLog switch no showErrorMessage' },
   { kind: 'meta' as const, marker: 'extension-toast imports createToastDedupe from server-log-detect' },
   { kind: 'meta' as const, marker: 'extension three files import showDeduped from extension-toast' },
@@ -548,14 +548,14 @@ describe('dedupe-cross-cutting meta', () => {
     assert.match(src, /async function captureAll[\s\S]*?resetLogDedupe\(\)/);
   });
 
-  it('extension zone nine showDedupedErrorToast call sites', () => {
+  it('extension zone ten showDedupedErrorToast call sites', () => {
     let count = 0;
     for (const name of readdirSync(extensionSrcDir())) {
       if (!name.endsWith('.ts') || name === 'extension-toast.ts') continue;
       const src = readFileSync(join(extensionSrcDir(), name), 'utf-8');
       count += (src.match(/showDedupedErrorToast\(/g) ?? []).length;
     }
-    assert.equal(count, 9);
+    assert.equal(count, 10);
   });
 
   it('server-process detectStatusFromLog switch no showErrorMessage', () => {

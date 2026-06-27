@@ -28,7 +28,7 @@ describe('startup-notify', () => {
     });
     assert.match(text, /startup OK/);
     assert.match(text, /Started: \d{2}\.\d{2}\.\d{4} \d{2}\.\d{2}\.\d{2}/);
-    assert.match(text, /v0\.2\.1 · epoch 2/);
+    assert.match(text, /v0\.2\.1 · compatVersion 2/);
     assert.match(text, /Wake: raises Cursor/);
     assert.match(text, /https:\/\/foo\.trycloudflare\.com/);
     assert.match(text, /Cursor windows: 2/);

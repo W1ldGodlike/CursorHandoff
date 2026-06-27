@@ -21,6 +21,7 @@ import { openHandoffDoc } from './open-doc.js';
 import { formatExtensionLogLine } from './log-event.js';
 import { bindExtensionUiLog } from './extension-ui-log.js';
 import { showDedupedErrorToast } from './extension-toast.js';
+import { publishCursorHostVersion, bindCursorUpgradeServerNotify } from './cursor-upgrade-advisory.js';
 
 let serverManager: ServerManager | undefined;
 
@@ -85,6 +86,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const extensionVersion = context.extension.packageJSON?.version ?? 'unknown';
   const statusSidebar = new StatusSidebarView(context, serverManager, extensionVersion);
   const dataDir = resolveDataDir(context);
+  publishCursorHostVersion(dataDir);
+  bindCursorUpgradeServerNotify(context, serverManager, dataDir, () => loadDict(context));
 
   const refreshWakeStatus = async (): Promise<void> => {
     statusSidebar.setWakeStatus(await getCursorWakeStatus(dataDir));

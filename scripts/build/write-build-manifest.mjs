@@ -1,14 +1,17 @@
 import { createHash } from 'crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
 const bundlePath = join(root, 'dist', 'server', 'bundle.mjs');
-
-/** Must match SERVER_COMPAT_VERSION in runtime-fingerprint.ts */
-const COMPAT_VERSION = 1;
+const { compatVersion: HANDOFF_COMPAT_VERSION } = JSON.parse(
+  readFileSync(join(root, 'scripts', 'build', 'compat-version.json'), 'utf-8'),
+);
+const { testedCursorVersion } = JSON.parse(
+  readFileSync(join(root, 'scripts', 'build', 'cursor-compat.json'), 'utf-8'),
+);
 
 if (!existsSync(bundlePath)) {
   console.error('[build-manifest] bundle.mjs not found — run build:ext first');
@@ -19,14 +22,26 @@ const bundleSrc = readFileSync(bundlePath, 'utf-8');
 const manifest = {
   version: pkg.version,
   builtAt: new Date().toISOString(),
-  compatVersion: COMPAT_VERSION,
-  fingerprint: `handoff-${pkg.version}-compat-${COMPAT_VERSION}`,
+  compatVersion: HANDOFF_COMPAT_VERSION,
+  testedCursorVersion,
+  fingerprint: `handoff-${pkg.version}-compatVersion-${HANDOFF_COMPAT_VERSION}`,
   bundleSha256: createHash('sha256').update(bundleSrc).digest('hex'),
   bundleBytes: bundleSrc.length,
 };
 
 const outPath = join(root, 'dist', 'server', 'build-manifest.json');
 writeFileSync(outPath, JSON.stringify(manifest, null, 2));
+
+const compatVersionStamp = {
+  version: pkg.version,
+  compatVersion: HANDOFF_COMPAT_VERSION,
+};
+writeFileSync(join(root, 'dist', 'compat-version.json'), JSON.stringify(compatVersionStamp, null, 2));
+
+const legacyCompatStamp = join(root, 'dist', 'build-compat.json');
+if (existsSync(legacyCompatStamp)) {
+  rmSync(legacyCompatStamp, { force: true });
+}
 
 for (const name of ['run-cloudflared-quick.ps1', 'run-cloudflared-quick.sh']) {
   const src = join(root, 'scripts', 'tunnel', name);
@@ -38,4 +53,6 @@ for (const name of ['run-cloudflared-quick.ps1', 'run-cloudflared-quick.sh']) {
   }
 }
 
-console.log(`[build-manifest] ${manifest.version} epoch=${COMPAT_VERSION} sha=${manifest.bundleSha256.slice(0, 12)}…`);
+console.log(
+  `[build-manifest] ${manifest.version} compatVersion=${HANDOFF_COMPAT_VERSION} testedCursor=${testedCursorVersion} sha=${manifest.bundleSha256.slice(0, 12)}…`,
+);

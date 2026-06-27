@@ -868,7 +868,7 @@ describe('server-process-logging source meta', () => {
     assert.ok(src.includes('Server spawn error'));
     const block = src.slice(src.indexOf("this.child.on('error'"), src.indexOf('async stop(manual = false)'));
     assert.ok(block.includes('outputChannel.error'));
-    assert.ok(block.includes('scheduleErrorRecovery'));
+    assert.ok(block.includes('scheduleSpawnRecovery'));
   });
 
   it('EADDRINUSE observer fallback on exit', () => {
@@ -995,7 +995,7 @@ describe('server-process-logging source meta', () => {
     const src = serverProcessSrc();
     const exitBlock = src.slice(src.indexOf("this.child.on('exit'"), src.indexOf("this.child.on('error'"));
     assert.ok(exitBlock.includes("setState('error')"));
-    assert.ok(exitBlock.includes('scheduleErrorRecovery'));
+    assert.ok(exitBlock.includes('scheduleSpawnRecovery'));
   });
 
   it('detectStatusFromLog locale tr staleBundle staleKeyboards', () => {

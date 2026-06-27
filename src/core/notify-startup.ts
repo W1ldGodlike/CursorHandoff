@@ -47,7 +47,7 @@ export interface StartupNotifyInput {
 export function formatStartupNotifyMessage(input: StartupNotifyInput): string {
   const { state, build, wakeRaiseCursor, webTunnelUrl } = input;
   const version = build?.version ?? '?';
-  const epoch = build?.compatVersion ?? '?';
+  const compatVersion = build?.compatVersion ?? '?';
   const winCount = state.windows?.length ?? 0;
   const tunnelLine = webTunnelUrl
     ? `Web: ${webTunnelUrl}`
@@ -59,7 +59,7 @@ export function formatStartupNotifyMessage(input: StartupNotifyInput): string {
   return [
     '🟢 CursorHandoff — startup OK',
     `Started: ${startedAt}`,
-    `v${version} · epoch ${epoch}`,
+    `v${version} · compatVersion ${compatVersion}`,
     `CDP ✓ · extractor ${state.extractorStatus ?? '?'}`,
     `Wake: ${wakeRaiseCursor ? 'raises Cursor' : 'paused'}`,
     tunnelLine,

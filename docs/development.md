@@ -6,14 +6,26 @@ Manual verification and dev tooling for people shipping CursorHandoff.
 
 ---
 
-## Cursor compatibility
+## Cursor compatibility {#cursor-compatibility}
 
 | | Version |
 |---|---------|
 | **Minimum** | Cursor **3.8** (`data-message-index`, thinking messages, unified composer) |
-| **Last verified** | **3.8.23** (2026-06-24) |
+| **Last verified** | **3.9.8** (2026-06-27) |
 
-DOM parsing (`src/ide/parse/tabs.ts`) and TG action clicks (`register-callbacks.ts`) are tuned to this build. After a Cursor upgrade: run `npm run discover`, re-check queue / plan Build / questionnaire / approve, then bump **Last verified** here.
+DOM parsing (`src/ide/parse/tabs.ts`) and TG action clicks (`register-callbacks.ts`) are tuned to this build. **`npm run package`** pins `testedCursorVersion` from the Cursor install on the build machine (see `scripts/build/pin-cursor-compat.mjs`). After a manual smoke on another Cursor build, bump **Last verified** here if needed.
+
+### Upgrade advisory (version mismatch)
+
+When `cursor.version` (from `data/cursor-host.json`) ≠ `testedCursorVersion` in the VSIX manifest:
+
+| Channel | When | Dedup |
+|---------|------|-------|
+| Extension | Toast after CDP healthy | Once per server process (`extension` channel in `cursor-upgrade-server-notify.json`) |
+| Telegram | # General after CDP healthy | Same file (`telegram` channel); retries after 120s redeploy window |
+| Web | Banner while mismatch | Dismiss stored per wave (`cursorUpgradeServerNotifyAt` in `/health`) |
+
+Redeploy within 120s does not double-post (same rule as startup OK). See [Architecture — Cursor upgrade](architecture.md#cursor-upgrade).
 
 ---
 
@@ -26,6 +38,8 @@ Run after `npm test` is green and before tagging a release.
 - [ ] Install the packaged VSIX on a profile that is **not** the dev checkout
 - [ ] Server log opens with `=== CursorHandoff v1.0.0 ===` (version matches the tag)
 - [ ] `GET /health` → `build.version` matches the VSIX; `build.compatVersion: 1`
+- [ ] Server log contains `BUILD OK compatVersion=1` (startup audit)
+- [ ] VSIX includes `dist/compat-version.json` with matching `compatVersion`
 - [ ] With Telegram on: `telegramPoll: true` within ~30 s of start
 
 ### Web client
@@ -138,6 +152,8 @@ Target: `CursorWake.exe` installed with CursorHandoff **1.0.0+**.
 
 ```bash
 rg "code=TG_POLL_(ERROR|CONFLICT)" data/handoff-server.log
+rg "code=STARTUP_AUDIT" data/handoff-server.log
+rg "compatVersion-mismatch" data/handoff-server.log
 rg "threadId=" data/handoff-server.log
 rg "code=CDP_RECONNECT_LOST" data/handoff-server.log
 rg "code=WAKE_" data/cursor-wake.log

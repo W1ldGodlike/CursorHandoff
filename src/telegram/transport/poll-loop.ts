@@ -95,6 +95,15 @@ import { escapeHtml } from '../format/html.js';
 import { getServerBuildInfo } from '../../core/build-meta.js';
 import { readCursorWakeState } from '../../web/wake-status.js';
 import { formatStartupNotifyMessage, tryClaimStartupNotify, wasRecentStartupNotify } from '../../core/notify-startup.js';
+import {
+  formatCursorUpgradeMessage,
+  getCursorUpgradeHealthPayload,
+  isCursorUpgradeServerNotifyDedupeBlocked,
+  msUntilCursorUpgradeServerNotifyDedupe,
+  readCursorHost,
+  tryClaimCursorUpgradeServerNotify,
+  wasCursorUpgradeServerNotified,
+} from '../../core/cursor-upgrade-advisory.js';
 import { isGracefulShutdown } from '../../core/graceful-shutdown.js';
 import { logError, logInfo, logWarn } from '../../core/log-event.js';
 import type { LogContext } from '../../core/log-event.js';
@@ -167,6 +176,8 @@ export abstract class BaseTelegramTransport implements Transport {
   private lastConnectionNotifyAt = 0;
   private lastConnectionNotifyState: boolean | undefined;
   private startupNotifySent = false;
+  private cursorUpgradeNotifySent = false;
+  private cursorUpgradeRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private hadConnectedOnce = false;
   /** Deferred approval banner deletion: key=`<threadId>:<elementId>`, value=deleteAt ms.
    *  DOM transiently removes approval rows — grace period before delete. */
@@ -490,7 +501,10 @@ export abstract class BaseTelegramTransport implements Transport {
   }
 
   private maybeSendStartupNotify(): void {
-    if (this.startupNotifySent) return;
+    if (this.startupNotifySent) {
+      this.maybeSendCursorUpgradeNotify();
+      return;
+    }
     if (!this.started || !this.chatId) return;
     const state = this.stateManager.getCurrentState();
     if (!state.connected || state.extractorStatus !== 'ok') return;
@@ -498,6 +512,7 @@ export abstract class BaseTelegramTransport implements Transport {
     const dataDir = getDataDir();
     if (!tryClaimStartupNotify(dataDir)) {
       this.startupNotifySent = true;
+      this.maybeSendCursorUpgradeNotify();
       return;
     }
 
@@ -520,6 +535,60 @@ export abstract class BaseTelegramTransport implements Transport {
         'TG_STARTUP_NOTIFY_FAIL',
         `startup notify failed: ${err instanceof Error ? err.message : err}`,
         pollLoopCtx('startup_notify', { chatId: this.chatId }),
+      );
+    });
+    this.maybeSendCursorUpgradeNotify();
+  }
+
+  private clearCursorUpgradeRetry(): void {
+    if (!this.cursorUpgradeRetryTimer) return;
+    clearTimeout(this.cursorUpgradeRetryTimer);
+    this.cursorUpgradeRetryTimer = null;
+  }
+
+  private scheduleCursorUpgradeRetry(dataDir: string): void {
+    if (this.cursorUpgradeRetryTimer || wasCursorUpgradeServerNotified(dataDir, 'telegram')) return;
+    const delay = msUntilCursorUpgradeServerNotifyDedupe(dataDir) + 500;
+    if (delay <= 0) return;
+    this.cursorUpgradeRetryTimer = setTimeout(() => {
+      this.cursorUpgradeRetryTimer = null;
+      this.maybeSendCursorUpgradeNotify();
+    }, delay);
+  }
+
+  private maybeSendCursorUpgradeNotify(): void {
+    if (this.cursorUpgradeNotifySent) return;
+    if (!this.started || !this.chatId) return;
+    const state = this.stateManager.getCurrentState();
+    if (!state.connected || state.extractorStatus !== 'ok') return;
+
+    const build = getServerBuildInfo();
+    const dataDir = getDataDir();
+    const payload = getCursorUpgradeHealthPayload(dataDir, build);
+    if (!payload.cursorUpgradeAdvisory || !payload.cursorVersion || !build) {
+      if (readCursorHost(dataDir)) {
+        this.cursorUpgradeNotifySent = true;
+      }
+      return;
+    }
+
+    if (!tryClaimCursorUpgradeServerNotify(dataDir, 'telegram')) {
+      if (wasCursorUpgradeServerNotified(dataDir, 'telegram')) {
+        this.cursorUpgradeNotifySent = true;
+      } else if (isCursorUpgradeServerNotifyDedupeBlocked(dataDir)) {
+        this.scheduleCursorUpgradeRetry(dataDir);
+      }
+      return;
+    }
+
+    this.clearCursorUpgradeRetry();
+    this.cursorUpgradeNotifySent = true;
+    const text = formatCursorUpgradeMessage(payload.cursorVersion, payload.testedCursorVersion);
+    void this.api.sendMessage(this.chatId, text).catch((err) => {
+      logWarn(
+        'TG_CURSOR_UPGRADE_NOTIFY_FAIL',
+        `cursor upgrade notify failed: ${err instanceof Error ? err.message : err}`,
+        pollLoopCtx('cursor_upgrade_notify', { chatId: this.chatId }),
       );
     });
   }
@@ -639,6 +708,7 @@ export abstract class BaseTelegramTransport implements Transport {
     stopAllOutboxWatchers();
     teardownPhotoBufferExpiry();
     this.teardownWebTunnelWatcher();
+    this.clearCursorUpgradeRetry();
     this.hangMonitor?.stop();
     this.hangMonitor = null;
     this.detachListeners();

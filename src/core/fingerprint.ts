@@ -3,16 +3,13 @@ import { readFileSync, existsSync } from 'fs';
 import { dirname, join, basename } from 'path';
 import { fileURLToPath } from 'url';
 import { legacyForbiddenMarkers, requiredBuildMarkers } from './build-meta.js';
-import { logError, logInfo, logWarn } from './log-event.js';
+import { HANDOFF_COMPAT_VERSION } from './compat-version.js';
+import { logError, logInfo } from './log-event.js';
 import { startupCtx } from './startup-boot.js';
 
-/**
- * Bump when server behavior contract changes (TG queue, auto-keyboards, etc.).
- * build-manifest.json is written at build:ext and verified against bundle.mjs at startup.
- */
-export const SERVER_COMPAT_VERSION = 1;
+export { HANDOFF_COMPAT_VERSION };
 
-export const BUILD_FINGERPRINT = `handoff-1.0.0-compat-${SERVER_COMPAT_VERSION}`;
+export const BUILD_FINGERPRINT = `handoff-1.0.0-compatVersion-${HANDOFF_COMPAT_VERSION}`;
 
 export interface StartupAuditResult {
   ok: boolean;
@@ -74,8 +71,10 @@ export function runStartupAudit(entryPath = fileURLToPath(import.meta.url)): Sta
           `manifest-sha-mismatch expected=${manifest.bundleSha256.slice(0, 12)} got=${sha.slice(0, 12)}`,
         );
       }
-      if (manifest.compatVersion !== SERVER_COMPAT_VERSION) {
-        violations.push(`compat-version-mismatch manifest=${manifest.compatVersion} code=${SERVER_COMPAT_VERSION}`);
+      if (manifest.compatVersion !== HANDOFF_COMPAT_VERSION) {
+        violations.push(
+          `compatVersion-mismatch manifest=${manifest.compatVersion} expected=${HANDOFF_COMPAT_VERSION}`,
+        );
       }
     } catch (err) {
       violations.push(`manifest-parse-failed:${err instanceof Error ? err.message : err}`);
@@ -94,9 +93,11 @@ export function logStartupAudit(result: StartupAuditResult): void {
   const shortBundle = basename(result.bundlePath);
   if (result.ok) {
     const built = result.manifest?.builtAt ?? 'unknown';
-    logInfo('STARTUP_AUDIT_OK', `BUILD OK epoch=${SERVER_COMPAT_VERSION} bundle=${shortBundle} builtAt=${built}`, startupCtx('startup_audit', {
-      hint: `fingerprint=${BUILD_FINGERPRINT}`,
-    }));
+    logInfo(
+      'STARTUP_AUDIT_OK',
+      `BUILD OK compatVersion=${HANDOFF_COMPAT_VERSION} bundle=${shortBundle} builtAt=${built}`,
+      startupCtx('startup_audit', { hint: `fingerprint=${BUILD_FINGERPRINT}` }),
+    );
     logInfo('STARTUP_AUDIT_FEATURES', 'features: queued-telegram-api=on auto-chat-keyboards=off menus=/menu-only', startupCtx('startup_audit'));
     return;
   }

@@ -248,6 +248,7 @@ export function sendCommandAwaitResult(eventName, payload, timeoutMs = COMMAND_T
 export function renderAll() {
   tabs.maybeResetHistoryPaging();
   renderOfflineBanner();
+  renderCursorUpgradeBanner();
   renderHeaderStatus();
   planUi.renderHeaderPlanBar();
   renderComposerQueue();
@@ -271,6 +272,54 @@ export function renderOfflineBanner() {
   ctx.$offlineBanner.setAttribute('aria-hidden', show ? 'false' : 'true');
 }
 
+export function getCursorUpgradeDismissedAt() {
+  try {
+    const raw = localStorage.getItem(auth.CURSOR_UPGRADE_DISMISS_AT_KEY);
+    const n = raw ? Number(raw) : 0;
+    return Number.isFinite(n) ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function dismissCursorUpgradeBanner() {
+  const waveAt = ctx.diagnosticsHealth?.cursorUpgradeServerNotifyAt;
+  if (typeof waveAt !== 'number' || waveAt <= 0) return;
+  try {
+    localStorage.setItem(auth.CURSOR_UPGRADE_DISMISS_AT_KEY, String(waveAt));
+  } catch {
+    /* private mode */
+  }
+  renderCursorUpgradeBanner();
+}
+
+export function shouldShowCursorUpgradeBanner() {
+  const h = ctx.diagnosticsHealth;
+  if (!h?.cursorUpgradeAdvisory || !h.cursorVersion) return false;
+  const waveAt = h.cursorUpgradeServerNotifyAt;
+  if (typeof waveAt !== 'number' || waveAt <= 0) return false;
+  return getCursorUpgradeDismissedAt() < waveAt;
+}
+
+export function renderCursorUpgradeBanner() {
+  if (!ctx.$cursorUpgradeBanner || !ctx.$cursorUpgradeBannerText) return;
+  const show = shouldShowCursorUpgradeBanner();
+  if (show) {
+    const h = ctx.diagnosticsHealth;
+    const text = tp(
+      'web.cursorUpgrade.banner',
+      'Cursor {cursorVersion} — this Handoff build targets Cursor {testedCursorVersion}. Full functionality is not guaranteed. Rebuild or install the current VSIX.',
+      {
+        cursorVersion: h?.cursorVersion ?? '—',
+        testedCursorVersion: h?.testedCursorVersion ?? '—',
+      },
+    );
+    ctx.$cursorUpgradeBannerText.textContent = text;
+  }
+  ctx.$cursorUpgradeBanner.classList.toggle('hidden', !show);
+  ctx.$cursorUpgradeBanner.setAttribute('aria-hidden', show ? 'false' : 'true');
+}
+
 export async function refreshHeaderMetrics() {
   const start = Date.now();
   try {
@@ -281,6 +330,7 @@ export async function refreshHeaderMetrics() {
     ctx.headerMetrics.latencyMs = Date.now() - start;
     if (res.ok) {
       const data = await res.json();
+      ctx.diagnosticsHealth = { ...(ctx.diagnosticsHealth ?? {}), ...data };
       ctx.headerMetrics.webTunnelUrl = typeof data.webTunnelUrl === 'string' ? data.webTunnelUrl : null;
       ctx.headerMetrics.telegramTopicUrl = typeof data.telegramTopicUrl === 'string'
         ? data.telegramTopicUrl
@@ -292,6 +342,7 @@ export async function refreshHeaderMetrics() {
     ctx.headerMetrics.latencyMs = null;
     ctx.headerMetrics.webTunnelUrl = null;
   }
+  renderCursorUpgradeBanner();
   renderHeaderStatus();
 }
 

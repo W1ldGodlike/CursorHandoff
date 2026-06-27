@@ -33,6 +33,7 @@ function ensureCompleteBinaries() {
 }
 
 function runBuild(bundleAddons) {
+  execSync('node scripts/build/pin-cursor-compat.mjs', { stdio: 'inherit', cwd: root });
   execSync('npm run build', {
     stdio: 'inherit',
     cwd: root,

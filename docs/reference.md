@@ -143,13 +143,33 @@ The sidebar **Status** tree is read-mostly (server, CDP, agent, clients, windows
 |-------|---------|
 | `connected` | CDP session up |
 | `build.version` | Server semver (e.g. `1.0.0`) |
-| `build.compatVersion` | Bundle contract (`1`) |
+| `build.compatVersion` | Extension/server contract (`HANDOFF_COMPAT_VERSION`; currently `1`) |
+| `build.testedCursorVersion` | Cursor version pinned at `npm run package` (`scripts/build/cursor-compat.json`) |
+| `cursorUpgradeAdvisory` | `true` when running Cursor version ≠ `testedCursorVersion` |
+| `cursorVersion` | Running Cursor version from `data/cursor-host.json` (extension writes `cursor.version`) |
+| `cursorUpgradeServerNotifyAt` | Timestamp of the latest server-start notify wave (`data/cursor-upgrade-server-notify.json`); web dismiss compares against this |
+| `handoffVersion` | Installed Handoff semver (same as `build.version`) |
+| `testedCursorVersion` | Same as `build.testedCursorVersion` |
+| `build.fingerprint` | Build stamp (includes `compatVersion`, e.g. `handoff-1.0.0-compatVersion-1`) |
 | `telegramEnabled` | Telegram transport enabled |
 | `telegramPoll` | At least one successful `getUpdates` |
 | `webTunnelUrl` | Cloudflare URL when tunnel is running |
 | `sessionValid` | Authenticated web client — full state exposed |
 
 CursorWake releases the bot token when Handoff reports healthy CDP + `connected: true` (server takes over `getUpdates`; `telegramPoll` flips true after the first successful poll).
+
+**Cursor upgrade notify** uses `data/cursor-upgrade-server-notify.json` (not the startup file). Web clients compare `cursorUpgradeServerNotifyAt` against `localStorage` dismiss state.
+
+### Build artifacts (compatVersion)
+
+Shipped inside the VSIX / extension `dist/`:
+
+| File | Fields |
+|------|--------|
+| `dist/server/build-manifest.json` | `version`, `builtAt`, `compatVersion`, `bundleSha256` |
+| `dist/compat-version.json` | `version`, `compatVersion` |
+
+Extension spawn checks both files against `package.json` before starting `bundle.mjs`. Server startup audit logs `BUILD OK compatVersion=<n>` or `compatVersion-mismatch` violations.
 
 ### CursorWake install config
 

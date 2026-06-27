@@ -10,6 +10,19 @@ $Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 
 function Step([string]$Msg) { Write-Host "[redeploy] $Msg" }
 
+# npm/esbuild write warnings to stderr — with $ErrorActionPreference Stop that aborts redeploy mid-build.
+function Invoke-NativeCommand([string]$Label, [scriptblock]$Command) {
+    Step $Label
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Command 2>&1 | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "$Label failed (exit $LASTEXITCODE)" }
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+}
+
 function Test-PortListening([int]$Port) {
     foreach ($line in (netstat -ano)) {
         if ($line -notmatch 'LISTENING') { continue }
@@ -91,17 +104,26 @@ function Stop-OrphanBundleServers {
 }
 
 function Start-DetachedRestart {
-    # Detach stdout from PowerShell (cmd start "").
     $delay = $RestartDelaySec
     $script = Join-Path $env:TEMP ("handoff-restart-cursor-{0}.ps1" -f (Get-Date -Format 'yyyyMMddHHmmss'))
+    $restartLog = Join-Path $Root 'data\cursor-restart.log'
     $cursor = Join-Path $env:LOCALAPPDATA 'Programs\cursor\Cursor.exe'
-    $rootEsc = $Root.Replace('"', '""')
+    $rootEsc = $Root.Replace("'", "''")
+    $cursorEsc = $cursor.Replace("'", "''")
+    $logEsc = $restartLog.Replace("'", "''")
     @(
+        "`$log = '$logEsc'"
+        'function Log([string]$m) { Add-Content -Path $log -Value "[cursor-restart] $m" -Encoding utf8 }'
+        'Log "kill Cursor"'
         'Get-Process -Name Cursor -EA SilentlyContinue | Stop-Process -Force'
         "Start-Sleep -Seconds $delay"
+        'Log "start Wake"'
         '$wake = Join-Path $env:LOCALAPPDATA ''CursorWake\CursorWake.exe'''
         'if ((Test-Path $wake) -and -not (Get-Process CursorWake -EA SilentlyContinue)) { Start-Process $wake | Out-Null }'
-        "cmd /c start `"`" `"$($cursor.Replace('"', '""'))`" `"$rootEsc`" --remote-debugging-port=9222"
+        'Log "start Cursor"'
+        "if (-not (Test-Path '$cursorEsc')) { Log 'Cursor.exe missing'; exit 1 }"
+        "Start-Process -FilePath '$cursorEsc' -ArgumentList @('$rootEsc', '--remote-debugging-port=9222')"
+        'Log "done"'
         "Remove-Item -LiteralPath '$($script.Replace("'", "''"))' -Force -EA SilentlyContinue"
     ) | Set-Content $script -Encoding UTF8
     Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
@@ -132,15 +154,15 @@ if (-not $RestartOnly) {
 Stop-WakeAndServer
 $pruneTracker = Join-Path $Root 'scripts/dev/prune-telegram-tracker.mjs'
 if (Test-Path $pruneTracker) {
-    Step 'prune stale telegram tracker + offline queue'
-    node $pruneTracker 2>&1 | Out-Host
+    Invoke-NativeCommand 'prune stale telegram tracker + offline queue' { node $pruneTracker }
 }
 Stop-OrphanBundleServers
 
 if (-not $RestartOnly) {
-    Step 'npm run build'
-    npm run build 2>&1 | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "build failed ($LASTEXITCODE)" }
+    Invoke-NativeCommand 'npm run build' { npm run build }
+    Stop-OrphanBundleServers
+    Step 'pause 2s before extension install (release bundle locks)'
+    Start-Sleep -Seconds 2
     Step 'install-extension-local'
     & (Join-Path $Root 'scripts\install\install-extension-local.ps1') -SkipBuild
     if ($LASTEXITCODE -ne 0) { throw "install failed ($LASTEXITCODE)" }
@@ -158,6 +180,15 @@ if ($SkipCursorRestart) {
 
 Start-DetachedRestart
 Step 'done'
+} catch {
+    Step "FAILED: $($_.Exception.Message)"
+    throw
 } finally {
     Remove-Item $lock -Force -EA SilentlyContinue
+    if (-not (Test-PortListening 3000)) {
+        $dataDir = Join-Path $Root 'data'
+        if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null }
+        New-Item -ItemType File -Path (Join-Path $dataDir 'request-start') -Force | Out-Null
+        Step 'request-start recovery flag (server still down)'
+    }
 }
