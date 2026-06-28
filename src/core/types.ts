@@ -118,9 +118,15 @@ export interface ChatTab {
   selectorPath: string;
 }
 
+export interface ModeOption {
+  id: string;
+  label: string;
+  selected?: boolean;
+}
+
 export interface ModeInfo {
   current: string;
-  available: { id: string; label: string; icon: string }[];
+  available: ModeOption[];
 }
 
 export interface ModelInfo {
@@ -253,6 +259,37 @@ export interface PlanModelOption {
   id: string;
   label: string;
   selected?: boolean;
+  hasEdit?: boolean;
+}
+
+export interface ModelOptionsSnapshot {
+  autoOn: boolean;
+  autoDescription?: string;
+  maxModeOn?: boolean;
+  options: PlanModelOption[];
+}
+
+export interface ModelControlToggle {
+  kind: 'toggle';
+  id: string;
+  label: string;
+  on: boolean;
+}
+
+export interface ModelControlChoice {
+  kind: 'choice';
+  id: string;
+  label: string;
+  value: string;
+  options: string[];
+}
+
+export type ModelControl = ModelControlToggle | ModelControlChoice;
+
+export interface ModelRowOptionsSnapshot {
+  rowId: string;
+  modelLabel: string;
+  controls: ModelControl[];
 }
 
 export interface PlanFullData {
@@ -323,7 +360,7 @@ export interface SelectorConfig {
 
 export interface CommandPayload {
   commandId: string;
-  type: 'send_message' | 'approve' | 'reject' | 'approve_all' | 'switch_tab' | 'new_chat' | 'set_mode' | 'set_model' | 'click_action' | 'get_plan_full' | 'get_plan_model_options' | 'set_plan_model' | 'force_queue_item' | 'load_history';
+  type: 'send_message' | 'approve' | 'reject' | 'approve_all' | 'switch_tab' | 'new_chat' | 'set_mode' | 'set_model' | 'click_action' | 'get_plan_full' | 'get_plan_model_options' | 'set_plan_model' | 'force_queue_item' | 'load_history' | 'get_mode_options' | 'get_model_options' | 'toggle_model_auto' | 'get_model_row_options' | 'set_model_control';
   text?: string;
   /** Base64 images (jpeg/png/webp) — pasted into composer. */
   images?: { mime: string; data: string }[];
@@ -335,6 +372,8 @@ export interface CommandPayload {
   composerId?: string;
   modeId?: string;
   modelId?: string;
+  controlId?: string;
+  controlValue?: string;
   planLabel?: string;
   planModelId?: string;
   tabTitle?: string;

@@ -132,6 +132,28 @@ function makeExecutor(client: CdpClient | null): CommandExecutor {
   return ex;
 }
 
+/** Matches openModelMenu + setModel evaluate sequence after model picker hardening. */
+function makeSetModelEvaluateStub(opts: { pickOk?: boolean; menuStillOpen?: boolean } = {}) {
+  const pickOk = opts.pickOk ?? true;
+  const menuStillOpen = opts.menuStillOpen ?? false;
+  let menuProbe = 0;
+  return async (expr: string) => {
+    if (expr.includes('pickModelById')) {
+      if (!pickOk) menuProbe = 0;
+      return pickOk;
+    }
+    if (expr.includes('strategies')) return true;
+    if (expr.includes('findModelMenu')) {
+      menuProbe += 1;
+      if (menuProbe === 1) return false;
+      if (menuProbe === 2) return true;
+      if (menuProbe === 3) return menuStillOpen;
+      return false;
+    }
+    return true;
+  };
+}
+
 const NAVIGATION_PATH_MATRIX = [
   { kind: 'log' as const, code: 'COMMAND_OK', marker: 'sendMessage focus logs COMMAND_OK with commandId op and focus info' },
   { kind: 'log' as const, code: 'COMMAND_OK', marker: 'sendMessage insert logs COMMAND_OK with inserted char count' },
@@ -390,16 +412,7 @@ describe('navigation logging', () => {
   });
 
   it('setModel success logs COMMAND_OK with model hint', async () => {
-    let n = 0;
-    const client = makeStubClient({
-      evaluate: async () => {
-        n += 1;
-        if (n === 1) return true;
-        if (n === 2) return true;
-        if (n === 3) return true;
-        return false;
-      },
-    });
+    const client = makeStubClient({ evaluate: makeSetModelEvaluateStub() });
     const ex = makeExecutor(client);
     const lines = await captureAll(async () => {
       await ex.setModel('set-model', 'gpt-4');
@@ -426,14 +439,7 @@ describe('navigation logging', () => {
   });
 
   it('setModel menu still open logs COMMAND_WARN before Escape', async () => {
-    let n = 0;
-    const client = makeStubClient({
-      evaluate: async () => {
-        n += 1;
-        if (n <= 3) return true;
-        return true;
-      },
-    });
+    const client = makeStubClient({ evaluate: makeSetModelEvaluateStub({ menuStillOpen: true }) });
     const ex = makeExecutor(client);
     const lines = await captureAll(async () => {
       await ex.setModel('set-model-warn', 'claude');
@@ -613,14 +619,7 @@ describe('navigation logging', () => {
   });
 
   it('setModel closed menu success stays silent on COMMAND_WARN', async () => {
-    let n = 0;
-    const client = makeStubClient({
-      evaluate: async () => {
-        n += 1;
-        if (n <= 3) return true;
-        return false;
-      },
-    });
+    const client = makeStubClient({ evaluate: makeSetModelEvaluateStub() });
     const ex = makeExecutor(client);
     const lines = await captureAll(async () => {
       await ex.setModel('set-model-clean', 'sonnet');
@@ -931,14 +930,7 @@ describe('navigation logging', () => {
   });
 
   it('setModel failure returns ok false without COMMAND_OK', async () => {
-    let n = 0;
-    const client = makeStubClient({
-      evaluate: async () => {
-        n += 1;
-        if (n <= 2) return true;
-        return false;
-      },
-    });
+    const client = makeStubClient({ evaluate: makeSetModelEvaluateStub({ pickOk: false }) });
     const ex = makeExecutor(client);
     const lines = await captureAll(async () => {
       const result = await ex.setModel('set-model-fail', 'missing-model');
@@ -1157,14 +1149,7 @@ describe('navigation logging', () => {
   });
 
   it('setModel menu still open emits exactly one COMMAND_WARN before COMMAND_OK', async () => {
-    let n = 0;
-    const client = makeStubClient({
-      evaluate: async () => {
-        n += 1;
-        if (n <= 3) return true;
-        return true;
-      },
-    });
+    const client = makeStubClient({ evaluate: makeSetModelEvaluateStub({ menuStillOpen: true }) });
     const ex = makeExecutor(client);
     const lines = await captureAll(async () => {
       await ex.setModel('set-model-one-warn', 'claude');
@@ -1205,14 +1190,7 @@ describe('navigation logging', () => {
   });
 
   it('setModel closed menu success log text includes menuClosed=true', async () => {
-    let n = 0;
-    const client = makeStubClient({
-      evaluate: async () => {
-        n += 1;
-        if (n <= 3) return true;
-        return false;
-      },
-    });
+    const client = makeStubClient({ evaluate: makeSetModelEvaluateStub() });
     const ex = makeExecutor(client);
     const lines = await captureAll(async () => {
       await ex.setModel('set-model-closed', 'sonnet');
@@ -1329,9 +1307,9 @@ describe('navigation logging coverage', () => {
     assert.match(zone, /return \{ scope: 'cdp', op, \.\.\.extra \}/);
   });
 
-  it('logging zone has seventeen COMMAND_OK logCommandOk sites in source', () => {
+  it('logging zone has nineteen COMMAND_OK logCommandOk sites in source', () => {
     const zone = navigationZoneSrc();
-    assert.equal((zone.match(/logCommandOk\(/g) ?? []).length, 17);
+    assert.equal((zone.match(/logCommandOk\(/g) ?? []).length, 19);
   });
 
   it('logging zone has three COMMAND_WARN logWarn sites in source', () => {
@@ -1376,7 +1354,7 @@ describe('navigation logging coverage', () => {
   it('every log site in logging zone passes commandCtx in source', () => {
     const zone = navigationZoneSrc();
     const sites = zone.match(/log(?:CommandOk|Info|Warn|Error)\([\s\S]*?\);/g) ?? [];
-    assert.equal(sites.length, 21);
+    assert.equal(sites.length, 23);
     for (const site of sites) {
       assert.match(site, /commandCtx\(/);
     }
@@ -1409,7 +1387,7 @@ describe('navigation logging coverage', () => {
 
   it('setModel COMMAND_WARN only when menuStillOpen in source', () => {
     const zone = navigationZoneSrc();
-    const body = zone.slice(zone.indexOf('async setModel'), zone.indexOf('async getModelOptions'));
+    const body = zone.slice(zone.indexOf('async setModel(commandId'), zone.indexOf('async getModelOptions'));
     assert.match(body, /if \(menuStillOpen\) \{[\s\S]*?logWarn\('COMMAND_WARN'/);
   });
 
@@ -1579,7 +1557,7 @@ describe('navigation logging coverage', () => {
 
   it('setModel throws when pickModelById returns false in source', () => {
     const zone = navigationZoneSrc();
-    const body = zone.slice(zone.indexOf('async setModel'), zone.indexOf('async getModelOptions'));
+    const body = zone.slice(zone.indexOf('async setModel(commandId'), zone.indexOf('async getModelOptions'));
     assert.match(body, /if \(!selected\) throw new Error\(`Model "\$\{modelId\}" not found in dropdown`\)/);
   });
 
@@ -1660,9 +1638,9 @@ describe('navigation logging coverage', () => {
     assert.match(body, /throw new Error\(`Tab switch did not activate: \$\{tabTitle\}`\)/);
   });
 
-  it('logging zone has exactly twenty one log call sites in source', () => {
+  it('logging zone has exactly twenty three log call sites in source', () => {
     const zone = navigationZoneSrc();
-    assert.equal((zone.match(/log(?:CommandOk|Info|Warn|Error)\(/g) ?? []).length, 21);
+    assert.equal((zone.match(/log(?:CommandOk|Info|Warn|Error)\(/g) ?? []).length, 23);
   });
 
   it('logging zone ends before file-level sleep helper in source', () => {
@@ -1688,13 +1666,13 @@ describe('navigation logging coverage', () => {
 
   it('setModel OK message includes menuClosed flag in source', () => {
     const zone = navigationZoneSrc();
-    const body = zone.slice(zone.indexOf('async setModel'), zone.indexOf('async getModelOptions'));
+    const body = zone.slice(zone.indexOf('async setModel(commandId'), zone.indexOf('async getModelOptions'));
     assert.match(body, /model=\$\{modelId\} menuClosed=\$\{!menuStillOpen\}/);
   });
 
   it('clickAction truncates selector with substring 0 60 in source', () => {
     const zone = navigationZoneSrc();
-    const body = zone.slice(zone.indexOf('async clickAction'), zone.indexOf('async setModel'));
+    const body = zone.slice(zone.indexOf('async clickAction'), zone.indexOf('async setModel(commandId'));
     assert.match(body, /selectorPath\.substring\(0, 60\)/);
   });
 
@@ -1724,7 +1702,7 @@ describe('navigation logging coverage', () => {
   it('logging zone uses logCommandOk for all COMMAND_OK sites in source', () => {
     const zone = navigationZoneSrc();
     const okSites = zone.match(/logCommandOk\([\s\S]*?\);/g) ?? [];
-    assert.equal(okSites.length, 17);
+    assert.equal(okSites.length, 19);
     for (const site of okSites) {
       assert.match(site, /commandCtx\(/);
     }

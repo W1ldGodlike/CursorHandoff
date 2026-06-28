@@ -911,6 +911,22 @@ export class Relay {
         emitCommandResult(socket, result);
       });
 
+      socket.on('command:get_mode_options', async (payload: CommandPayload) => {
+        if (!payload.commandId) {
+          emitCommandResult(socket, {
+            commandId: payload.commandId ?? 'unknown',
+            ok: false,
+            error: 'Missing commandId',
+          } satisfies CommandResult);
+          return;
+        }
+        logRelayCmd('get_mode_options', socket.id, { itemId: payload.commandId, hint: socket.id });
+        const result = await this.commandExecutor.getModeOptions(
+          payload.commandId
+        );
+        emitCommandResult(socket, result);
+      });
+
       socket.on('command:set_mode', async (payload: CommandPayload) => {
         if (!payload.commandId || !payload.modeId) {
           emitCommandResult(socket, {
@@ -957,6 +973,59 @@ export class Relay {
         logRelayCmd('get_model_options', socket.id, { itemId: payload.commandId, hint: socket.id });
         const result = await this.commandExecutor.getModelOptions(
           payload.commandId
+        );
+        emitCommandResult(socket, result);
+      });
+
+      socket.on('command:toggle_model_auto', async (payload: CommandPayload & { on?: boolean }) => {
+        if (!payload.commandId || typeof payload.on !== 'boolean') {
+          emitCommandResult(socket, {
+            commandId: payload.commandId ?? 'unknown',
+            ok: false,
+            error: 'Missing commandId or on',
+          } satisfies CommandResult);
+          return;
+        }
+        logRelayCmd('toggle_model_auto', String(payload.on), { itemId: payload.commandId, hint: socket.id });
+        const result = await this.commandExecutor.toggleModelAuto(
+          payload.commandId,
+          payload.on,
+        );
+        emitCommandResult(socket, result);
+      });
+
+      socket.on('command:get_model_row_options', async (payload: CommandPayload) => {
+        if (!payload.commandId || !payload.modelId) {
+          emitCommandResult(socket, {
+            commandId: payload.commandId ?? 'unknown',
+            ok: false,
+            error: 'Missing commandId or modelId',
+          } satisfies CommandResult);
+          return;
+        }
+        logRelayCmd('get_model_row_options', payload.modelId ?? '', { itemId: payload.commandId, hint: socket.id });
+        const result = await this.commandExecutor.getModelRowOptions(
+          payload.commandId,
+          payload.modelId,
+        );
+        emitCommandResult(socket, result);
+      });
+
+      socket.on('command:set_model_control', async (payload: CommandPayload) => {
+        if (!payload.commandId || !payload.modelId || !payload.controlId) {
+          emitCommandResult(socket, {
+            commandId: payload.commandId ?? 'unknown',
+            ok: false,
+            error: 'Missing commandId, modelId, or controlId',
+          } satisfies CommandResult);
+          return;
+        }
+        logRelayCmd('set_model_control', payload.controlId ?? '', { itemId: payload.commandId, hint: socket.id });
+        const result = await this.commandExecutor.setModelControl(
+          payload.commandId,
+          payload.modelId,
+          payload.controlId,
+          payload.controlValue,
         );
         emitCommandResult(socket, result);
       });

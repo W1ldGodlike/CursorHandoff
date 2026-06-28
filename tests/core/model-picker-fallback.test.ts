@@ -309,6 +309,18 @@ describe('MODEL_ITEM_COLLECTOR_JS', () => {
       return parseNode();
     }
 
+  it('skips Auto and MAX Mode control rows', () => {
+    const opts = run(`
+      <div role="menu">
+        <div id="auto-row" role="menuitem">AutoBalanced quality and speed, recommended for most tasks</div>
+        <div id="max-row" role="menuitem">MAX Mode</div>
+        <div id="opus-row" role="menuitem"><span>Opus 4.7</span></div>
+      </div>
+    `);
+    assert.equal(opts.length, 1);
+    assert.equal(opts[0].label, 'Opus 4.7');
+  });
+
   it('drops per-row Edit buttons and unstable React IDs', () => {
     const opts = run(`
       <div role="menu">
@@ -321,6 +333,7 @@ describe('MODEL_ITEM_COLLECTOR_JS', () => {
     assert.deepEqual(labels, ['Gemini 3.1 Pro', 'Opus 4.7 Extra High']);
     assert.equal(opts.length, 2, 'Edit buttons should not appear as separate models');
     assert.ok(opts.every(o => !o.id.startsWith('_r_')), 'React useId IDs must not be returned');
+    assert.ok(opts.every(o => o.hasEdit === true), 'rows with Edit button should set hasEdit');
   });
 
   it('uses a synthetic label:: id when the row has no stable id', () => {

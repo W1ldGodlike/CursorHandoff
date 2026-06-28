@@ -115,6 +115,7 @@ ctx.$sheetOverlay = document.getElementById('sheet-overlay');
 ctx.$sheetMode = document.getElementById('sheet-mode');
 ctx.$sheetModeList = document.getElementById('sheet-mode-list');
 ctx.$sheetModel = document.getElementById('sheet-model');
+ctx.$sheetModelHeader = document.getElementById('sheet-model-header');
 ctx.$sheetModelList = document.getElementById('sheet-model-list');
 ctx.$sheetPlanModel = document.getElementById('sheet-plan-model');
 ctx.$sheetPlanModelHeader = document.getElementById('sheet-plan-model-header');

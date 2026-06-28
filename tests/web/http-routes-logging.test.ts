@@ -177,8 +177,10 @@ function makeCommandExecutor(opts: ExecutorOpts = {}): CommandExecutor {
     newChat: async (commandId) => ok(commandId),
     closeChat: async (commandId) => ok(commandId),
     setMode: async (commandId) => ok(commandId),
+    getModeOptions: async (commandId) => ok(commandId),
     setModel: async (commandId) => ok(commandId),
     getModelOptions: async (commandId) => ok(commandId),
+    toggleModelAuto: async (commandId) => ok(commandId),
     getPlanModelOptions: async (commandId) => ok(commandId),
     setPlanModel: async (commandId) => ok(commandId),
     clickAction: async (commandId) => ok(commandId),
@@ -280,9 +282,11 @@ const RELAY_PATH_MATRIX = [
   { kind: 'log' as const, code: 'RELAY_CMD_OK', marker: 'switch_tab logs RELAY_CMD_OK' },
   { kind: 'log' as const, code: 'RELAY_CMD_OK', marker: 'new_chat logs RELAY_CMD_OK' },
   { kind: 'log' as const, code: 'RELAY_CMD_OK', marker: 'close_chat logs RELAY_CMD_OK' },
+  { kind: 'log' as const, code: 'RELAY_CMD_OK', marker: 'get_mode_options logs RELAY_CMD_OK' },
   { kind: 'log' as const, code: 'RELAY_CMD_OK', marker: 'set_mode logs RELAY_CMD_OK' },
   { kind: 'log' as const, code: 'RELAY_CMD_OK', marker: 'set_model logs RELAY_CMD_OK' },
   { kind: 'log' as const, code: 'RELAY_CMD_OK', marker: 'get_model_options logs RELAY_CMD_OK' },
+  { kind: 'log' as const, code: 'RELAY_CMD_OK', marker: 'toggle_model_auto logs RELAY_CMD_OK' },
   { kind: 'log' as const, code: 'RELAY_CMD_OK', marker: 'get_plan_full logs RELAY_CMD_OK' },
   { kind: 'log' as const, code: 'RELAY_CMD_OK', marker: 'get_plan_model_options logs RELAY_CMD_OK' },
   { kind: 'log' as const, code: 'RELAY_CMD_OK', marker: 'set_plan_model logs RELAY_CMD_OK' },
@@ -630,6 +634,16 @@ describe('web Relay http-routes logging', () => {
     assertRelayLog(lines, 'RELAY_CMD_OK', { op: 'set_model', itemId: 'cmd-smd', text: 'gpt-4' });
   });
 
+  it('get_mode_options logs RELAY_CMD_OK', async () => {
+    const { relay } = await startRelay();
+    const socket = createMockSocket();
+    await attachSocket(relay, socket);
+    const lines = await captureAll(async () => {
+      await invokeCommand(socket, 'command:get_mode_options', { commandId: 'cmd-gmdo' });
+    });
+    assertRelayLog(lines, 'RELAY_CMD_OK', { op: 'get_mode_options', itemId: 'cmd-gmdo' });
+  });
+
   it('get_model_options logs RELAY_CMD_OK', async () => {
     const { relay } = await startRelay();
     const socket = createMockSocket();
@@ -638,6 +652,16 @@ describe('web Relay http-routes logging', () => {
       await invokeCommand(socket, 'command:get_model_options', { commandId: 'cmd-gmo' });
     });
     assertRelayLog(lines, 'RELAY_CMD_OK', { op: 'get_model_options', itemId: 'cmd-gmo' });
+  });
+
+  it('toggle_model_auto logs RELAY_CMD_OK', async () => {
+    const { relay } = await startRelay();
+    const socket = createMockSocket();
+    await attachSocket(relay, socket);
+    const lines = await captureAll(async () => {
+      await invokeCommand(socket, 'command:toggle_model_auto', { commandId: 'cmd-tma', on: false });
+    });
+    assertRelayLog(lines, 'RELAY_CMD_OK', { op: 'toggle_model_auto', itemId: 'cmd-tma', text: 'false' });
   });
 
   it('get_plan_full logs RELAY_CMD_OK', async () => {
@@ -1164,8 +1188,8 @@ describe('web Relay http-routes logging', () => {
   });
 
   it('RELAY_PATH_MATRIX log and silent row counts are consistent', () => {
-    assert.equal(RELAY_PATH_MATRIX.length, 63);
-    assert.equal(RELAY_PATH_MATRIX.filter((r) => r.kind === 'log').length, 44);
+    assert.equal(RELAY_PATH_MATRIX.length, 65);
+    assert.equal(RELAY_PATH_MATRIX.filter((r) => r.kind === 'log').length, 46);
     assert.equal(SILENT_PATH_MARKERS.length, 19);
     assert.ok(RELAY_PATH_MATRIX.some((r) => r.marker === 'send_message enter logs RELAY_CMD_OK'));
   });
@@ -1302,7 +1326,7 @@ describe('web Relay http-routes logging', () => {
     const classSrc = readFileSync(new URL('../../src/web/http-routes.ts', import.meta.url), 'utf-8');
     const zone = classSrc.slice(classSrc.indexOf('export class Relay'));
     const logSites = (zone.match(/log(Info|Warn|Error)\(/g) ?? []).length + (zone.match(/logRelayCmd\(/g) ?? []).length;
-    assert.equal(logSites, 32, `expected 32 log sites, got ${logSites}`);
+    assert.equal(logSites, 36, `expected 36 log sites, got ${logSites}`);
     assert.match(relayZoneSrc(), /function relayCtx\(op: string/);
     assert.match(relayZoneSrc(), /scope: 'relay'/);
   });
@@ -1313,11 +1337,11 @@ describe('web Relay http-routes logging', () => {
     assert.match(zone, /logInfo\('RELAY_CMD_OK'/);
   });
 
-  it('logRelayCmd call count is nineteen in Relay class source', () => {
+  it('logRelayCmd call count is twenty-three in Relay class source', () => {
     const classSrc = readFileSync(new URL('../../src/web/http-routes.ts', import.meta.url), 'utf-8');
     const zone = classSrc.slice(classSrc.indexOf('export class Relay'));
     const hits = zone.match(/logRelayCmd\(/g) ?? [];
-    assert.equal(hits.length, 19);
+    assert.equal(hits.length, 23);
   });
 
   it('logInfo logWarn logError imported from log-event in source', () => {
@@ -1377,6 +1401,6 @@ describe('web Relay http-routes logging', () => {
   });
 
   it('behavioral it count matches RELAY_PATH_MATRIX row count', () => {
-    assert.equal(RELAY_PATH_MATRIX.length, 63);
+    assert.equal(RELAY_PATH_MATRIX.length, 65);
   });
 });

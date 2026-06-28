@@ -161,14 +161,32 @@ export async function handleMode(ctx: BotContext, deps: CommandDeps): Promise<vo
   const state = deps.stateManager.getCurrentState();
   const activeWin = state.windows.find(w => w.id === state.activeWindowId);
   const activeTab = state.chatTabs.find(t => t.isActive);
+
+  const modeResult = await deps.commandExecutor.getModeOptions(genId());
+  const raw = modeResult.data as { options?: { id: string; label: string; selected?: boolean }[] } | undefined;
+  const options = modeResult.ok && Array.isArray(raw?.options) ? raw.options : [];
+
+  if (options.length === 0) {
+    logWarn(
+      'TG_MODE_OPTIONS_FAIL',
+      modeResult.error ?? 'empty mode options',
+      modeCtx('set_mode', ctx, { windowId: activeWin?.id, hint: state.mode.current }),
+    );
+    await ctx.reply(
+      t('tg.msg.mode.loadFailed', '<b>Current mode:</b> {mode}\n<i>Could not load mode list from Cursor.</i>', { mode: escapeHtml(state.mode.current) }),
+      { parse_mode: 'HTML' },
+    );
+    return;
+  }
+
   logInfo(
     'TG_MODE_MENU',
     `/set_mode for "${activeWin?.title ?? '?'}" / "${activeTab?.title ?? '?'}" → ${state.mode.current}`,
-    modeCtx('set_mode', ctx, { windowId: activeWin?.id, windowTitle: activeWin?.title }),
+    modeCtx('set_mode', ctx, { windowId: activeWin?.id, windowTitle: activeWin?.title, hint: `options=${options.length}` }),
   );
 
   const kb = tgKeyboard();
-  for (const mode of state.mode.available) {
+  for (const mode of options) {
     const current = mode.id === state.mode.current ? ' ✓' : '';
     kb.text(`${mode.label}${current}`, `mode:${mode.id}`);
   }
@@ -186,8 +204,23 @@ export async function handleModel(ctx: BotContext, deps: CommandDeps): Promise<v
   const activeTab = state.chatTabs.find(t => t.isActive);
 
   const result = await deps.commandExecutor.getModelOptions(genId());
-  const raw = result.data as { options?: { id: string; label: string; selected?: boolean }[] } | undefined;
+  const raw = result.data as {
+    autoOn?: boolean;
+    autoDescription?: string;
+    options?: { id: string; label: string; selected?: boolean }[];
+  } | undefined;
   const options = result.ok && Array.isArray(raw?.options) ? raw.options : [];
+
+  if (raw?.autoOn) {
+    const desc = raw.autoDescription?.trim();
+    await ctx.reply(
+      t('tg.msg.model.autoOn', '<b>Auto</b> is enabled.{desc}\n<i>Turn off Auto in Cursor to pick a specific model.</i>', {
+        desc: desc ? `\n${escapeHtml(desc)}` : '',
+      }),
+      { parse_mode: 'HTML' },
+    );
+    return;
+  }
 
   if (options.length === 0) {
     logWarn(

@@ -153,8 +153,8 @@ Registered for the BotFather menu (`src/telegram/commands/registry.ts`):
 | `/close_chat` | Close the Cursor chat tab |
 | `/new_chat` | New Cursor chat + new Telegram thread |
 | `/status` | Connection and bridge status |
-| `/set_mode` | Agent mode (Plan / Agent) |
-| `/pick_model` | Model picker (inline buttons) |
+| `/set_mode` | Agent mode picker (dynamic list from CDP) |
+| `/pick_model` | Model picker (inline buttons; Auto-on → text hint) |
 | `/pause` | Pause CursorWake |
 | `/resume` | Resume CursorWake |
 | `/open_project` | Open a project by name |

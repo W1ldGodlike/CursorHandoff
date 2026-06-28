@@ -2264,6 +2264,7 @@ export const MODE_ICONS = {
   agent: '\u221E',
   plan: '\u2611',
   debug: '\uD83D\uDC1B',
+  multitask: '\u29C9',
   chat: '\uD83D\uDCAC',
 };
 
@@ -2272,7 +2273,7 @@ export function renderModeModel() {
   const model = ctx.state.model || { current: 'Auto', currentId: '' };
 
   ctx.$pillModeIcon.textContent = MODE_ICONS[mode.current] || '';
-  ctx.$pillModeText.textContent = socketState.MODE_LABELS[mode.current] || mode.current;
+  ctx.$pillModeText.textContent = socketState.modeLabelFor(mode.current);
   ctx.$pillModelText.textContent = model.current || 'Auto';
 }
 
@@ -2286,19 +2287,33 @@ export function openSheet(type) {
 
   if (type === 'mode') {
     ctx.$sheetMode.classList.remove('hidden');
-    renderModeSheet();
+    if (ctx.cachedModeOptions) {
+      renderModeSheet(ctx.cachedModeOptions);
+    } else {
+      renderModeSheetLoading();
+    }
+    fetchModeOptions().then((options) => {
+      if (ctx.activeSheet !== 'mode') return;
+      if (options) {
+        renderModeSheet(options);
+      } else if (!ctx.cachedModeOptions) {
+        renderModeSheet(null);
+      }
+    });
   } else if (type === 'model') {
+    ctx.modelOptionsView = null;
+    updateModelSheetHeader();
     ctx.$sheetModel.classList.remove('hidden');
-    if (ctx.cachedModelOptions) {
-      renderModelSheet(ctx.cachedModelOptions);
+    if (ctx.cachedModelSnapshot) {
+      renderModelSheet(ctx.cachedModelSnapshot);
     } else {
       renderModelSheetLoading();
     }
-    fetchModelOptions().then(options => {
+    fetchModelOptions().then((snapshot) => {
       if (ctx.activeSheet !== 'model') return;
-      if (options) {
-        renderModelSheet(options);
-      } else if (!ctx.cachedModelOptions) {
+      if (snapshot) {
+        renderModelSheet(snapshot);
+      } else if (!ctx.cachedModelSnapshot) {
         renderModelSheet(null);
       }
     });
@@ -2319,26 +2334,54 @@ export function closeSheet() {
   ctx.$sheetPlanModel.classList.add('hidden');
   ctx.$sheetWindow?.classList.add('hidden');
   ctx.$windowSelectBtn?.setAttribute('aria-expanded', 'false');
+  ctx.modelOptionsView = null;
   ctx.activeSheet = null;
 }
 
-export function renderModeSheet() {
+ctx.cachedModeOptions = null;
+
+export async function fetchModeOptions() {
+  const commandId = socketState.newCommandId();
+  const result = await socketState.sendCommandAwaitResult('command:get_mode_options', {
+    commandId,
+    type: 'get_mode_options',
+  });
+  if (result.ok && Array.isArray(result.data?.options)) {
+    ctx.cachedModeOptions = result.data.options;
+    return result.data.options;
+  }
+  return null;
+}
+
+export function renderModeSheetLoading() {
   ctx.$sheetModeList.innerHTML = '';
-  const modes = [
-    { id: 'agent', label: socketState.MODE_LABELS.agent, icon: '\u221E' },
-    { id: 'plan', label: socketState.MODE_LABELS.plan, icon: '\u2611' },
-    { id: 'debug', label: socketState.MODE_LABELS.debug, icon: '\uD83D\uDC1B' },
-    { id: 'chat', label: socketState.MODE_LABELS.chat, icon: '\uD83D\uDCAC' },
-  ];
+  const loading = document.createElement('div');
+  loading.className = 'sheet-loading';
+  loading.textContent = t('web.mode.loading', 'Loading modes…');
+  ctx.$sheetModeList.appendChild(loading);
+}
+
+export function renderModeSheet(options) {
+  ctx.$sheetModeList.innerHTML = '';
+
+  if (!options || options.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'sheet-empty';
+    empty.textContent = t('web.mode.noneAvailable', 'No modes available');
+    ctx.$sheetModeList.appendChild(empty);
+    return;
+  }
+
   const current = (ctx.state.mode || {}).current || 'agent';
 
-  modes.forEach(m => {
+  options.forEach((m) => {
     const btn = document.createElement('button');
-    btn.className = 'sheet-item' + (m.id === current ? ' selected' : '');
+    btn.className = 'sheet-item' + (m.id === current || m.selected ? ' selected' : '');
+    const icon = MODE_ICONS[m.id] || '';
     btn.innerHTML =
-      `<span class="sheet-item-icon">${m.icon}</span>` +
+      (icon ? `<span class="sheet-item-icon">${icon}</span>` : '') +
       `<span>${escapeHtml(m.label)}</span>` +
-      (m.id === current ? '<span class="sheet-item-check">\u2713</span>' : '');
+      (m.id === current || m.selected ? '<span class="sheet-item-check">\u2713</span>' : '');
     btn.addEventListener('click', () => {
       ctx.socket.emit('command:set_mode', { commandId: socketState.newCommandId(), modeId: m.id });
       closeSheet();
@@ -2348,7 +2391,152 @@ export function renderModeSheet() {
   });
 }
 
-ctx.cachedModelOptions = null;
+ctx.cachedModelSnapshot = null;
+ctx.modelOptionsView = null;
+
+function updateModelSheetHeader() {
+  if (!ctx.$sheetModelHeader) return;
+  if (ctx.modelOptionsView) {
+    ctx.$sheetModelHeader.textContent = tp(
+      'web.model.optionsTitle',
+      'Options · {model}',
+      { model: ctx.modelOptionsView.modelLabel || '' },
+    );
+  } else {
+    ctx.$sheetModelHeader.textContent = t('web.mode.modelSheetTitle', 'Model');
+  }
+}
+
+async function openModelOptionsSubview(modelId, modelLabel) {
+  ctx.modelOptionsView = { modelId, modelLabel, snapshot: null };
+  updateModelSheetHeader();
+  renderModelOptionsLoading();
+  const commandId = socketState.newCommandId();
+  const result = await socketState.sendCommandAwaitResult('command:get_model_row_options', {
+    commandId,
+    type: 'get_model_row_options',
+    modelId,
+  });
+  if (ctx.activeSheet !== 'model') return;
+  if (result.ok && result.data && Array.isArray(result.data.controls)) {
+    ctx.modelOptionsView = {
+      modelId,
+      modelLabel: result.data.modelLabel || modelLabel,
+      snapshot: result.data,
+    };
+    renderModelOptionsSheet(result.data);
+    return;
+  }
+  socketState.showToast(
+    result.error || t('web.model.optionsFailed', 'Could not load model options'),
+    'error',
+  );
+  ctx.modelOptionsView = null;
+  updateModelSheetHeader();
+  renderModelSheet(ctx.cachedModelSnapshot);
+}
+
+async function applyModelControl(controlId, controlValue) {
+  if (!ctx.modelOptionsView) return;
+  const commandId = socketState.newCommandId();
+  const result = await socketState.sendCommandAwaitResult('command:set_model_control', {
+    commandId,
+    type: 'set_model_control',
+    modelId: ctx.modelOptionsView.modelId,
+    controlId,
+    controlValue,
+  });
+  if (!result.ok || !result.data) {
+    socketState.showToast(
+      result.error || t('web.model.controlFailed', 'Failed to update option'),
+      'error',
+    );
+    return;
+  }
+  ctx.cachedModelSnapshot = null;
+  ctx.modelOptionsView = {
+    ...ctx.modelOptionsView,
+    modelLabel: result.data.modelLabel || ctx.modelOptionsView.modelLabel,
+    snapshot: result.data,
+  };
+  if (ctx.activeSheet === 'model') renderModelOptionsSheet(result.data);
+}
+
+function renderModelOptionsLoading() {
+  ctx.$sheetModelList.innerHTML = '';
+  const loading = document.createElement('div');
+  loading.className = 'sheet-loading';
+  loading.textContent = t('web.model.optionsLoading', 'Loading options…');
+  ctx.$sheetModelList.appendChild(loading);
+}
+
+export function renderModelOptionsSheet(snapshot) {
+  ctx.$sheetModelList.innerHTML = '';
+
+  const back = document.createElement('button');
+  back.type = 'button';
+  back.className = 'sheet-item sheet-options-back';
+  back.textContent = '\u2190 ' + t('web.model.backToModels', 'Models');
+  back.addEventListener('click', () => {
+    ctx.modelOptionsView = null;
+    updateModelSheetHeader();
+    renderModelSheet(ctx.cachedModelSnapshot);
+  });
+  ctx.$sheetModelList.appendChild(back);
+
+  const controls = snapshot.controls || [];
+  if (controls.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'sheet-empty';
+    empty.textContent = t('web.model.noneAvailable', 'No models available');
+    ctx.$sheetModelList.appendChild(empty);
+    return;
+  }
+
+  controls.forEach((ctrl) => {
+    if (ctrl.kind === 'toggle') {
+      const row = document.createElement('div');
+      row.className = 'sheet-toggle-row';
+      const label = document.createElement('span');
+      label.className = 'sheet-toggle-label';
+      label.textContent = ctrl.label;
+      row.appendChild(label);
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'sheet-toggle' + (ctrl.on ? ' on' : '');
+      toggle.setAttribute('aria-pressed', ctrl.on ? 'true' : 'false');
+      toggle.addEventListener('click', () => {
+        void applyModelControl(ctrl.id, ctrl.on ? 'false' : 'true');
+      });
+      row.appendChild(toggle);
+      ctx.$sheetModelList.appendChild(row);
+      return;
+    }
+
+    if (ctrl.kind === 'choice' && Array.isArray(ctrl.options)) {
+      const section = document.createElement('div');
+      section.className = 'sheet-options-section-label';
+      section.textContent = ctrl.label;
+      ctx.$sheetModelList.appendChild(section);
+      ctrl.options.forEach((opt) => {
+        const selected = opt === ctrl.value;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'sheet-item' + (selected ? ' selected' : '');
+        btn.innerHTML =
+          '<span class="sheet-item-label">' + escapeHtml(opt) + '</span>' +
+          '<span class="sheet-item-right">' +
+          (selected ? '<span class="sheet-item-check">\u2713</span>' : '') +
+          '</span>';
+        btn.addEventListener('click', () => {
+          if (selected) return;
+          void applyModelControl(ctrl.id, opt);
+        });
+        ctx.$sheetModelList.appendChild(btn);
+      });
+    }
+  });
+}
 
 export async function fetchModelOptions() {
   const commandId = socketState.newCommandId();
@@ -2356,17 +2544,97 @@ export async function fetchModelOptions() {
     commandId,
     type: 'get_model_options',
   });
-  if (result.ok && Array.isArray(result.data?.options)) {
-    ctx.cachedModelOptions = result.data.options;
-    return result.data.options;
+  if (result.ok && result.data && typeof result.data === 'object') {
+    ctx.cachedModelSnapshot = result.data;
+    return result.data;
   }
+  socketState.showToast(result.error || t('web.model.loadFailed', 'Could not load models from Cursor'), 'error');
   return null;
 }
 
-export function renderModelSheet(options) {
+function renderModelAutoRow(snapshot) {
+  const row = document.createElement('div');
+  row.className = 'sheet-toggle-row';
+
+  const label = document.createElement('span');
+  label.className = 'sheet-toggle-label';
+  label.textContent = t('web.model.auto', 'Auto');
+  row.appendChild(label);
+
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'sheet-toggle' + (snapshot.autoOn ? ' on' : '');
+  toggle.setAttribute('aria-pressed', snapshot.autoOn ? 'true' : 'false');
+  toggle.addEventListener('click', () => {
+    void toggleModelAuto(!snapshot.autoOn);
+  });
+  row.appendChild(toggle);
+  ctx.$sheetModelList.appendChild(row);
+
+  if (snapshot.autoDescription) {
+    const desc = document.createElement('div');
+    desc.className = 'sheet-auto-desc';
+    desc.textContent = snapshot.autoDescription;
+    ctx.$sheetModelList.appendChild(desc);
+  }
+}
+
+async function toggleModelAuto(on) {
+  const commandId = socketState.newCommandId();
+  const result = await socketState.sendCommandAwaitResult('command:toggle_model_auto', {
+    commandId,
+    type: 'toggle_model_auto',
+    on,
+  });
+  if (!result.ok || !result.data) {
+    socketState.showToast(result.error || t('web.model.toggleFailed', 'Failed to toggle Auto'), 'error');
+    return;
+  }
+  ctx.cachedModelSnapshot = result.data;
+  if (ctx.activeSheet === 'model') renderModelSheet(result.data);
+}
+
+export function renderModelSheet(snapshotOrList) {
+  if (ctx.modelOptionsView) {
+    if (ctx.modelOptionsView.snapshot) {
+      renderModelOptionsSheet(ctx.modelOptionsView.snapshot);
+    } else {
+      renderModelOptionsLoading();
+    }
+    return;
+  }
+
   ctx.$sheetModelList.innerHTML = '';
 
-  if (!options || options.length === 0) {
+  const snapshot = Array.isArray(snapshotOrList)
+    ? { autoOn: false, options: snapshotOrList }
+    : (snapshotOrList || { autoOn: true, options: [] });
+
+  if (snapshot.autoOn) {
+    renderModelAutoRow(snapshot);
+    return;
+  }
+
+  renderModelAutoRow(snapshot);
+
+  if (snapshot.maxModeOn != null) {
+    const maxRow = document.createElement('div');
+    maxRow.className = 'sheet-toggle-row sheet-toggle-row-secondary';
+    const maxLabel = document.createElement('span');
+    maxLabel.className = 'sheet-toggle-label';
+    maxLabel.textContent = t('web.model.maxMode', 'MAX Mode');
+    maxRow.appendChild(maxLabel);
+    const maxToggle = document.createElement('span');
+    maxToggle.className = 'sheet-toggle' + (snapshot.maxModeOn ? ' on' : '');
+    maxRow.appendChild(maxToggle);
+    ctx.$sheetModelList.appendChild(maxRow);
+  }
+
+  const options = (snapshot.options || []).filter((opt) => {
+    const label = (opt.label || '').trim();
+    return !/^auto/i.test(label) && !/max\s*mode/i.test(label);
+  });
+  if (options.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'sheet-empty';
     empty.textContent = t('web.model.noneAvailable', 'No models available');
@@ -2385,11 +2653,22 @@ export function renderModelSheet(options) {
 
     let inner = '<span class="sheet-item-label">' + escapeHtml(opt.label) + '</span>';
     const right = [];
+    if (opt.hasEdit !== false) {
+      right.push('<button type="button" class="sheet-item-edit">' + escapeHtml(t('web.model.edit', 'Edit')) + '</button>');
+    }
     if (isSelected) right.push('<span class="sheet-item-check">\u2713</span>');
     inner += '<span class="sheet-item-right">' + right.join('') + '</span>';
 
     btn.innerHTML = inner;
+    const editBtn = btn.querySelector('.sheet-item-edit');
+    if (editBtn) {
+      editBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        void openModelOptionsSubview(opt.id, opt.label);
+      });
+    }
     btn.addEventListener('click', () => {
+      ctx.cachedModelSnapshot = null;
       ctx.socket.emit('command:set_model', { commandId: socketState.newCommandId(), modelId: opt.id });
       closeSheet();
       socketState.showToast(tp('web.toast.modelSet', 'Model: {model}', { model: opt.label }), 'success');

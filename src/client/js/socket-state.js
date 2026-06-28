@@ -7,8 +7,17 @@ export const MODE_LABELS = {
   agent: t('web.mode.agent', 'Agent'),
   plan: t('web.mode.plan', 'Plan'),
   debug: t('web.mode.debug', 'Debug'),
-  chat: t('web.mode.chat', 'Chat'),
+  multitask: t('web.mode.multitask', 'Multitask'),
+  chat: t('web.mode.ask', 'Ask'),
 };
+
+export function modeLabelFor(id) {
+  const cached = (ctx.cachedModeOptions || []).find((m) => m.id === id);
+  if (cached?.label) return cached.label;
+  const fromState = (ctx.state.mode?.available || []).find((m) => m.id === id);
+  if (fromState?.label) return fromState.label;
+  return MODE_LABELS[id] || id;
+}
 
 export const AGENT_STATUS_LABELS = {
   idle: t('web.agentStatus.idle', 'Idle'),
@@ -405,7 +414,7 @@ export function renderHeaderStatus() {
   chips.push({ id: 'cursor', text: cursorText, tone: cursorTone, shimmer: cursorShimmer });
 
   const mode = ctx.state.mode?.current || 'agent';
-  chips.push({ id: 'mode', text: MODE_LABELS[mode] || mode, tone: 'neutral' });
+  chips.push({ id: 'mode', text: modeLabelFor(mode), tone: 'neutral' });
 
   if (ctx.headerMetrics.latencyMs != null) {
     chips.push({ id: 'latency', text: `${ctx.headerMetrics.latencyMs} ms`, tone: 'neutral' });

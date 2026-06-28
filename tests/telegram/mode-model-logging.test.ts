@@ -122,9 +122,18 @@ function makeDeps(overrides: Partial<CommandDeps> = {}): CommandDeps {
     } as unknown as StateManager,
     commandExecutor: {
       switchTab: async () => ({ ok: true }),
+      getModeOptions: async () => ({
+        ok: true,
+        data: {
+          options: [
+            { id: 'agent', label: 'Agent' },
+            { id: 'plan', label: 'Plan' },
+          ],
+        },
+      }),
       getModelOptions: async () => ({
         ok: true,
-        data: { options: [{ id: 'm1', label: 'GPT-4' }] },
+        data: { autoOn: false, options: [{ id: 'm1', label: 'GPT-4' }] },
       }),
     } as CommandDeps['commandExecutor'],
     cdpBridge: {
@@ -613,13 +622,29 @@ describe('mode-model logging', () => {
     });
   });
 
+  it('logs TG_MODE_OPTIONS_FAIL when getModeOptions returns empty', async () => {
+    const lines = await captureAll(async () => {
+      await handleMode(
+        makeMessageCtx(),
+        connectedDeps({
+          commandExecutor: {
+            switchTab: async () => ({ ok: true }),
+            getModeOptions: async () => ({ ok: true, data: { options: [] } }),
+            getModelOptions: async () => ({ ok: true, data: { autoOn: false, options: [] } }),
+          } as CommandDeps['commandExecutor'],
+        }),
+      );
+    });
+    assertModeLog(lines, 'TG_MODE_OPTIONS_FAIL', { op: 'set_mode' });
+  });
+
   it('logs TG_MODEL_OPTIONS_FAIL when getModelOptions returns empty options array', async () => {
     const lines = await captureAll(async () => {
       await handleModel(
         makeMessageCtx(),
         connectedDeps({
           commandExecutor: {
-            getModelOptions: async () => ({ ok: true, data: { options: [] } }),
+            getModelOptions: async () => ({ ok: true, data: { autoOn: false, options: [] } }),
           } as CommandDeps['commandExecutor'],
         }),
       );
@@ -749,6 +774,7 @@ const MODE_MODEL_LOG_CODES = [
   'TG_ENSURE_WINDOW_NOT_FOUND',
   'TG_ENSURE_WINDOW_SWITCH_FAIL',
   'TG_MODE_MENU',
+  'TG_MODE_OPTIONS_FAIL',
   'TG_MODEL_OPTIONS_FAIL',
   'TG_MODEL_MENU',
 ] as const;
@@ -777,6 +803,7 @@ const MODE_MODEL_PATH_MATRIX = [
   { kind: 'fail' as const, code: 'TG_ENSURE_WINDOW_SWITCH_FAIL', marker: 'switchWindow throws' },
   { kind: 'fail' as const, code: 'TG_MODE_MENU', marker: 'successful /set_mode' },
   { kind: 'fail' as const, code: 'TG_MODE_MENU', marker: 'from callbackQuery context' },
+  { kind: 'fail' as const, code: 'TG_MODE_OPTIONS_FAIL', marker: 'getModeOptions returns empty' },
   { kind: 'silent' as const, marker: 'handleMode when switchWindow throws' },
   { kind: 'fail' as const, code: 'TG_MODEL_OPTIONS_FAIL', marker: 'getModelOptions returns empty' },
   { kind: 'fail' as const, code: 'TG_MODEL_OPTIONS_FAIL', marker: 'empty options array' },
@@ -812,7 +839,7 @@ describe('mode-model logging coverage', () => {
         || src.includes(`assertModeLog(lines, '${code}'`);
       assert.ok(covered, `missing assertion for ${code}`);
     }
-    assert.equal(MODE_MODEL_LOG_CODES.length, 7);
+    assert.equal(MODE_MODEL_LOG_CODES.length, 8);
   });
 
   it('mode-model.ts declares exactly the covered codes', () => {
@@ -821,7 +848,7 @@ describe('mode-model logging coverage', () => {
       'utf-8',
     );
     const found = new Set<string>();
-    for (const m of src.matchAll(/'((?:TG_NOTIFY_MODE|TG_ENSURE_WINDOW|TG_MODE_MENU|TG_MODEL_(?:OPTIONS_FAIL|MENU))_[A-Z_]+|TG_MODE_MENU|TG_MODEL_MENU|TG_MODEL_OPTIONS_FAIL)'/g)) {
+    for (const m of src.matchAll(/'(TG_(?:NOTIFY_MODE|ENSURE_WINDOW|MODE_|MODEL_)[A-Z_]+)'/g)) {
       found.add(m[1]);
     }
     for (const code of MODE_MODEL_LOG_CODES) {
@@ -838,13 +865,13 @@ describe('mode-model logging coverage', () => {
     assert.ok(!src.includes('console.log('));
     assert.ok(!src.includes('console.warn('));
     assert.ok(!src.includes('console.error('));
-    const re = /log(?:Info|Warn)\(\s*'((?:TG_NOTIFY_MODE|TG_ENSURE_WINDOW|TG_MODE_MENU|TG_MODEL_(?:OPTIONS_FAIL|MENU))_[A-Z_]+|TG_MODE_MENU|TG_MODEL_MENU|TG_MODEL_OPTIONS_FAIL)'[\s\S]*?\);/g;
+    const re = /log(?:Info|Warn)\(\s*'((?:TG_NOTIFY_MODE|TG_ENSURE_WINDOW|TG_MODE_|TG_MODEL_)[A-Z_]+)'[\s\S]*?\);/g;
     const codes: string[] = [];
     for (const m of src.matchAll(re)) {
       codes.push(m[1]);
       assert.ok(m[0].includes('modeCtx('), `log site ${m[1]} missing modeCtx(`);
     }
-    assert.equal(codes.length, 7);
+    assert.equal(codes.length, 8);
     assert.equal(new Set(codes).size, MODE_MODEL_LOG_CODES.length);
     assert.ok(!src.match(/log(?:Info|Warn)\([^)]*\{ scope: 'telegram'/));
   });
@@ -861,6 +888,7 @@ describe('mode-model logging coverage', () => {
       'TG_NOTIFY_MODE_SAVE_FAIL',
       'TG_ENSURE_WINDOW_NOT_FOUND',
       'TG_ENSURE_WINDOW_SWITCH_FAIL',
+      'TG_MODE_OPTIONS_FAIL',
       'TG_MODEL_OPTIONS_FAIL',
     ] as const) {
       assert.match(src, new RegExp(`logWarn\\(\\s*'${code}'`));
@@ -924,16 +952,16 @@ describe('mode-model logging coverage', () => {
     assert.match(src, /const norm = normalizeError\(err\)[\s\S]*TG_ENSURE_WINDOW_SWITCH_FAIL/);
   });
 
-  it('mode-model.ts declares exactly 7 log emission sites', () => {
+  it('mode-model.ts declares exactly 8 log emission sites', () => {
     const src = readFileSync(
       new URL('../../src/telegram/commands/mode-model.ts', import.meta.url),
       'utf-8',
     );
-    const siteCount = src.match(/log(?:Info|Warn)\(\s*'(?:TG_NOTIFY_MODE|TG_ENSURE_WINDOW|TG_MODE_MENU|TG_MODEL_)/g)?.length ?? 0;
-    assert.equal(siteCount, 7);
+    const siteCount = src.match(/log(?:Info|Warn)\(\s*'(?:TG_NOTIFY_MODE|TG_ENSURE_WINDOW|TG_MODE_|TG_MODEL_)/g)?.length ?? 0;
+    assert.equal(siteCount, 8);
   });
 
-  it('automated matrix: 7/7 codes have behavioral assertModeLog', () => {
+  it('automated matrix: 8/8 codes have behavioral assertModeLog', () => {
     const src = readFileSync(new URL('./mode-model-logging.test.ts', import.meta.url), 'utf-8');
     for (const code of MODE_MODEL_LOG_CODES) {
       assert.ok(
@@ -956,7 +984,7 @@ describe('mode-model logging coverage', () => {
         assert.ok(src.includes(row.marker), `path matrix silent "${row.marker}" missing from titles`);
       }
     }
-    assert.equal(MODE_MODEL_PATH_MATRIX.length, 32);
+    assert.equal(MODE_MODEL_PATH_MATRIX.length, 33);
   });
 
   it('every exported mode-model handler is exercised in behavioral tests', () => {
@@ -974,7 +1002,7 @@ describe('mode-model logging coverage', () => {
     }
   });
 
-  it('mode-model.ts vs HEAD has zero console and exactly 7 logEvent sites', () => {
+  it('mode-model.ts vs HEAD has zero console and exactly 8 logEvent sites', () => {
     const src = readFileSync(
       new URL('../../src/telegram/commands/mode-model.ts', import.meta.url),
       'utf-8',
@@ -982,7 +1010,7 @@ describe('mode-model logging coverage', () => {
     assert.ok(!src.includes('console.log('));
     assert.ok(!src.includes('console.warn('));
     assert.ok(!src.includes('console.error('));
-    assert.equal(src.match(/log(?:Info|Warn)\(/g)?.length ?? 0, 7);
+    assert.equal(src.match(/log(?:Info|Warn)\(/g)?.length ?? 0, 8);
   });
 
   it('ensureTopicWindow emits exactly two TG_ENSURE_WINDOW log sites in source', () => {

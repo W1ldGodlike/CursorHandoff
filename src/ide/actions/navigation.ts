@@ -1,5 +1,5 @@
 import type { CdpClient } from '../cdp-client.js';
-import type { SelectorConfig, CommandResult, PlanModelOption } from '../../core/types.js';
+import type { SelectorConfig, CommandResult, PlanModelOption, ModeOption, ModelOptionsSnapshot, ModelRowOptionsSnapshot } from '../../core/types.js';
 import { logWarn, logError, logCommandOk } from '../../core/log-event.js';
 import type { LogContext } from '../../core/log-event.js';
 import { setClipboardImage } from '../../media/clipboard-win.js';
@@ -23,6 +23,53 @@ const FOCUS_DELAY_MS = 100;
 // changes every mount, poor round-trip as model id. Treat matching pattern
 // as no-id and fallback to synthetic `label::<text>`.
 const REACT_USE_ID_RE = /^_r_[a-z0-9]+_$/;
+
+export const MODE_ITEM_HELPERS_JS = `
+  const labelOfMode = (el) => {
+    const clone = el.cloneNode(true);
+    for (const b of Array.from(clone.querySelectorAll('button'))) b.remove();
+    return (clone.textContent || '').replace(/\\s+/g, ' ').trim();
+  };
+
+  const modeIdFromEl = (el) => {
+    const raw = el.id || '';
+    const m = raw.match(/composer-mode-([a-z0-9_-]+)$/i);
+    if (m) return m[1];
+    return '';
+  };
+
+  const collectModeItems = () => {
+    const raw = document.querySelectorAll('[id*="composer-mode-"]');
+    const out = [];
+    const seen = new Set();
+    for (const item of Array.from(raw)) {
+      const id = modeIdFromEl(item);
+      if (!id || seen.has(id)) continue;
+      const label = labelOfMode(item);
+      if (!label) continue;
+      seen.add(id);
+      const clickable = item.querySelector('.composer-unified-context-menu-item') || item;
+      const cls = clickable.className || item.className || '';
+      const aria = clickable.getAttribute?.('aria-checked') || item.getAttribute?.('aria-checked') || '';
+      const selected = /selected|active|checked/.test(cls) || aria === 'true';
+      out.push({ id, label, selected });
+    }
+    return out;
+  };
+
+  const pickModeById = (modeId) => {
+    if (!modeId) return false;
+    const items = document.querySelectorAll('[id*="composer-mode-"][id$="-' + modeId + '"]');
+    for (const item of Array.from(items)) {
+      const clickable = item.querySelector('.composer-unified-context-menu-item') || item;
+      clickable.click();
+      return true;
+    }
+    return false;
+  };
+`;
+
+export const MODE_ITEM_COLLECTOR_JS = MODE_ITEM_HELPERS_JS;
 
 // Shared in-browser helpers to read and click model picker rows.
 // Read (`get_model_options`) and write (`set_model` / `set_plan_model`) use
@@ -55,6 +102,58 @@ export const MODEL_ITEM_HELPERS_JS = `
     return raw.filter(item => !raw.some(other => other !== item && other.contains(item)));
   };
 
+  const isAutoRowLabel = (label) => /^auto/i.test((label || '').trim());
+  const isMaxModeRowLabel = (label) => /max\\s*mode/i.test((label || '').trim());
+
+  const findAutoRow = (menu) => {
+    if (!menu) return null;
+    for (const row of modelRowsIn(menu)) {
+      if (isAutoRowLabel(labelOf(row))) return row;
+    }
+    for (const row of modelRowsIn(menu)) {
+      const raw = (row.textContent || '').replace(/\\s+/g, ' ').trim();
+      if (isAutoRowLabel(raw)) return row;
+    }
+    return null;
+  };
+
+  const autoDescriptionFromRow = (row) => {
+    if (!row) return '';
+    const raw = (row.textContent || '').replace(/\\s+/g, ' ').trim();
+    const withoutAuto = raw.replace(/^auto\\s*/i, '').trim();
+    if (withoutAuto.length > 2) return withoutAuto.slice(0, 240);
+    return '';
+  };
+
+  const toggleLooksOn = (root) => {
+    if (!root) return false;
+    const sw = root.querySelector('[role="switch"], [role="checkbox"], input[type="checkbox"], [aria-checked]');
+    if (sw) {
+      const ac = sw.getAttribute('aria-checked');
+      if (ac === 'true') return true;
+      if (ac === 'false') return false;
+      const ds = sw.getAttribute('data-state');
+      if (ds === 'checked' || ds === 'on') return true;
+      if (ds === 'unchecked' || ds === 'off') return false;
+    }
+    const cls = (root.className || '') + (sw?.className || '');
+    return /\\b(checked|on|enabled)\\b/i.test(cls);
+  };
+
+  const clickAutoToggleInRow = (row) => {
+    if (!row) return false;
+    const sw = row.querySelector('[role="switch"]');
+    if (sw) { sw.click(); return true; }
+    const candidates = row.querySelectorAll('[role="switch"], [aria-checked], button, [data-state]');
+    for (const el of Array.from(candidates)) {
+      if (el === row) continue;
+      el.click();
+      return true;
+    }
+    row.click();
+    return true;
+  };
+
   const clickModelRow = (item) => {
     const clickable = item.querySelector('.composer-unified-context-menu-item') || item;
     clickable.click();
@@ -70,6 +169,8 @@ export const MODEL_ITEM_HELPERS_JS = `
       // Skip pure action buttons after nesting filter
       // (guard — e.g. floating Edit/Configure outside row).
       if (/^(edit|configure|remove|delete|star)$/i.test(label)) continue;
+      if (isAutoRowLabel(label) || isMaxModeRowLabel(label)) continue;
+      if (/^(add models?|search)$/i.test(label)) continue;
       const stableId = stableIdOf(item);
       const key = stableId || label.toLowerCase();
       if (seen.has(key)) continue;
@@ -82,16 +183,23 @@ export const MODEL_ITEM_HELPERS_JS = `
         id: stableId || ('label::' + label),
         label,
         selected,
+        hasEdit: !!findEditButtonInRow(item),
       });
     }
     return out;
   };
 
-  // Finds and clicks row by id (or synthetic label::id).
-  // Target: real DOM id ("model-opus"), "label::<text>" (no stable id),
-  // unstable React useId ("_r_ld_") or bare label. true on success.
-  const pickModelById = (menu, targetId) => {
-    if (!menu || !targetId) return false;
+  const findEditButtonInRow = (row) => {
+    if (!row) return null;
+    for (const btn of Array.from(row.querySelectorAll('button'))) {
+      const t = (btn.textContent || '').replace(/\\s+/g, ' ').trim();
+      if (/^edit$/i.test(t)) return btn;
+    }
+    return null;
+  };
+
+  const findModelRowForId = (menu, targetId) => {
+    if (!menu || !targetId) return null;
     const isLabelId = targetId.startsWith('label::');
     const isUnstable = REACT_USE_ID_RE.test(targetId);
     const labelTarget = (isLabelId ? targetId.slice(7) : '').trim().toLowerCase();
@@ -100,49 +208,42 @@ export const MODEL_ITEM_HELPERS_JS = `
 
     if (!isLabelId && !isUnstable) {
       const byId = document.getElementById(targetId);
-      if (byId && (byId === menu || menu.contains(byId))) {
-        clickModelRow(byId);
-        return true;
-      }
+      if (byId && (byId === menu || menu.contains(byId))) return byId;
     }
 
     const rows = modelRowsIn(menu);
-    // Pass 1: exact match (preferred — "GPT-5" ≠ "GPT-5.5").
     for (const item of rows) {
       const label = labelOf(item);
       if (!label) continue;
       const labelLc = label.toLowerCase();
       const stableId = stableIdOf(item);
       if (isLabelId || isUnstable) {
-        if (labelLc === labelTarget || labelLc === targetLc) {
-          clickModelRow(item);
-          return true;
-        }
-      } else {
-        if (stableId === targetId || ('label::' + label) === targetId) {
-          clickModelRow(item);
-          return true;
-        }
+        if (labelLc === labelTarget || labelLc === targetLc) return item;
+      } else if (stableId === targetId || ('label::' + label) === targetId) {
+        return item;
       }
     }
-    // Pass 2: fuzzy/substring for label::-targets when live row has extra
-    // text (badge "Premium", subtitle) beyond collectModelItems.
-    // Length limit — "GPT-5" must not match "GPT-5.5".
     for (const item of rows) {
       const label = labelOf(item);
       if (!label) continue;
       const labelLc = label.toLowerCase();
       if (isLabelId || isUnstable) {
-        if (labelTarget.length >= 4 && labelLc.includes(labelTarget)) {
-          clickModelRow(item);
-          return true;
-        }
+        if (labelTarget.length >= 4 && labelLc.includes(labelTarget)) return item;
       } else if (fuzzy && labelLc.includes(fuzzy)) {
-        clickModelRow(item);
-        return true;
+        return item;
       }
     }
-    return false;
+    return null;
+  };
+
+  // Finds and clicks row by id (or synthetic label::id).
+  // Target: real DOM id ("model-opus"), "label::<text>" (no stable id),
+  // unstable React useId ("_r_ld_") or bare label. true on success.
+  const pickModelById = (menu, targetId) => {
+    const row = findModelRowForId(menu, targetId);
+    if (!row) return false;
+    clickModelRow(row);
+    return true;
   };
 `;
 
@@ -173,7 +274,218 @@ export const MODEL_MENU_LOOKUP_JS = `
       const rect = m.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) return m;
     }
+    const poppers = document.querySelectorAll('[data-radix-popper-content-wrapper]');
+    for (const p of Array.from(poppers)) {
+      const m = p.querySelector('[role="menu"]');
+      if (!m) continue;
+      const rect = m.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) return m;
+    }
     return null;
+  };
+`;
+
+export const MODEL_SNAPSHOT_READ_JS = `
+  const readModelMenuSnapshot = () => {
+    ${MODEL_MENU_LOOKUP_JS}
+    ${MODEL_ITEM_HELPERS_JS}
+    const menu = findModelMenu();
+    if (!menu) return { autoOn: true, autoDescription: '', maxModeOn: false, options: [] };
+
+    const autoRow = findAutoRow(menu);
+    let autoOn = false;
+    let autoDescription = '';
+    if (autoRow) {
+      autoOn = toggleLooksOn(autoRow);
+      autoDescription = autoDescriptionFromRow(autoRow);
+      const peek = collectModelItems(menu);
+      if (!autoOn && peek.length === 0) autoOn = true;
+    }
+
+    let maxModeOn = false;
+    for (const row of modelRowsIn(menu)) {
+      if (isMaxModeRowLabel(labelOf(row))) maxModeOn = toggleLooksOn(row);
+    }
+
+    const options = autoOn ? [] : collectModelItems(menu);
+    return { autoOn, autoDescription, maxModeOn, options };
+  };
+`;
+
+export const MODEL_OPTIONS_HELPERS_JS = `
+  const isVisibleEl = (el) => {
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  };
+
+  const rowLooksSelected = (el) => {
+    if (!el) return false;
+    const aria = el.getAttribute('aria-checked') || el.getAttribute('aria-selected');
+    if (aria === 'true') return true;
+    const cls = el.className || '';
+    if (/selected|active|checked/.test(cls)) return true;
+    if (el.querySelector('[aria-checked="true"], [aria-selected="true"]')) return true;
+    const text = (el.textContent || '');
+    if (/[\\u2713\\u2714]/.test(text)) return true;
+    return false;
+  };
+
+  const findModelOptionsPanel = (mainMenu) => {
+    const scorePanel = (el) => {
+      if (!isVisibleEl(el)) return 0;
+      if (mainMenu && (el === mainMenu || mainMenu.contains(el))) return 0;
+      const text = (el.textContent || '').replace(/\\s+/g, ' ').trim();
+      if (/search models/i.test(text)) return 0;
+      if (/add models/i.test(text)) return 0;
+      if (!/options/i.test(text) && !el.querySelector('[role="switch"]')) return 0;
+      let score = 5;
+      if (/^options/i.test(text) || /\\boptions\\b/i.test(text)) score += 8;
+      if (el.querySelector('[role="switch"]')) score += 4;
+      return score;
+    };
+    const roots = Array.from(document.querySelectorAll(
+      '[role="menu"], [data-radix-popper-content-wrapper]'
+    ));
+    let best = null;
+    let bestScore = 0;
+    for (const root of roots) {
+      const candidates = root.getAttribute('role') === 'menu'
+        ? [root]
+        : Array.from(root.querySelectorAll('[role="menu"]')).concat(
+            root.getAttribute('data-radix-popper-content-wrapper') !== null ? [root] : []
+          );
+      for (const el of candidates) {
+        const s = scorePanel(el);
+        if (s > bestScore) { bestScore = s; best = el; }
+      }
+    }
+    return best;
+  };
+
+  const optionRowsIn = (panel) => {
+    if (!panel) return [];
+    let raw = Array.from(panel.querySelectorAll('[role="menuitem"], [role="option"], [role="radio"]'));
+    if (raw.length === 0) {
+      raw = Array.from(panel.children).filter((el) => {
+        const t = (el.textContent || '').replace(/\\s+/g, ' ').trim();
+        return t && !/^options$/i.test(t);
+      });
+    }
+    return raw.filter(item => !raw.some(other => other !== item && other.contains(item)));
+  };
+
+  const parseModelOptionsPanel = (panel) => {
+    const controls = [];
+    if (!panel) return controls;
+    const rows = optionRowsIn(panel);
+    let groupLabel = '';
+    const groupOptions = [];
+
+    const flushGroup = () => {
+      if (!groupLabel || groupOptions.length === 0) return;
+      const selected = groupOptions.find((o) => o.selected);
+      controls.push({
+        kind: 'choice',
+        id: 'choice::' + groupLabel,
+        label: groupLabel,
+        value: selected ? selected.label : groupOptions[0].label,
+        options: groupOptions.map((o) => o.label),
+      });
+      groupLabel = '';
+      groupOptions.length = 0;
+    };
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const label = labelOf(row);
+      if (!label || /^options$/i.test(label)) continue;
+
+      if (row.querySelector('[role="switch"]') || row.getAttribute('role') === 'switch') {
+        flushGroup();
+        controls.push({
+          kind: 'toggle',
+          id: 'toggle::' + label,
+          label,
+          on: toggleLooksOn(row),
+        });
+        continue;
+      }
+
+      const selected = rowLooksSelected(row);
+      const nextLabel = i + 1 < rows.length ? labelOf(rows[i + 1]) : '';
+      const looksHeader = !selected && label.length >= 5 && !/\\d/.test(label) &&
+        nextLabel && (/\\d/.test(nextLabel) || nextLabel.length <= 4);
+      if (looksHeader) {
+        flushGroup();
+        groupLabel = label;
+        continue;
+      }
+
+      if (groupLabel) {
+        groupOptions.push({ label, selected });
+        continue;
+      }
+
+      flushGroup();
+      groupLabel = label;
+      groupOptions.push({ label, selected: true });
+      flushGroup();
+    }
+    flushGroup();
+    return controls;
+  };
+
+  const clickModelRowEdit = (menu, targetId) => {
+    const row = findModelRowForId(menu, targetId);
+    if (!row) return false;
+    const edit = findEditButtonInRow(row);
+    if (!edit) return false;
+    edit.click();
+    return true;
+  };
+
+  const readModelRowOptions = (menu, targetId) => {
+    const row = findModelRowForId(menu, targetId);
+    const modelLabel = row ? labelOf(row) : '';
+    const panel = findModelOptionsPanel(menu);
+    const controls = parseModelOptionsPanel(panel);
+    return { rowId: targetId, modelLabel, controls };
+  };
+
+  const clickModelControl = (panel, controlId, value) => {
+    if (!panel || !controlId) return false;
+    if (controlId.startsWith('toggle::')) {
+      const wantLabel = controlId.slice(8).toLowerCase();
+      for (const row of optionRowsIn(panel)) {
+        const rowLabel = labelOf(row).toLowerCase();
+        if (rowLabel !== wantLabel) continue;
+        const sw = row.querySelector('[role="switch"]');
+        if (!sw) return false;
+        const isOn = toggleLooksOn(row);
+        const wantOn = value === undefined || value === null || value === ''
+          ? !isOn
+          : (value === true || value === 'true');
+        if (isOn !== wantOn) sw.click();
+        return true;
+      }
+      return false;
+    }
+    if (controlId.startsWith('choice::')) {
+      const rest = controlId.slice(8);
+      const parts = rest.split('::');
+      const targetValue = (value || parts[1] || '').toString().trim().toLowerCase();
+      if (!targetValue) return false;
+      for (const row of optionRowsIn(panel)) {
+        const rowLabel = labelOf(row).toLowerCase();
+        if (rowLabel !== targetValue) continue;
+        const clickable = row.querySelector('.composer-unified-context-menu-item') || row;
+        clickable.click();
+        return true;
+      }
+      return false;
+    }
+    return false;
   };
 `;
 
@@ -1013,41 +1325,164 @@ export class CommandExecutor {
 
   async setMode(commandId: string, modeId: string): Promise<CommandResult> {
     return this.withRetry(commandId, async (client) => {
-      const strategies = this.selectors.modeDropdown?.strategies ?? [];
+      await this.openModeMenu(client);
 
-      // Click trigger dropdown to open menu
-      const opened = await client.evaluate(`
-        (() => {
-          const strategies = ${JSON.stringify(strategies)};
-          for (const sel of strategies) {
-            try {
-              const el = document.querySelector(sel);
-              if (el) { el.click(); return true; }
-            } catch {}
-          }
-          return false;
-        })()
-      `) as boolean;
-      if (!opened) throw new Error('Mode dropdown not found');
-
-      await sleep(250);
-
-      // Click mode item whose ID ends with modeId
       const selected = await client.evaluate(`
         (() => {
-          const modeId = ${JSON.stringify(modeId)};
-          const items = document.querySelectorAll('[id*="composer-mode-"][id$="-' + modeId + '"]');
-          for (const item of Array.from(items)) {
-            const clickable = item.querySelector('.composer-unified-context-menu-item') || item;
-            clickable.click();
-            return true;
-          }
-          return false;
+          ${MODE_ITEM_HELPERS_JS}
+          return pickModeById(${JSON.stringify(modeId)});
         })()
       `) as boolean;
       if (!selected) throw new Error(`Mode "${modeId}" not found in dropdown`);
       logCommandOk(`mode=${modeId}`, commandCtx(commandId, { hint: modeId }));
     });
+  }
+
+  async getModeOptions(commandId: string): Promise<CommandResult> {
+    const result = await this.withRetryValue(commandId, async (client) => {
+      return await this.openModeMenuAndReadOptions(client);
+    });
+    if (!result.ok) return result;
+    return { commandId, ok: true, data: result.data };
+  }
+
+  async toggleModelAuto(commandId: string, on: boolean): Promise<CommandResult> {
+    const result = await this.withRetryValue(commandId, async (client) => {
+      await this.openModelMenu(client);
+      const clicked = await client.evaluate(`
+        (() => {
+          ${MODEL_MENU_LOOKUP_JS}
+          ${MODEL_ITEM_HELPERS_JS}
+          const menu = findModelMenu();
+          if (!menu) return false;
+          const autoRow = findAutoRow(menu);
+          if (!autoRow) return false;
+          const isOn = toggleLooksOn(autoRow);
+          if (isOn !== ${JSON.stringify(on)}) clickAutoToggleInRow(autoRow);
+          return true;
+        })()
+      `) as boolean;
+      if (!clicked) throw new Error('Auto toggle not found in model menu');
+      await sleep(300);
+      const snapshot = await client.evaluate(`
+        (() => {
+          ${MODEL_SNAPSHOT_READ_JS}
+          return readModelMenuSnapshot();
+        })()
+      `) as ModelOptionsSnapshot;
+      await client.pressKey('Escape', 'Escape', 27);
+      await sleep(100);
+      return snapshot;
+    });
+    if (!result.ok) return result;
+    return { commandId, ok: true, data: result.data };
+  }
+
+  async getModelRowOptions(commandId: string, modelId: string): Promise<CommandResult> {
+    const result = await this.withRetryValue(commandId, async (client) => {
+      await this.openModelMenu(client);
+      const edited = await client.evaluate(`
+        (() => {
+          ${MODEL_MENU_LOOKUP_JS}
+          ${MODEL_ITEM_HELPERS_JS}
+          ${MODEL_OPTIONS_HELPERS_JS}
+          const menu = findModelMenu();
+          if (!menu) return false;
+          return clickModelRowEdit(menu, ${JSON.stringify(modelId)});
+        })()
+      `) as boolean;
+      if (!edited) throw new Error('Edit button not found for model row');
+
+      let snapshot: ModelRowOptionsSnapshot | null = null;
+      for (let i = 0; i < 12; i++) {
+        await sleep(100);
+        snapshot = await client.evaluate(`
+          (() => {
+            ${MODEL_MENU_LOOKUP_JS}
+            ${MODEL_ITEM_HELPERS_JS}
+            ${MODEL_OPTIONS_HELPERS_JS}
+            const menu = findModelMenu();
+            if (!menu) return null;
+            return readModelRowOptions(menu, ${JSON.stringify(modelId)});
+          })()
+        `) as ModelRowOptionsSnapshot | null;
+        if (snapshot && snapshot.controls.length > 0) break;
+      }
+      if (!snapshot || snapshot.controls.length === 0) {
+        throw new Error('Model options panel not found');
+      }
+      await this.closeModelMenus(client);
+      logCommandOk(`rowOptions=${snapshot.controls.length}`, commandCtx(commandId, { hint: modelId }));
+      return snapshot;
+    });
+    if (!result.ok) return result;
+    return { commandId, ok: true, data: result.data };
+  }
+
+  async setModelControl(
+    commandId: string,
+    modelId: string,
+    controlId: string,
+    value?: string,
+  ): Promise<CommandResult> {
+    const result = await this.withRetryValue(commandId, async (client) => {
+      await this.openModelMenu(client);
+      const edited = await client.evaluate(`
+        (() => {
+          ${MODEL_MENU_LOOKUP_JS}
+          ${MODEL_ITEM_HELPERS_JS}
+          ${MODEL_OPTIONS_HELPERS_JS}
+          const menu = findModelMenu();
+          if (!menu) return false;
+          return clickModelRowEdit(menu, ${JSON.stringify(modelId)});
+        })()
+      `) as boolean;
+      if (!edited) throw new Error('Edit button not found for model row');
+
+      let panelReady = false;
+      for (let i = 0; i < 12; i++) {
+        await sleep(100);
+        panelReady = await client.evaluate(`
+          (() => {
+            ${MODEL_MENU_LOOKUP_JS}
+            ${MODEL_OPTIONS_HELPERS_JS}
+            const menu = findModelMenu();
+            return findModelOptionsPanel(menu) !== null;
+          })()
+        `) as boolean;
+        if (panelReady) break;
+      }
+      if (!panelReady) throw new Error('Model options panel not found');
+
+      const clicked = await client.evaluate(`
+        (() => {
+          ${MODEL_MENU_LOOKUP_JS}
+          ${MODEL_ITEM_HELPERS_JS}
+          ${MODEL_OPTIONS_HELPERS_JS}
+          const menu = findModelMenu();
+          const panel = findModelOptionsPanel(menu);
+          return clickModelControl(panel, ${JSON.stringify(controlId)}, ${JSON.stringify(value ?? '')});
+        })()
+      `) as boolean;
+      if (!clicked) throw new Error('Model control not found in options panel');
+
+      await sleep(250);
+      const snapshot = await client.evaluate(`
+        (() => {
+          ${MODEL_MENU_LOOKUP_JS}
+          ${MODEL_ITEM_HELPERS_JS}
+          ${MODEL_OPTIONS_HELPERS_JS}
+          const menu = findModelMenu();
+          if (!menu) return null;
+          return readModelRowOptions(menu, ${JSON.stringify(modelId)});
+        })()
+      `) as ModelRowOptionsSnapshot;
+      await this.closeModelMenus(client);
+      logCommandOk(`control=${controlId}`, commandCtx(commandId, { hint: modelId }));
+      return snapshot;
+    });
+    if (!result.ok) return result;
+    return { commandId, ok: true, data: result.data };
   }
 
   async clickAction(commandId: string, selectorPath: string): Promise<CommandResult> {
@@ -1191,42 +1626,9 @@ export class CommandExecutor {
 
   async setModel(commandId: string, modelId: string): Promise<CommandResult> {
     return this.withRetry(commandId, async (client) => {
-      const strategies = this.selectors.modelDropdown?.strategies ?? [];
+      await this.openModelMenu(client);
 
-      // Step 1: open dropdown via JS .click() (like setMode).
-      // Skip trigger with id `plan-exec-model*` (plan-execution picker,
-      // not composer model picker) — same filter as openModelMenuAndReadOptions.
-      const opened = await client.evaluate(`
-        (() => {
-          const strategies = ${JSON.stringify(strategies)};
-          for (const sel of strategies) {
-            try {
-              const candidates = document.querySelectorAll(sel);
-              for (const c of Array.from(candidates)) {
-                const cId = c.getAttribute('id') || '';
-                if (cId.startsWith('plan-exec-model')) continue;
-                c.click();
-                return true;
-              }
-            } catch {}
-          }
-          return false;
-        })()
-      `) as boolean;
-      if (!opened) throw new Error('Model dropdown trigger not found');
-
-      await sleep(300);
-
-      // Step 2: verify menu opened
-      const menuVisible = await client.evaluate(`
-        (() => {
-          ${MODEL_MENU_LOOKUP_JS}
-          return findModelMenu() !== null;
-        })()
-      `) as boolean;
-      if (!menuVisible) throw new Error('Model picker did not open');
-
-      // Step 3: find and click model via shared helper —
+      // Find and click model via shared helper —
       // setModel, setPlanModel, web client and Telegram resolve the same way.
       const selected = await client.evaluate(`
         (() => {
@@ -1374,6 +1776,104 @@ export class CommandExecutor {
     return { commandId, ok: false, error: lastError };
   }
 
+  private async openModeMenu(client: CdpClient): Promise<void> {
+    const strategies = this.selectors.modeDropdown?.strategies ?? [];
+    const opened = await client.evaluate(`
+      (() => {
+        const strategies = ${JSON.stringify(strategies)};
+        for (const sel of strategies) {
+          try {
+            const el = document.querySelector(sel);
+            if (el) { el.click(); return true; }
+          } catch {}
+        }
+        return false;
+      })()
+    `) as boolean;
+    if (!opened) throw new Error('Mode dropdown not found');
+    await sleep(300);
+  }
+
+  private async openModeMenuAndReadOptions(client: CdpClient): Promise<{ options: ModeOption[] }> {
+    await this.openModeMenu(client);
+    const options = await client.evaluate(`
+      (() => {
+        ${MODE_ITEM_HELPERS_JS}
+        return collectModeItems();
+      })()
+    `) as ModeOption[];
+    await client.pressKey('Escape', 'Escape', 27);
+    await sleep(100);
+    return { options };
+  }
+
+  private async closeModelMenuIfOpen(client: CdpClient): Promise<void> {
+    const open = await client.evaluate(`
+      (() => {
+        ${MODEL_MENU_LOOKUP_JS}
+        return findModelMenu() !== null;
+      })()
+    `) as boolean;
+    if (open) {
+      await client.pressKey('Escape', 'Escape', 27);
+      await sleep(150);
+    }
+  }
+
+  private async closeModelMenus(client: CdpClient): Promise<void> {
+    for (let i = 0; i < 4; i++) {
+      const open = await client.evaluate(`
+        (() => {
+          ${MODEL_MENU_LOOKUP_JS}
+          ${MODEL_OPTIONS_HELPERS_JS}
+          const menu = findModelMenu();
+          const panel = findModelOptionsPanel(menu);
+          return menu !== null || panel !== null;
+        })()
+      `) as boolean;
+      if (!open) return;
+      await client.pressKey('Escape', 'Escape', 27);
+      await sleep(120);
+    }
+  }
+
+  private async openModelMenu(client: CdpClient): Promise<void> {
+    await this.closeModelMenuIfOpen(client);
+    const strategies = this.selectors.modelDropdown?.strategies ?? [];
+    const opened = await client.evaluate(`
+      (() => {
+        const strategies = ${JSON.stringify(strategies)};
+        for (const sel of strategies) {
+          try {
+            const candidates = document.querySelectorAll(sel);
+            for (const c of Array.from(candidates)) {
+              const cId = c.getAttribute('id') || '';
+              if (cId.startsWith('plan-exec-model')) continue;
+              if (c.getAttribute('aria-expanded') === 'true') return true;
+              c.scrollIntoView({ block: 'center', behavior: 'instant' });
+              c.click();
+              return true;
+            }
+          } catch {}
+        }
+        return false;
+      })()
+    `) as boolean;
+    if (!opened) throw new Error('Model dropdown trigger not found');
+
+    for (let i = 0; i < 10; i++) {
+      await sleep(100);
+      const menuVisible = await client.evaluate(`
+        (() => {
+          ${MODEL_MENU_LOOKUP_JS}
+          return findModelMenu() !== null;
+        })()
+      `) as boolean;
+      if (menuVisible) return;
+    }
+    throw new Error('Model picker did not open');
+  }
+
   private async openPlanModelMenu(client: CdpClient, selectorPath: string): Promise<void> {
     const opened = await client.evaluate(`
       (() => {
@@ -1418,50 +1918,19 @@ export class CommandExecutor {
 
   private async openModelMenuAndReadOptions(
     client: CdpClient
-  ): Promise<{ options: PlanModelOption[] }> {
-    const strategies = this.selectors.modelDropdown?.strategies ?? [];
+  ): Promise<ModelOptionsSnapshot> {
+    await this.openModelMenu(client);
 
-    const opened = await client.evaluate(`
+    const snapshot = await client.evaluate(`
       (() => {
-        const strategies = ${JSON.stringify(strategies)};
-        for (const sel of strategies) {
-          try {
-            const candidates = document.querySelectorAll(sel);
-            for (const c of Array.from(candidates)) {
-              const cId = c.getAttribute('id') || '';
-              if (!cId.startsWith('plan-exec-model')) {
-                c.click();
-                return true;
-              }
-            }
-          } catch {}
-        }
-        return false;
+        ${MODEL_SNAPSHOT_READ_JS}
+        return readModelMenuSnapshot();
       })()
-    `) as boolean;
-    if (!opened) throw new Error('Model dropdown trigger not found');
-
-    await sleep(300);
-
-    const menuVisible = await client.evaluate(`
-      (() => {
-        ${MODEL_MENU_LOOKUP_JS}
-        return findModelMenu() !== null;
-      })()
-    `) as boolean;
-    if (!menuVisible) throw new Error('Model picker did not open');
-
-    const options = await client.evaluate(`
-      (() => {
-        ${MODEL_MENU_LOOKUP_JS}
-        ${MODEL_ITEM_HELPERS_JS}
-        return collectModelItems(findModelMenu());
-      })()
-    `) as PlanModelOption[];
+    `) as ModelOptionsSnapshot;
 
     await client.pressKey('Escape', 'Escape', 27);
     await sleep(100);
-    return { options };
+    return snapshot;
   }
 
   private async findFirstMatchingSelector(

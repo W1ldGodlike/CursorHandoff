@@ -1698,12 +1698,7 @@ export function extractionFunction(
     }
     const mode: ModeInfo = {
       current: currentMode,
-      available: [
-        { id: 'agent', label: 'Agent', icon: 'infinity' },
-        { id: 'plan', label: 'Plan', icon: 'todos' },
-        { id: 'debug', label: 'Debug', icon: 'bug' },
-        { id: 'chat', label: 'Ask', icon: 'chat' },
-      ],
+      available: [],
     };
 
     // --- Model extraction ---
