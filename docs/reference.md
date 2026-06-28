@@ -1,6 +1,6 @@
 # Reference
 
-Lookup for CursorHandoff **1.0.1**: extension commands, settings, security defaults, runtime files, and the health API.
+Lookup for CursorHandoff **1.1.0**: extension commands, settings, security defaults, runtime files, and the health API.
 
 User guides: [Getting started guide](guide.md), [Telegram bridge guide](telegram.md).
 

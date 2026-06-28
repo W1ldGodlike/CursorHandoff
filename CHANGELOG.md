@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-06-28
+
 ### Fixed
 
 - **Window hang recovery** — Auto-close applies only to the home CDP target after repeated main extraction failures; parallel-polled aux windows (e.g. Cursor Agents) are no longer closed after null polls.
