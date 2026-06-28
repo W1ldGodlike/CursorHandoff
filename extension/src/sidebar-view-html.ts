@@ -371,7 +371,7 @@ export function renderSidebarHtml(
   <div class="divider"></div>
   ${actionRow('openHandoffSettings', '⚙', t('ext.sidebar.settings', 'Settings'))}
   ${actionRow('openWebClient', '↗', t('ext.sidebar.openWebClient', 'Open web client'))}
-  ${actionRow('showLogs', '≡', t('ext.sidebar.showLogs', 'Show logs'))}
+  ${actionRow('showLogs', '≡', t('ext.sidebar.showLogs', 'Handoff log'))}
   ${actionRow('testCdp', '⎔', t('ext.sidebar.testCdp', 'Test CDP'))}
   ${actionRow('testTelegram', '✈', t('ext.sidebar.testTelegram', 'Test Telegram bot'))}
   <script>

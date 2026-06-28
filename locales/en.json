@@ -513,6 +513,7 @@
   "ext.server.staleBundle": "CursorHandoff: server started with STALE bundle — see Output / server.log",
   "ext.server.staleKeyboards": "Detected OLD code (auto-keyboards on connect) — rebuild bundle + Reload Window",
   "ext.output.openedHint": "CursorHandoff: Output panel opened. Select the «CursorHandoff» channel if empty.",
+  "ext.output.mergedMissing": "CursorHandoff: merged log not ready yet — start the server; visor writes data/handoff.log every few seconds.",
   "ext.cloud.uninstallFailed": "Could not remove cloudflared via winget. Stop the tunnel manually or: winget uninstall Cloudflare.cloudflared",
 
   "ext.sidebar.version": "CursorHandoff v{version}",
@@ -539,7 +540,7 @@
   "ext.sidebar.pendingApprovals": "Pending approve:",
   "ext.sidebar.settings": "Settings",
   "ext.sidebar.openWebClient": "Open web client",
-  "ext.sidebar.showLogs": "Show logs",
+  "ext.sidebar.showLogs": "Handoff log",
   "ext.sidebar.testCdp": "Test CDP",
   "ext.sidebar.testTelegram": "Test Telegram bot",
   "ext.sidebar.testTelegramNoToken": "Save a bot token in Handoff settings first.",

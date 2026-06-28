@@ -10,7 +10,7 @@ import { type TopicMapping } from '../topics/manager.js';
 import { resolveTargetWindow } from '../routing/window-resolver.js';
 import type { StateManager } from '../../state/broadcast.js';
 import { getDataDir } from '../../core/paths.js';
-import { logInfo, logWarn } from '../../core/log-event.js';
+import { logInfo, logWarn, sanitizeErrorForUser } from '../../core/log-event.js';
 import type { LogContext } from '../../core/log-event.js';
 import { saveInboundFromTelegram } from '../../media/lifecycle.js';
 import { isInboundImagePath, isSupportedImageMime } from '../../media/lifecycle.js';
@@ -348,7 +348,7 @@ export async function processInboundFileRelay(ctx: BotContext, deps: CommandDeps
       } else if (result.error === EMPTY_FORCE_ERROR()) {
         await ctx.reply(emptyForceMessage());
       } else {
-        await ctx.reply(`⚠️ ${result.error ?? t('tg.msg.photo.sendFailed', 'Could not send to Cursor')}`);
+        await ctx.reply(`⚠️ ${sanitizeErrorForUser(result.error ?? t('tg.msg.photo.sendFailed', 'Could not send to Cursor'))}`);
       }
     },
   });
@@ -430,7 +430,7 @@ async function ensureMappingTabActive(
     mappingComposer ? { composerId: mappingComposer } : undefined,
   );
   if (!tabResult.ok) {
-    return { ok: false, error: tabResult.error ?? t('tg.msg.err.switchTabInbound', 'Could not switch tab') };
+    return { ok: false, error: sanitizeErrorForUser(tabResult.error ?? t('tg.msg.err.switchTabInbound', 'Could not switch tab')) };
   }
 
   const deadline = Date.now() + 2000;
@@ -481,21 +481,21 @@ async function deliverQuestionnaireFreeformToCursor(
       await deps.cdpBridge.switchWindow(targetWin.id);
       await sleep(1500);
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return { ok: false, error: sanitizeErrorForUser(err instanceof Error ? err.message : String(err)) };
     }
   }
   deps.windowMonitor.setHomeWindow(targetWin.id);
 
   const tabReady = await ensureMappingTabActive(mapping, deps, commandId);
   if (!tabReady.ok) {
-    return { ok: false, error: tabReady.error };
+    return { ok: false, error: sanitizeErrorForUser(tabReady.error ?? 'unknown') };
   }
 
   const clickResult = await deps.commandExecutor.clickQuestionnaire(commandId, { letter });
   if (!clickResult.ok) {
     return {
       ok: false,
-      error: clickResult.error ?? t('tg.msg.questionnaireFreeform.clickFailed', 'Could not open Other field'),
+      error: sanitizeErrorForUser(clickResult.error ?? t('tg.msg.questionnaireFreeform.clickFailed', 'Could not open Other field')),
     };
   }
   await sleep(400);
@@ -514,7 +514,7 @@ async function deliverQuestionnaireFreeformToCursor(
 
   const setResult = await deps.commandExecutor.setQuestionnaireFreeform(commandId, selectorPath, trimmed);
   if (!setResult.ok) {
-    return { ok: false, error: setResult.error ?? t('tg.msg.err.sendFailed', 'Could not send') };
+    return { ok: false, error: sanitizeErrorForUser(setResult.error ?? t('tg.msg.err.sendFailed', 'Could not send')) };
   }
 
   logInfo(
@@ -605,7 +605,7 @@ export async function dispatchTopicMessage(
       await deps.cdpBridge.switchWindow(targetWin.id);
       await sleep(1500);
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return { ok: false, error: sanitizeErrorForUser(err instanceof Error ? err.message : String(err)) };
     }
   }
   deps.windowMonitor.setHomeWindow(targetWin.id);
@@ -616,7 +616,7 @@ export async function dispatchTopicMessage(
       threadId: mapping.threadId,
       windowId: mapping.windowId,
     }));
-    return { ok: false, error: tabReady.error };
+    return { ok: false, error: sanitizeErrorForUser(tabReady.error ?? 'unknown') };
   }
 
   const hasImages = (imagePaths?.length ?? 0) > 0;
@@ -651,7 +651,7 @@ export async function dispatchTopicMessage(
       threadId: mapping.threadId,
       windowId: mapping.windowId,
     }));
-    return { ok: false, error: result.error ?? t('tg.msg.err.sendFailed', 'Could not send') };
+    return { ok: false, error: sanitizeErrorForUser(result.error ?? t('tg.msg.err.sendFailed', 'Could not send')) };
   }
   logInfo(
     'TG_DISPATCH_OK',
@@ -726,7 +726,7 @@ async function drainQueueFileRelayItem(
     markFailed(getDataDir(), item.id, result.error ?? 'file relay drain failed');
     await deps.api.sendMessage(
       item.chatId,
-      t('tg.msg.queue.fileForwardFailed', '⚠️ File forward: could not send file: {error}', { error: result.error ?? 'unknown' }),
+      t('tg.msg.queue.fileForwardFailed', '⚠️ File forward: could not send file: {error}', { error: sanitizeErrorForUser(result.error ?? 'unknown') }),
       { message_thread_id: item.threadId },
     );
     return 'skip';
@@ -770,7 +770,7 @@ export async function processPendingQueue(deps: CommandDeps): Promise<void> {
           markFailed(dataDir, item.id, msg);
           await deps.api.sendMessage(
             item.chatId,
-            t('tg.msg.queue.cmdFailed', '⚠️ Command /{cmd}: {error}', { cmd: menuCmd, error: msg }),
+            t('tg.msg.queue.cmdFailed', '⚠️ Command /{cmd}: {error}', { cmd: menuCmd, error: sanitizeErrorForUser(msg) }),
             { message_thread_id: item.threadId },
           );
         }
@@ -819,7 +819,7 @@ export async function processPendingQueue(deps: CommandDeps): Promise<void> {
           await deps.api.sendMessage(
             item.chatId,
             t('tg.msg.queue.itemFailed', '⚠️ Could not run: {error}', {
-              error: freeformResult.error ?? 'unknown',
+              error: sanitizeErrorForUser(freeformResult.error ?? 'unknown'),
             }),
             { message_thread_id: item.threadId },
           );
@@ -868,7 +868,7 @@ export async function processPendingQueue(deps: CommandDeps): Promise<void> {
         markFailed(dataDir, item.id, result.error ?? 'Unknown error');
         await deps.api.sendMessage(
           item.chatId,
-          t('tg.msg.queue.itemFailed', '⚠️ Could not run: {error}', { error: result.error ?? 'unknown' }),
+          t('tg.msg.queue.itemFailed', '⚠️ Could not run: {error}', { error: sanitizeErrorForUser(result.error ?? 'unknown') }),
           { message_thread_id: item.threadId }
         );
         continue;
@@ -964,7 +964,7 @@ export async function handleTextMessage(ctx: BotContext, deps: CommandDeps): Pro
       if (result.ok) {
         await ctx.reply(t('tg.msg.questionnaireFreeform.sentOk', '✅ Answer added to the survey.'));
       } else {
-        await ctx.reply(`⚠️ ${result.error ?? t('tg.msg.err.sendFailed', 'Could not send')}`);
+        await ctx.reply(`⚠️ ${sanitizeErrorForUser(result.error ?? t('tg.msg.err.sendFailed', 'Could not send'))}`);
       }
       return;
     }
@@ -983,7 +983,7 @@ export async function handleTextMessage(ctx: BotContext, deps: CommandDeps): Pro
         } else if (result.error === EMPTY_FORCE_ERROR()) {
           await ctx.reply(emptyForceMessage());
         } else {
-          await ctx.reply(`⚠️ ${result.error ?? t('tg.msg.photo.sendFailed', 'Could not send to Cursor')}`);
+          await ctx.reply(`⚠️ ${sanitizeErrorForUser(result.error ?? t('tg.msg.photo.sendFailed', 'Could not send to Cursor'))}`);
         }
       },
     });
@@ -1020,7 +1020,7 @@ export async function handleTextMessage(ctx: BotContext, deps: CommandDeps): Pro
 
   const open = deps.stateManager.getCurrentState().windows.map(w => w.title).join(', ') || 'none';
   await ctx.reply(
-    t('tg.msg.inbound.error', '⚠️ {error}\n\nOpen now: {windows}', { error: result.error ?? 'Error', windows: open }),
+    t('tg.msg.inbound.error', '⚠️ {error}\n\nOpen now: {windows}', { error: sanitizeErrorForUser(result.error ?? 'Error'), windows: open }),
     { parse_mode: 'HTML' },
   );
 }

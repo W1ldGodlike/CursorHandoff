@@ -5,7 +5,7 @@ import {
   normalizeComposerId,
 } from '../topics/guards.js';
 import { normalizeWindowTitle, type TopicManager, type TopicMapping } from '../topics/manager.js';
-import { logInfo, logWarn } from '../../core/log-event.js';
+import { logInfo, logWarn, sanitizePathForUi } from '../../core/log-event.js';
 import type { LogContext } from '../../core/log-event.js';
 
 export interface OutboundThreadResolution {
@@ -99,7 +99,7 @@ export function shouldSkipGhostWindowSnapshot(
           windowTitle: snapshot.windowTitle,
           threadId: owner.threadId,
           composerId: stable,
-          hint: `${normPath(owner.workspacePath)} ≠ ${normPath(snapshot.workspacePath)}`,
+          hint: `${sanitizePathForUi(normPath(owner.workspacePath))} ≠ ${sanitizePathForUi(normPath(snapshot.workspacePath))}`,
         }),
       );
       return true;
@@ -285,11 +285,11 @@ export function resolveOutboundTarget(opts: {
   if (candidates.length === 0) {
     logWarn(
       'TG_OUTBOUND_TARGET_MISS',
-      `no mapping for workspace ${wsNorm}${stable ? ` composer ${stable.substring(0, 8)}` : ''}`,
+      `no mapping for workspace ${sanitizePathForUi(wsNorm)}${stable ? ` composer ${stable.substring(0, 8)}` : ''}`,
       outboundCtx('resolve_target', {
         windowId,
         composerId: stable,
-        hint: workspacePath,
+        hint: sanitizePathForUi(workspacePath),
       }),
     );
     return null;

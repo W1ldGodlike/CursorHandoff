@@ -46,7 +46,7 @@ export interface TopicMapping {
 const persistPath = () => `${getDataDir()}/telegram-topics.json`;
 
 function topicCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
-  return { scope: 'telegram', op, hint: persistPath(), ...extra };
+  return { scope: 'telegram', op, hint: sanitizePathForUi(persistPath()), ...extra };
 }
 
 function formatErrDetail(err: unknown): string {

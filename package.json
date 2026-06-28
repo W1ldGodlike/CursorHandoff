@@ -49,7 +49,7 @@
       },
       {
         "command": "cursorHandoff.showLogs",
-        "title": "CursorHandoff: Show logs"
+        "title": "CursorHandoff: Handoff log"
       },
       {
         "command": "cursorHandoff.openHandoffSettings",

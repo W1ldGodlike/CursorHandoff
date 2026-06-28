@@ -14,7 +14,7 @@ import {
 import { isGeneralChat } from '../ui/menus.js';
 import type { BotContext } from '../types.js';
 import { t } from '../../i18n/t.js';
-import { logError, logInfo, logWarn, normalizeError } from '../../core/log-event.js';
+import { logError, logInfo, logWarn, normalizeError, sanitizeErrorForUser } from '../../core/log-event.js';
 import type { LogContext } from '../../core/log-event.js';
 import {
   type CommandDeps,
@@ -175,7 +175,7 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
       if (!result.ok) {
         logWarn('TG_CALLBACK_MODE_FAIL', `setMode failed: ${result.error ?? 'unknown'}`, callbackCtx(ctx, 'callback', { hint: 'mode' }));
       }
-      await ctx.answerCallbackQuery({ text: result.ok ? t('tg.msg.callback.modeOk', 'Mode: {mode}', { mode: id }) : t('tg.msg.callback.modeErr', 'Error: {error}', { error: result.error ?? 'unknown' }) });
+      await ctx.answerCallbackQuery({ text: result.ok ? t('tg.msg.callback.modeOk', 'Mode: {mode}', { mode: id }) : t('tg.msg.callback.modeErr', 'Error: {error}', { error: sanitizeErrorForUser(result.error ?? 'unknown') }) });
       if (result.ok) {
         await ctx.editMessageText(t('tg.msg.mode.current', '<b>Current mode:</b> {mode}', { mode: escapeHtml(id) }), { parse_mode: 'HTML' });
         const threadId = resolveTopicThreadId(ctx);
@@ -220,7 +220,7 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
       if (!result.ok) {
         logWarn('TG_CALLBACK_MODEL_FAIL', `setModel failed: ${result.error ?? 'unknown'}`, callbackCtx(ctx, 'callback', { hint: 'model' }));
       }
-      await ctx.answerCallbackQuery({ text: result.ok ? t('tg.msg.callback.modelOk', 'Model: {model}', { model: label }) : t('tg.msg.callback.modeErr', 'Error: {error}', { error: result.error ?? 'unknown' }) });
+      await ctx.answerCallbackQuery({ text: result.ok ? t('tg.msg.callback.modelOk', 'Model: {model}', { model: label }) : t('tg.msg.callback.modeErr', 'Error: {error}', { error: sanitizeErrorForUser(result.error ?? 'unknown') }) });
       if (result.ok) {
         await ctx.editMessageText(t('tg.msg.model.current', '<b>Current model:</b> {model}', { model: escapeHtml(label) }), { parse_mode: 'HTML' });
       }
@@ -322,7 +322,7 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
         qco: t('tg.msg.callback.qContinue', 'Continue'),
       };
       await ctx.answerCallbackQuery({
-        text: result.ok ? qNames[action] ?? action : t('tg.msg.callback.modeErr', 'Error: {error}', { error: result.error ?? 'unknown' }),
+        text: result.ok ? qNames[action] ?? action : t('tg.msg.callback.modeErr', 'Error: {error}', { error: sanitizeErrorForUser(result.error ?? 'unknown') }),
       });
       if (result.ok && chatId != null && threadId != null) {
         if (action === 'qff') {
@@ -400,7 +400,7 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
       alw: t('tg.msg.callback.allowlist', 'Allowlist'),
       bld: t('tg.msg.callback.build', 'Build'),
     };
-    await ctx.answerCallbackQuery({ text: result.ok ? names[action] ?? action : t('tg.msg.callback.modeErr', 'Error: {error}', { error: result.error ?? 'unknown' }) });
+    await ctx.answerCallbackQuery({ text: result.ok ? names[action] ?? action : t('tg.msg.callback.modeErr', 'Error: {error}', { error: sanitizeErrorForUser(result.error ?? 'unknown') }) });
     if (!result.ok) {
       const code = action === 'apr' || action === 'rej' || action === 'all'
         ? 'TG_CALLBACK_APPROVAL_FAIL'
@@ -410,7 +410,7 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
   } catch (err) {
     const norm = normalizeError(err);
     logError('TG_CALLBACK_FAIL', formatErrDetail(err), callbackCtx(ctx, 'callback', { hint: action, errno: norm.errno }));
-    await ctx.answerCallbackQuery({ text: t('tg.msg.callback.error', 'Error: {error}', { error: err instanceof Error ? err.message : String(err) }) });
+    await ctx.answerCallbackQuery({ text: t('tg.msg.callback.error', 'Error: {error}', { error: sanitizeErrorForUser(err instanceof Error ? err.message : String(err)) }) });
   }
 }
 function buildOutboxWatcherDeps(deps: CommandDeps): OutboxWatcherDeps {

@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **compatVersion gate (extension)** — Before spawning `bundle.mjs`, verify `build-manifest.json`, `dist/compat-version.json`, and package version align; block spawn with one clear error on mismatch.
 - **Cursor upgrade advisory** — Warns when running Cursor ≠ `testedCursorVersion` (pinned at `npm run package` via `scripts/build/pin-cursor-compat.mjs` / `resolve-cursor-version.mjs`). Extension writes `data/cursor-host.json` from `cursor.version` before spawn; `/health` exposes `cursorUpgradeAdvisory`, `cursorVersion`, `testedCursorVersion`, and `cursorUpgradeServerNotifyAt`. **Extension** — toast after CDP is healthy; **Telegram** — # General post (with retry after redeploy dedupe window); **web** — dismissible banner until the next notify wave. Dedup: `data/cursor-upgrade-server-notify.json` — one notify per channel per server `pid`, 120s blocks redeploy double-posts (same window as startup OK). Locales: `ext.cursorUpgrade.*`, `web.cursorUpgrade.*`, `tg.msg.cursorUpgrade`.
-- **Handoff settings probes** — **Test CDP** and **Test Telegram bot** in sidebar (under Show logs); `getMe` / CDP `/json` without starting the server.
+- **Handoff settings probes** — **Test CDP** and **Test Telegram bot** in sidebar (under Handoff log); `getMe` / CDP `/json` without starting the server.
 - **Approve sound (web)** — Optional setting in ⚙ (default off): short tone when a pending approve appears.
 - **`/thread_status` metrics** — Reply now includes composer queue length and pending approve count for the bound chat.
 - **Restart server (sidebar)** — Owner gets one-click stop → start next to the power control.
@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Tunnel stop (Handoff settings)** — Stop runs the script synchronously, clears `web-tunnel-url.json`, shows a toast, and refreshes status immediately.
 - **Tunnel start (Handoff settings)** — Start waits for the script to finish (pid + URL), updates sidebar via `refreshAddons`, then shows success or failure toast.
 - **Logging test coverage** — 3100+ unit tests assert stable `code=` tails, context helpers, and path matrices across server, Telegram, CDP, extension, and Wake zones.
+- **Safe log strings (p.3)** — `sanitizeLogForUi` / `sanitizeErrorForUser` redact secrets and shorten home paths in extension Output, `handoff-server.log`, Telegram replies, and web errors. Structured JSON disk lines skip re-sanitization in `writeLog` so TG/HTML previews stay valid JSON.
+- **Unified Handoff log (p.4)** — Server **visor** (`log-visor.ts`) tail-merges `handoff-server.log`, `handoff-ext.log`, and optional `cursor-wake.log` into `data/handoff.log` every 4 s. Each line: `[server]` / `[ext]` / `[wake]`, local `DD.MM.YYYY HH:mm:ss:SSS`, then JSON (`ts` unix ms inside). Extension mirrors extension-native lines to `handoff-ext.log`; server stdout uses a separate pipe (not ext disk). Sidebar **Handoff log** opens the merged file in the editor (scroll to end); Cursor reloads the tab as the visor appends.
 
 ### Changed
 
@@ -43,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Log grep guide** — `docs/development.md` documents real event codes (`TG_POLL_ERROR`/`CONFLICT`, `CDP_*`, `QUEUE_*`, `WAKE_*`) instead of stale examples.
 - **CursorWake logs** — `docs/guide.md` and `docs/reference.md` note `code=WAKE_*` tails in `cursor-wake.log`.
+- **Handoff log docs** — `docs/guide.md`, `docs/reference.md`, and `docs/development.md` describe merged `handoff.log`, visor sources, and the **Handoff log** sidebar command (replaces legacy “Show logs” / AppData extension log).
 
 ### Build
 

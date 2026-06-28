@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { logInfo, logWarn, normalizeError } from '../core/log-event.js';
+import { logInfo, logWarn, normalizeError, sanitizePathForUi } from '../core/log-event.js';
 import type { LogContext } from '../core/log-event.js';
 
 export type QueueItemStatus = 'pending' | 'processing' | 'done' | 'failed';
@@ -59,10 +59,10 @@ export function loadQueue(dataDir: string): PendingQueueFile {
     if ((raw.version === 1 || raw.version === 2) && Array.isArray(raw.items)) {
       return { version: QUEUE_VERSION, items: raw.items };
     }
-    logWarn('QUEUE_LOAD_INVALID', 'pending queue file invalid shape', queueCtx('load', { hint: path }));
+    logWarn('QUEUE_LOAD_INVALID', 'pending queue file invalid shape', queueCtx('load', { hint: sanitizePathForUi(path) }));
   } catch (err) {
     const norm = normalizeError(err);
-    logWarn('QUEUE_LOAD_FAIL', norm.message, queueCtx('load', { errno: norm.errno, hint: path }));
+    logWarn('QUEUE_LOAD_FAIL', norm.message, queueCtx('load', { errno: norm.errno, hint: sanitizePathForUi(path) }));
   }
   return emptyQueue();
 }

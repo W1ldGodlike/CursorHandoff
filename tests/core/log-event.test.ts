@@ -10,6 +10,9 @@ import {
   resetLogDedupe,
   sanitizePathForUi,
   shouldEmitLog,
+  isStructuredLogLine,
+  sanitizeErrorForUser,
+  sanitizeLogForUi,
 } from '../../src/core/log-event.js';
 
 describe('log-event', () => {
@@ -35,6 +38,67 @@ describe('log-event', () => {
     const home = process.env.USERPROFILE ?? process.env.HOME ?? 'C:\\Users\\test';
     const raw = `${home}\\Projects\\foo`;
     assert.equal(sanitizePathForUi(raw), '~/Projects/foo');
+  });
+
+  it('formatEvent sanitizes hint paths in human line', () => {
+    const home = process.env.USERPROFILE ?? process.env.HOME ?? 'C:\\Users\\test';
+    const { human } = formatEvent('warn', 'QUEUE_LOAD_FAIL', 'load failed', {
+      scope: 'queue',
+      op: 'load',
+      hint: `${home}\\Projects\\foo\\data\\queue.json`,
+    });
+    assert.match(human, /hint=~\/Projects\/foo/);
+    assert.ok(!human.includes(home));
+  });
+
+  it('formatEvent sanitizes lowercase home paths in human line', () => {
+    if (process.platform !== 'win32') return;
+    const home = process.env.USERPROFILE ?? '';
+    if (!home) return;
+    const lower = home.replace(/^([A-Z]):/, (_, d) => `${d.toLowerCase()}:`);
+    const { human } = formatEvent('info', 'STARTUP_OK', 'boot', {
+      scope: 'startup',
+      op: 'boot',
+      hint: `${lower}\\Projects\\foo\\data`,
+    });
+    assert.match(human, /hint=~\/Projects\/foo/);
+    assert.ok(!human.toLowerCase().includes(lower.toLowerCase()));
+  });
+
+  it('isStructuredLogLine detects logEvent JSON', () => {
+    const line = JSON.stringify({ level: 'info', code: 'STARTUP_OK', msg: 'boot' });
+    assert.equal(isStructuredLogLine(line), true);
+    assert.equal(isStructuredLogLine('plain banner'), false);
+    assert.equal(isStructuredLogLine(JSON.stringify({ msg: 'no code' })), false);
+  });
+
+  it('formatEvent sanitizes paths and secrets in json fields', () => {
+    const home = process.env.USERPROFILE ?? process.env.HOME ?? 'C:\\Users\\test';
+    const token = '12345678:ABCDEFghijklmnopqrstuvwxyz123456';
+    const { human, json } = formatEvent('info', 'STARTUP_OK', `boot ${token}`, {
+      scope: 'startup',
+      op: 'boot',
+      hint: `logs: ${home}\\Projects\\foo\\data`,
+    });
+    assert.ok(!String(json.msg).includes(home));
+    assert.ok(!String(json.msg).includes('ABCDEFghijklmnopqrstuvwxyz123456'));
+    assert.match(String(json.hint), /~\/Projects\/foo/);
+    assert.ok(!String(json.hint).includes(home));
+    assert.ok(!human.includes(home));
+  });
+
+  it('sanitizeLogForUi must not be applied to JSON logEvent lines on disk', () => {
+    const msg = 'msgId=66480 /"<i>test</i>/"';
+    const line = JSON.stringify({ ts: 1, level: 'info', code: 'TG_API_SEND_OK', msg });
+    assert.ok(isStructuredLogLine(line));
+    assert.ok(!isStructuredLogLine(sanitizeLogForUi(line)), 'sanitizeLogForUi corrupts JSON — writeLog must skip it');
+  });
+
+  it('sanitizeErrorForUser masks secrets and paths', () => {
+    const home = process.env.USERPROFILE ?? process.env.HOME ?? 'C:\\Users\\test';
+    const out = sanitizeErrorForUser(`ENOENT unlink ${home}\\Projects\\x token=12345678:ABCDEFghijklmnopqrstuvwxyz123456`);
+    assert.ok(!out.includes(home));
+    assert.ok(!out.includes('ABCDEFghijklmnopqrstuvwxyz123456'));
   });
 
   it('parseCodeFromLine extracts stable code', () => {

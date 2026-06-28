@@ -1,5 +1,5 @@
 import { appendFileSync, readFileSync } from 'fs';
-import { logError, logInfo, logWarn, normalizeError, sanitizePathForUi } from './log-event.js';
+import { logError, logInfo, logWarn, normalizeError, sanitizeLogForUi, sanitizePathForUi } from './log-event.js';
 import type { LogContext } from './log-event.js';
 import { DATA_DIR_NOT_WRITABLE } from './paths.js';
 
@@ -24,14 +24,17 @@ export function logDataDirNotWritable(err: unknown, dataDir: string): void {
   logError(
     'DATA_DIR_NOT_WRITABLE',
     `${DATA_DIR_NOT_WRITABLE}: ${sanitizePathForUi(dataDir)} (${norm.errno ?? 'unknown'}: ${norm.message})`,
-    startupCtx('verify_data_dir', { errno: norm.errno, hint: dataDir }),
+    startupCtx('verify_data_dir', { errno: norm.errno, hint: sanitizePathForUi(dataDir) }),
   );
 }
 
 /** Mirror DATA_DIR fail into handoff-server.log when logEvent path may not flush before exit. */
 export function appendDataDirFailMirror(logPath: string, err: unknown, ts: () => string): void {
   try {
-    appendFileSync(logPath, `${ts()} [ERROR] code=DATA_DIR_NOT_WRITABLE ${normalizeError(err).message}\n`);
+    appendFileSync(
+      logPath,
+      `${ts()} [ERROR] code=DATA_DIR_NOT_WRITABLE ${sanitizeLogForUi(normalizeError(err).message)}\n`,
+    );
   } catch {
     /* DATA_DIR may be missing or read-only — silent */
   }
@@ -85,8 +88,8 @@ export function logStartupAuditStale(): void {
 export function logStartupAuditSkip(entryPath: string): void {
   logInfo(
     'STARTUP_AUDIT_SKIP',
-    `Dev entry (${entryPath}) — bundle audit skipped`,
-    startupCtx('startup_audit', { hint: entryPath }),
+    `Dev entry (${sanitizePathForUi(entryPath)}) — bundle audit skipped`,
+    startupCtx('startup_audit', { hint: sanitizePathForUi(entryPath) }),
   );
 }
 

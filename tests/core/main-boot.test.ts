@@ -357,7 +357,7 @@ describe('main.ts boot wiring', () => {
     assert.ok(!src.includes('logInfo('));
     assert.ok(!src.includes('logWarn('));
     assert.ok(!src.includes('logError('));
-    assert.match(src, /import \{ enableLogDedupe \} from '\.\/log-event\.js'/);
+    assert.match(src, /import \{ enableLogDedupe, isStructuredLogLine, sanitizeLogForUi, sanitizePathForUi \} from '\.\/log-event\.js'/);
     assert.match(src, /enableLogDedupe\(true\)/);
   });
 
@@ -378,6 +378,26 @@ describe('main.ts boot wiring', () => {
     assert.ok(relayIdx > dedupeIdx);
     assert.ok(cdpIdx > dedupeIdx);
     assert.ok(tgIdx > dedupeIdx);
+  });
+
+  it('json console hook passes through structured logEvent lines', () => {
+    const src = readFileSync(new URL('../../src/core/main.ts', import.meta.url), 'utf-8');
+    assert.match(src, /isStructuredLogLine\(line\)/);
+    assert.ok(src.includes('if (isStructuredLogLine(line))'));
+    assert.ok(src.includes('safeWrite(origLog, line)'));
+  });
+
+  it('writeLog sanitizes disk lines via sanitizeLogForUi', () => {
+    const src = readFileSync(new URL('../../src/core/main.ts', import.meta.url), 'utf-8');
+    assert.match(src, /function writeLog\(line: string\)[\s\S]*isStructuredLogLine\(withoutLevel\)/);
+    assert.match(src, /isStructuredLogLine\(withoutLevel\) \? line : sanitizeLogForUi\(line\)/);
+  });
+
+  it('main.ts starts log visor and stops on shutdown', () => {
+    const src = readFileSync(new URL('../../src/core/main.ts', import.meta.url), 'utf-8');
+    assert.match(src, /import \{ startLogVisor, resolveLogVisorPaths \} from '\.\/log-visor\.js'/);
+    assert.match(src, /const logVisor = startLogVisor\(getDataDir\(\)\)/);
+    assert.match(src, /logVisor\.stop\(\)/);
   });
 
   it('startup-boot every log site uses startupCtx cdpCtx or telegramCtx', () => {

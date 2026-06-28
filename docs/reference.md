@@ -16,7 +16,7 @@ User guides: [Getting started guide](guide.md), [Telegram bridge guide](telegram
 | `cursorHandoff.restartWake` | Restart CursorWake |
 | `cursorHandoff.openWebClient` | Open web client |
 | `cursorHandoff.openHandoffSettings` | Open Handoff settings |
-| `cursorHandoff.showLogs` | Show logs |
+| `cursorHandoff.showLogs` | Handoff log (merged `data/handoff.log`) |
 | `cursorHandoff.installWake` | Install CursorWake (Windows) |
 | `cursorHandoff.installCloudflared` | Install cloudflared (Windows: winget; macOS/Linux: Homebrew or download) |
 | `cursorHandoff.installAgentSkills` | Install agent skills |
@@ -117,6 +117,8 @@ The sidebar **Status** tree is read-mostly (server, CDP, agent, clients, windows
 | `open-project.json` | One-shot folder open from Telegram |
 | `file-relay/` | File relay bootstrap metadata |
 | `cursor-wake.log` | CursorWake tray log (`code=WAKE_*` event tails) |
+| `handoff.log` | Merged log (server visor, 4 s) — each line: `[server]` / `[ext]` / `[wake]`, local `DD.MM.YYYY HH:mm:ss:SSS`, then JSON (`ts` unix ms inside) |
+| `handoff-ext.log` | Extension-only lines for visor merge |
 | `handoff-server.log` | Handoff server log (JSON or human lines with `code=` — `TG_*`, `CDP_*`, `QUEUE_*`, …) |
 | `telegram-questionnaire-freeform/` | Short-lived pending state for TG **Other** + Reply (10 min TTL) |
 | `redeploy-requested` | Dev flag: full redeploy on next stop-hook |

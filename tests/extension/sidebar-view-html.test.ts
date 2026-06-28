@@ -5,7 +5,7 @@ import { describe, it } from 'node:test';
 describe('sidebar HTML template', () => {
   const src = readFileSync(new URL('../../extension/src/sidebar-view-html.ts', import.meta.url), 'utf8');
 
-  it('lists diagnostic probes under Show logs', () => {
+  it('lists diagnostic probes under Handoff log', () => {
     const logsIdx = src.indexOf("actionRow('showLogs'");
     const cdpIdx = src.indexOf("actionRow('testCdp'");
     const tgIdx = src.indexOf("actionRow('testTelegram'");

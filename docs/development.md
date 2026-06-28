@@ -146,7 +146,7 @@ Target: `CursorWake.exe` installed with CursorHandoff **1.0.0+**.
 ### Where to read logs
 
 - CursorWake: `data/cursor-wake.log`
-- Handoff server: `data/handoff-server.log` (or **CursorHandoff: Show logs** in the extension Output channel)
+- Handoff server: `data/handoff-server.log` · merged (visor): `data/handoff.log` (`[server|ext|wake] DD.MM.YYYY HH:mm:ss:SSS {json}`) · extension: `data/handoff-ext.log` (or **CursorHandoff: Handoff log** in the sidebar)
 
 **Grep by event code** (from repo root, log file path as needed):
 

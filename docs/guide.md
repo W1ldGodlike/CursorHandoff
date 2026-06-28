@@ -91,7 +91,7 @@ sequenceDiagram
 
 ### Activity bar sidebar
 
-The **CursorHandoff** view shows version, server state (Running / Stopped / No CDP), CursorWake status (Windows), Cloudflare tunnel status, and controls to start or stop the server, open the CDP workspace, switch agent mode, and inspect connected clients and windows. Shortcuts: **Open Handoff settings**, **Open web client**, **Show logs**.
+The **CursorHandoff** view shows version, server state (Running / Stopped / No CDP), CursorWake status (Windows), Cloudflare tunnel status, and controls to start or stop the server, open the CDP workspace, switch agent mode, and inspect connected clients and windows. Shortcuts: **Open Handoff settings**, **Open web client**, **Handoff log** (opens `data/handoff.log` — the server visor merges server, extension, and Wake lines in the background every few seconds; the editor tab refreshes as the file grows).
 
 Palette commands include **Start/Stop/Restart server**, **Install CursorWake** (Windows), **Install cloudflared**, and **Install agent skills**.
 
@@ -299,7 +299,7 @@ npm run dev
 
 Environment variables: [Settings reference](reference.md). Telegram after `.env`: [Telegram bridge guide](telegram.md).
 
-Production build: `npm run build && npm start` · logs: `data/handoff-server.log`
+Production build: `npm run build && npm start` · server log: `data/handoff-server.log` · merged (visor): `data/handoff.log` · extension: `data/handoff-ext.log`
 
 ---
 

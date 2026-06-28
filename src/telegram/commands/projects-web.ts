@@ -1,5 +1,6 @@
 import { existsSync, readdirSync } from 'fs';
 import { basename, join, resolve } from 'path';
+import { sanitizeErrorForUser } from '../../core/log-event.js';
 import { escapeHtml } from '../format/html.js';
 import { formatForumTopicLabel } from '../topics/guards.js';
 import { isPersistableComposerId, normalizeComposerId } from '../topics/guards.js';
@@ -151,14 +152,14 @@ export async function bootstrapProjectFromPath(
     deps.windowMonitor.setHomeWindow(opened.id);
     await sleep(1500);
   } catch (err) {
-    await ctx.reply(t('tg.msg.project.switchFailed', '⚠️ Window opened but could not switch: {error}', { error: escapeHtml(String(err)) }), { parse_mode: 'HTML' });
+    await ctx.reply(t('tg.msg.project.switchFailed', '⚠️ Window opened but could not switch: {error}', { error: escapeHtml(sanitizeErrorForUser(err instanceof Error ? err.message : String(err))) }), { parse_mode: 'HTML' });
     return;
   }
 
   await ctx.reply(t('tg.msg.project.creatingChat', '💬 Creating first chat in project…'));
   const createResult = await deps.commandExecutor.newChat(genId());
   if (!createResult.ok) {
-    await ctx.reply(t('tg.msg.project.createChatFailed', '⚠️ Could not create chat: {error}', { error: createResult.error ?? 'unknown' }));
+    await ctx.reply(t('tg.msg.project.createChatFailed', '⚠️ Could not create chat: {error}', { error: sanitizeErrorForUser(createResult.error ?? 'unknown') }));
     return;
   }
 
@@ -171,7 +172,7 @@ export async function bootstrapProjectFromPath(
     const created = await deps.api.createForumTopic(chatId, topicName);
     threadId = created.message_thread_id;
   } catch (err) {
-    await ctx.reply(t('tg.msg.project.threadFailed', '⚠️ Chat created but Telegram thread failed: {error}', { error: escapeHtml(String(err)) }), { parse_mode: 'HTML' });
+    await ctx.reply(t('tg.msg.project.threadFailed', '⚠️ Chat created but Telegram thread failed: {error}', { error: escapeHtml(sanitizeErrorForUser(err instanceof Error ? err.message : String(err))) }), { parse_mode: 'HTML' });
     return;
   }
 

@@ -1,7 +1,7 @@
 import './bootstrap.js';
 import { createWriteStream } from 'fs';
 import { join } from 'path';
-import { enableLogDedupe } from './log-event.js';
+import { enableLogDedupe, isStructuredLogLine, sanitizeLogForUi, sanitizePathForUi } from './log-event.js';
 import { CDPBridge } from '../ide/cdp-session.js';
 import { DOMExtractor } from '../ide/parse/tabs.js';
 import { CommandExecutor } from '../ide/actions/navigation.js';
@@ -22,6 +22,7 @@ import {
   runStartupAudit,
 } from './fingerprint.js';
 import { loadConfig, loadSelectors } from './config.js';
+import { startLogVisor, resolveLogVisorPaths } from './log-visor.js';
 import {
   appendDataDirFailMirror,
   logCdpBridgeError,
@@ -53,7 +54,9 @@ function ts(): string {
 }
 function writeLog(line: string): void {
   try {
-    logStream.write(`${ts()} ${line}\n`);
+    const withoutLevel = line.replace(/^\[(?:WARN|ERROR)\] /, '');
+    const body = isStructuredLogLine(withoutLevel) ? line : sanitizeLogForUi(line);
+    logStream.write(`${ts()} ${body}\n`);
   } catch {
     /* ignore write errors */
   }
@@ -70,17 +73,32 @@ function safeWrite(fn: (...args: unknown[]) => void, ...args: unknown[]): void {
 if (process.env.LOG_FORMAT === 'json') {
   console.log = (...args: unknown[]) => {
     const line = args.map(String).join(' ');
-    safeWrite(origLog, JSON.stringify({ ts: Date.now(), level: 'info', msg: line }));
+    if (isStructuredLogLine(line)) {
+      safeWrite(origLog, line);
+      writeLog(line);
+      return;
+    }
+    safeWrite(origLog, JSON.stringify({ ts: Date.now(), level: 'info', msg: sanitizeLogForUi(line) }));
     writeLog(line);
   };
   console.warn = (...args: unknown[]) => {
     const line = args.map(String).join(' ');
-    safeWrite(origWarn, JSON.stringify({ ts: Date.now(), level: 'warn', msg: line }));
+    if (isStructuredLogLine(line)) {
+      safeWrite(origWarn, line);
+      writeLog(`[WARN] ${line}`);
+      return;
+    }
+    safeWrite(origWarn, JSON.stringify({ ts: Date.now(), level: 'warn', msg: sanitizeLogForUi(line) }));
     writeLog(`[WARN] ${line}`);
   };
   console.error = (...args: unknown[]) => {
     const line = args.map(String).join(' ');
-    safeWrite(origError, JSON.stringify({ ts: Date.now(), level: 'error', msg: line }));
+    if (isStructuredLogLine(line)) {
+      safeWrite(origError, line);
+      writeLog(`[ERROR] ${line}`);
+      return;
+    }
+    safeWrite(origError, JSON.stringify({ ts: Date.now(), level: 'error', msg: sanitizeLogForUi(line) }));
     writeLog(`[ERROR] ${line}`);
   };
 } else {
@@ -100,7 +118,11 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  logStartupOk(`logs: ${serverLogPath}; wake: ${join(getDataDir(), 'cursor-wake.log')}`);
+  logStartupOk(
+    `logs: ${sanitizePathForUi(serverLogPath)}; merged: ${sanitizePathForUi(resolveLogVisorPaths(getDataDir()).merged)}; wake: ${sanitizePathForUi(join(getDataDir(), 'cursor-wake.log'))}`,
+  );
+
+  const logVisor = startLogVisor(getDataDir());
 
   const version = resolvePackageVersion(import.meta.url);
   logStartupVersion(version);
@@ -120,7 +142,7 @@ async function main(): Promise<void> {
   const selectors = loadSelectors(config);
 
   logStartupConfig(
-    `dataDir=${getDataDir()} cdp=${config.cdpUrl} http://${config.serverHost}:${config.serverPort} tg=${config.telegram.enabled ? 'on' : 'off'}`,
+    `dataDir=${sanitizePathForUi(getDataDir())} cdp=${config.cdpUrl} http://${config.serverHost}:${config.serverPort} tg=${config.telegram.enabled ? 'on' : 'off'}`,
   );
 
   enableLogDedupe(true);
@@ -188,7 +210,7 @@ async function main(): Promise<void> {
     );
 
     // Do not log full token (logs are read more widely than data/) — tail only.
-    const tokenHint = `...${telegram.registerToken.slice(-4)} (full token in ${getDataDir()}/telegram-auth.json, field token)`;
+    const tokenHint = `...${telegram.registerToken.slice(-4)} (full token in ${sanitizePathForUi(join(getDataDir(), 'telegram-auth.json'))}, field token)`;
     const names = telegram.registeredUserNames;
     if (names.length > 0) {
       logTgAuthRegistered(names.join(', '));
@@ -227,6 +249,7 @@ async function main(): Promise<void> {
     try {
       markGracefulShutdown();
       logShutdown();
+      logVisor.stop();
       if (queueKick) clearInterval(queueKick);
       // TG first: drain queue while CDP/extractor are still alive.
       for (const transport of transports) {

@@ -25,7 +25,7 @@ import {
 import { readWebSettingsRecord, writeWebSettingsRecord } from './settings-api.js';
 import { isTelegramPollActive } from './poll-status.js';
 import { getLocale, t } from '../i18n/t.js';
-import { logError, logInfo, logWarn } from '../core/log-event.js';
+import { logError, logInfo, logWarn, sanitizeErrorForUser, sanitizePathForUi } from '../core/log-event.js';
 import type { LogContext } from '../core/log-event.js';
 
 function relayCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
@@ -34,6 +34,14 @@ function relayCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
 
 function logRelayCmd(op: string, message: string, extra?: Omit<LogContext, 'scope'>): void {
   logInfo('RELAY_CMD_OK', message, relayCtx(op, extra));
+}
+
+function emitCommandResult(socket: Socket, result: CommandResult): void {
+  if (!result.ok && typeof result.error === 'string') {
+    socket.emit('command:result', { ...result, error: sanitizeErrorForUser(result.error) });
+    return;
+  }
+  socket.emit('command:result', result);
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -522,7 +530,7 @@ export class Relay {
         logError('RELAY_SHUTDOWN_FAIL', `Shutdown hook failed: ${msg}`, relayCtx('shutdown'));
         res.status(500).json({
           ok: false,
-          error: err instanceof Error ? err.message : String(err),
+          error: sanitizeErrorForUser(err instanceof Error ? err.message : String(err)),
         });
       }
     });
@@ -687,7 +695,7 @@ export class Relay {
         const hasImages = Array.isArray(payload.images) && payload.images.length > 0;
         const hasFiles = Array.isArray(payload.files) && payload.files.length > 0;
         if (!payload.commandId || (!text && !hasImages && !hasFiles)) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: payload.commandId ?? 'unknown',
             ok: false,
             error: 'Missing commandId or content',
@@ -702,7 +710,7 @@ export class Relay {
             this.resolveActiveWorkspacePath(),
           );
           if ('error' in decoded) {
-            socket.emit('command:result', {
+            emitCommandResult(socket, {
               commandId: payload.commandId,
               ok: false,
               error: decoded.error,
@@ -711,7 +719,7 @@ export class Relay {
           }
           let msgText = text;
           if (decoded.filePaths.length) {
-            const block = decoded.filePaths.map((p) => `📎 ${p}`).join('\n');
+            const block = decoded.filePaths.map((p) => `📎 ${sanitizePathForUi(p)}`).join('\n');
             const prefix = t('tg.msg.inbound.filesBlock', 'Attached files:\n{paths}', { paths: block });
             msgText = msgText.trim() ? `${prefix}\n\n${msgText}` : prefix;
           }
@@ -729,7 +737,7 @@ export class Relay {
               submit: payload.submit,
             })
             : await this.commandExecutor.sendMessage(payload.commandId, msgText, { submit: payload.submit });
-          socket.emit('command:result', result);
+          emitCommandResult(socket, result);
           return;
         }
 
@@ -743,12 +751,12 @@ export class Relay {
           text,
           { submit: payload.submit },
         );
-        socket.emit('command:result', result);
+        emitCommandResult(socket, result);
       });
 
       socket.on('command:force_queue_item', async (payload: CommandPayload) => {
         if (!payload.commandId || !payload.queueItemId) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: payload.commandId ?? 'unknown',
             ok: false,
             error: 'Missing commandId or queueItemId',
@@ -760,12 +768,12 @@ export class Relay {
           payload.commandId,
           payload.queueItemId,
         );
-        socket.emit('command:result', result);
+        emitCommandResult(socket, result);
       });
 
       socket.on('command:load_history', async (payload: CommandPayload) => {
         if (!payload.commandId) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: 'unknown',
             ok: false,
             error: 'Missing commandId',
@@ -776,7 +784,7 @@ export class Relay {
         const before = this.stateManager.getCurrentState().messages.length;
         const scrollResult = await this.commandExecutor.scrollChatUp(payload.commandId, 5);
         if (!scrollResult.ok) {
-          socket.emit('command:result', scrollResult);
+          emitCommandResult(socket, scrollResult);
           return;
         }
         try {
@@ -784,7 +792,7 @@ export class Relay {
           await new Promise((r) => setTimeout(r, 1500));
           if (this.shutdownHooks) await this.shutdownHooks.extractNow();
           const after = this.stateManager.getCurrentState().messages.length;
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: payload.commandId,
             ok: true,
             data: { added: Math.max(0, after - before), total: after },
@@ -792,13 +800,13 @@ export class Relay {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           logError('RELAY_CMD_FAIL', `load_history failed: ${msg}`, relayCtx('load_history', { itemId: payload.commandId }));
-          socket.emit('command:result', { commandId: payload.commandId, ok: false, error: msg });
+          emitCommandResult(socket, { commandId: payload.commandId, ok: false, error: msg });
         }
       });
 
       socket.on('command:approve', async (payload: CommandPayload) => {
         if (!payload.commandId || !payload.selectorPath) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: payload.commandId ?? 'unknown',
             ok: false,
             error: 'Missing commandId or selectorPath',
@@ -810,12 +818,12 @@ export class Relay {
           payload.commandId,
           payload.selectorPath
         );
-        socket.emit('command:result', result);
+        emitCommandResult(socket, result);
       });
 
       socket.on('command:approve_all', async (payload: CommandPayload) => {
         if (!payload.commandId) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: 'unknown',
             ok: false,
             error: 'Missing commandId',
@@ -824,12 +832,12 @@ export class Relay {
         }
         logRelayCmd('approve_all', socket.id, { itemId: payload.commandId, hint: socket.id });
         const result = await this.commandExecutor.approveAll(payload.commandId);
-        socket.emit('command:result', result);
+        emitCommandResult(socket, result);
       });
 
       socket.on('command:reject', async (payload: CommandPayload) => {
         if (!payload.commandId || !payload.selectorPath) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: payload.commandId ?? 'unknown',
             ok: false,
             error: 'Missing commandId or selectorPath',
@@ -841,12 +849,12 @@ export class Relay {
           payload.commandId,
           payload.selectorPath
         );
-        socket.emit('command:result', result);
+        emitCommandResult(socket, result);
       });
 
       socket.on('command:switch_tab', async (payload: CommandPayload) => {
         if (!payload.commandId || (!payload.tabTitle && !payload.selectorPath)) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: payload.commandId ?? 'unknown',
             ok: false,
             error: 'Missing commandId and tab target',
@@ -864,12 +872,12 @@ export class Relay {
           payload.selectorPath,
           { composerId: payload.composerId },
         );
-        socket.emit('command:result', result);
+        emitCommandResult(socket, result);
       });
 
       socket.on('command:new_chat', async (payload: CommandPayload) => {
         if (!payload.commandId) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: 'unknown',
             ok: false,
             error: 'Missing commandId',
@@ -878,12 +886,12 @@ export class Relay {
         }
         logRelayCmd('new_chat', socket.id, { itemId: payload.commandId, hint: socket.id });
         const result = await this.commandExecutor.newChat(payload.commandId);
-        socket.emit('command:result', result);
+        emitCommandResult(socket, result);
       });
 
       socket.on('command:close_chat', async (payload: CommandPayload) => {
         if (!payload.commandId) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: 'unknown',
             ok: false,
             error: 'Missing commandId',
@@ -900,12 +908,12 @@ export class Relay {
           payload.tabTitle,
           { composerId: payload.composerId },
         );
-        socket.emit('command:result', result);
+        emitCommandResult(socket, result);
       });
 
       socket.on('command:set_mode', async (payload: CommandPayload) => {
         if (!payload.commandId || !payload.modeId) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: payload.commandId ?? 'unknown',
             ok: false,
             error: 'Missing commandId or modeId',
@@ -917,12 +925,12 @@ export class Relay {
           payload.commandId,
           payload.modeId
         );
-        socket.emit('command:result', result);
+        emitCommandResult(socket, result);
       });
 
       socket.on('command:set_model', async (payload: CommandPayload) => {
         if (!payload.commandId || !payload.modelId) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: payload.commandId ?? 'unknown',
             ok: false,
             error: 'Missing commandId or modelId',
@@ -934,12 +942,12 @@ export class Relay {
           payload.commandId,
           payload.modelId
         );
-        socket.emit('command:result', result);
+        emitCommandResult(socket, result);
       });
 
       socket.on('command:get_model_options', async (payload: CommandPayload) => {
         if (!payload.commandId) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: payload.commandId ?? 'unknown',
             ok: false,
             error: 'Missing commandId',
@@ -950,12 +958,12 @@ export class Relay {
         const result = await this.commandExecutor.getModelOptions(
           payload.commandId
         );
-        socket.emit('command:result', result);
+        emitCommandResult(socket, result);
       });
 
       socket.on('command:get_plan_full', async (payload: CommandPayload) => {
         if (!payload.commandId || !payload.planLabel) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: payload.commandId ?? 'unknown',
             ok: false,
             error: 'Missing commandId or planLabel',
@@ -965,14 +973,14 @@ export class Relay {
         logRelayCmd('get_plan_full', payload.planLabel ?? '', { itemId: payload.commandId, hint: socket.id });
         const planFile = readPlanFile(payload.planLabel);
         if (!planFile) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: payload.commandId,
             ok: false,
             error: 'Plan file not found',
           } satisfies CommandResult);
           return;
         }
-        socket.emit('command:result', {
+        emitCommandResult(socket, {
           commandId: payload.commandId,
           ok: true,
           data: {
@@ -985,7 +993,7 @@ export class Relay {
 
       socket.on('command:get_plan_model_options', async (payload: CommandPayload) => {
         if (!payload.commandId || !payload.selectorPath) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: payload.commandId ?? 'unknown',
             ok: false,
             error: 'Missing commandId or selectorPath',
@@ -997,12 +1005,12 @@ export class Relay {
           payload.commandId,
           payload.selectorPath
         );
-        socket.emit('command:result', result);
+        emitCommandResult(socket, result);
       });
 
       socket.on('command:set_plan_model', async (payload: CommandPayload) => {
         if (!payload.commandId || !payload.selectorPath || !payload.planModelId) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: payload.commandId ?? 'unknown',
             ok: false,
             error: 'Missing commandId, selectorPath, or planModelId',
@@ -1015,12 +1023,12 @@ export class Relay {
           payload.selectorPath,
           payload.planModelId
         );
-        socket.emit('command:result', result);
+        emitCommandResult(socket, result);
       });
 
       socket.on('command:click_action', async (payload: CommandPayload) => {
         if (!payload.commandId || !payload.selectorPath) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: payload.commandId ?? 'unknown',
             ok: false,
             error: 'Missing commandId or selectorPath',
@@ -1032,12 +1040,12 @@ export class Relay {
           payload.commandId,
           payload.selectorPath
         );
-        socket.emit('command:result', result);
+        emitCommandResult(socket, result);
       });
 
       socket.on('command:questionnaire_click', async (payload: CommandPayload) => {
         if (!payload.commandId || (!payload.questionnaireTarget && !payload.selectorPath)) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: payload.commandId ?? 'unknown',
             ok: false,
             error: 'Missing commandId and questionnaire target',
@@ -1056,12 +1064,12 @@ export class Relay {
           target,
           { forceContinue: payload.questionnaireForceContinue === true },
         );
-        socket.emit('command:result', result);
+        emitCommandResult(socket, result);
       });
 
       socket.on('command:questionnaire_freeform', async (payload: CommandPayload) => {
         if (!payload.commandId || !payload.selectorPath || payload.text === undefined) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: payload.commandId ?? 'unknown',
             ok: false,
             error: 'Missing commandId, selectorPath, or text',
@@ -1073,12 +1081,12 @@ export class Relay {
           payload.selectorPath,
           payload.text,
         );
-        socket.emit('command:result', result);
+        emitCommandResult(socket, result);
       });
 
       socket.on('command:switch_window', async (payload: CommandPayload) => {
         if (!payload.commandId || !payload.windowId) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: payload.commandId ?? 'unknown',
             ok: false,
             error: 'Missing commandId or windowId',
@@ -1092,20 +1100,20 @@ export class Relay {
         });
         try {
           await this.cdpBridge.switchWindow(payload.windowId);
-          socket.emit('command:result', { commandId: payload.commandId, ok: true });
+          emitCommandResult(socket, { commandId: payload.commandId, ok: true });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           logError('RELAY_CMD_FAIL', `switch_window failed: ${msg}`, relayCtx('switch_window', {
             itemId: payload.commandId,
             windowId: payload.windowId,
           }));
-          socket.emit('command:result', { commandId: payload.commandId, ok: false, error: msg });
+          emitCommandResult(socket, { commandId: payload.commandId, ok: false, error: msg });
         }
       });
 
       socket.on('command:refresh_state', async (payload: CommandPayload) => {
         if (!payload.commandId) {
-          socket.emit('command:result', {
+          emitCommandResult(socket, {
             commandId: 'unknown',
             ok: false,
             error: 'Missing commandId',
@@ -1115,11 +1123,11 @@ export class Relay {
         logRelayCmd('refresh_state', socket.id, { itemId: payload.commandId, hint: socket.id });
         try {
           if (this.shutdownHooks) await this.shutdownHooks.extractNow();
-          socket.emit('command:result', { commandId: payload.commandId, ok: true });
+          emitCommandResult(socket, { commandId: payload.commandId, ok: true });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           logError('RELAY_CMD_FAIL', `refresh_state failed: ${msg}`, relayCtx('refresh_state', { itemId: payload.commandId }));
-          socket.emit('command:result', { commandId: payload.commandId, ok: false, error: msg });
+          emitCommandResult(socket, { commandId: payload.commandId, ok: false, error: msg });
         }
       });
 

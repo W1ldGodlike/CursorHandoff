@@ -513,6 +513,7 @@
   "ext.server.staleBundle": "CursorHandoff: сервер запущен со устаревшим bundle — см. Output / server.log",
   "ext.server.staleKeyboards": "Обнаружен старый код (автоклавиатуры при подключении) — пересоберите bundle и перезагрузите окно",
   "ext.output.openedHint": "CursorHandoff: открыта панель Output. Выберите канал «CursorHandoff», если пусто.",
+  "ext.output.mergedMissing": "CursorHandoff: общий лог ещё не готов — запустите сервер; визор пишет data/handoff.log каждые несколько секунд.",
   "ext.cloud.uninstallFailed": "Не удалось удалить cloudflared через winget. Остановите туннель вручную или: winget uninstall Cloudflare.cloudflared",
 
   "ext.sidebar.version": "CursorHandoff v{version}",
@@ -539,7 +540,7 @@
   "ext.sidebar.pendingApprovals": "Ждут подтверждения:",
   "ext.sidebar.settings": "Настройки",
   "ext.sidebar.openWebClient": "Открыть веб-клиент",
-  "ext.sidebar.showLogs": "Показать логи",
+  "ext.sidebar.showLogs": "Лог Handoff",
   "ext.sidebar.testCdp": "Проверить CDP",
   "ext.sidebar.testTelegram": "Проверить Telegram-бота",
   "ext.sidebar.testTelegramNoToken": "Сначала сохрани токен бота в Handoff settings.",

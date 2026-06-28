@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { logInfo, logWarn, normalizeError } from '../../core/log-event.js';
+import { logInfo, logWarn, normalizeError, sanitizePathForUi } from '../../core/log-event.js';
 import type { LogContext } from '../../core/log-event.js';
 
 export interface TrackedMessage {
@@ -21,7 +21,8 @@ const SAVE_DEBOUNCE_MS = 5000;
 const MAX_PER_THREAD = 300;
 
 function trackerCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
-  return { scope: 'telegram', op, ...extra };
+  const hint = extra?.hint !== undefined ? sanitizePathForUi(String(extra.hint)) : undefined;
+  return { scope: 'telegram', op, ...extra, ...(hint !== undefined ? { hint } : {}) };
 }
 
 export class MessageTracker {

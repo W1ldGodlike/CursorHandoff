@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { randomBytes } from 'crypto';
-import { createOutputChannel, revealOutputChannel } from './output-channel.js';
+import { createOutputChannels, revealHandoffLog } from './output-channel.js';
 import { createStatusBar, updateStatusBar } from './status-bar.js';
 import { ServerManager } from './server-process.js';
 import { StatusSidebarView } from './ui-sidebar.js';
@@ -21,6 +21,7 @@ import { openHandoffDoc } from './open-doc.js';
 import { formatExtensionLogLine } from './log-event.js';
 import { bindExtensionUiLog } from './extension-ui-log.js';
 import { showDedupedErrorToast } from './extension-toast.js';
+import { setExtLogDataDir } from './ext-disk-log.js';
 import { publishCursorHostVersion, bindCursorUpgradeServerNotify } from './cursor-upgrade-advisory.js';
 
 let serverManager: ServerManager | undefined;
@@ -68,7 +69,8 @@ async function ensurePassword(context: vscode.ExtensionContext): Promise<void> {
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  const outputChannel = createOutputChannel();
+  setExtLogDataDir(resolveDataDir(context));
+  const { ext: outputChannel, serverPipe } = createOutputChannels();
   bindExtensionUiLog((line, level = 'info') => {
     if (level === 'error' || line.startsWith('[ERROR]')) {
       outputChannel.error(line);
@@ -80,7 +82,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   const statusBarItem = createStatusBar(context);
 
-  serverManager = new ServerManager(context, outputChannel, statusBarItem);
+  serverManager = new ServerManager(context, outputChannel, serverPipe, statusBarItem);
   serverManager.startDirWatcher();
 
   const extensionVersion = context.extension.packageJSON?.version ?? 'unknown';
@@ -110,7 +112,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('cursorHandoff.stop', () => serverManager!.stop(true)),
     vscode.commands.registerCommand('cursorHandoff.restart', () => serverManager!.restart()),
     vscode.commands.registerCommand('cursorHandoff.openWebClient', () => serverManager!.openWebClient()),
-    vscode.commands.registerCommand('cursorHandoff.showLogs', () => revealOutputChannel(outputChannel)),
+    vscode.commands.registerCommand('cursorHandoff.showLogs', () => {
+      void revealHandoffLog(outputChannel, resolveDataDir(context), loadDict(context));
+    }),
     vscode.commands.registerCommand('cursorHandoff.status.focus', () => {
       void vscode.commands.executeCommand('workbench.view.extension.cursorHandoff');
     }),

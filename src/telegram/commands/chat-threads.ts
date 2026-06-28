@@ -14,7 +14,7 @@ import { resolveProjectPath } from '../../workspace/launcher.js';
 import { countPending } from '../../workspace/offline-queue.js';
 import { readLastCommit } from '../../workspace/git-last-commit.js';
 import { getDataDir } from '../../core/paths.js';
-import { logError, logInfo, logWarn, normalizeError } from '../../core/log-event.js';
+import { logError, logInfo, logWarn, normalizeError, sanitizeErrorForUser } from '../../core/log-event.js';
 import type { LogContext } from '../../core/log-event.js';
 import type { WindowSnapshot } from '../../state/windows.js';
 import type { StateManager } from '../../state/broadcast.js';
@@ -75,7 +75,7 @@ async function ensureMappingWindow(
       deps.windowMonitor.setHomeWindow(targetWin.id);
       await sleep(1500);
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return { ok: false, error: sanitizeErrorForUser(err instanceof Error ? err.message : String(err)) };
     }
   }
   return { ok: true, targetWin };
@@ -108,7 +108,7 @@ async function ensureMappingChat(
     mappingComposer ? { composerId: mappingComposer } : undefined,
   );
   if (!tabResult.ok) {
-    return { ok: false, error: tabResult.error ?? t('tg.msg.err.switchTab', 'Could not switch to chat') };
+    return { ok: false, error: sanitizeErrorForUser(tabResult.error ?? t('tg.msg.err.switchTab', 'Could not switch to chat')) };
   }
   await sleep(500);
   return { ok: true };
@@ -131,7 +131,7 @@ export async function handleCloseChat(ctx: BotContext, deps: CommandDeps): Promi
   });
   if (!ctxResult.ok) {
     logWarn('TG_CLOSE_CHAT_CONTEXT_FAIL', ctxResult.error, threadCtx('close_chat', { threadId, windowId: mapping.windowId }));
-    await ctx.reply(`⚠️ ${ctxResult.error}`);
+    await ctx.reply(`⚠️ ${sanitizeErrorForUser(ctxResult.error)}`);
     return;
   }
 
@@ -139,7 +139,7 @@ export async function handleCloseChat(ctx: BotContext, deps: CommandDeps): Promi
   const result = await deps.commandExecutor.closeChat(genId(), chatTitle);
   if (!result.ok) {
     logWarn('TG_CLOSE_CHAT_FAIL', result.error ?? 'closeChat failed', threadCtx('close_chat', { threadId, windowId: mapping.windowId }));
-    await ctx.reply(`⚠️ ${result.error ?? t('tg.msg.closeChat.failed', 'Could not close chat')}`);
+    await ctx.reply(`⚠️ ${sanitizeErrorForUser(result.error ?? t('tg.msg.closeChat.failed', 'Could not close chat'))}`);
     return;
   }
 
@@ -188,7 +188,7 @@ export async function handleNewChat(ctx: BotContext, deps: CommandDeps): Promise
   });
   if (!winResult.ok) {
     logWarn('TG_NEW_CHAT_WINDOW_FAIL', winResult.error, threadCtx('new_chat', { threadId, chatId, windowId: mapping.windowId }));
-    await ctx.reply(`⚠️ ${winResult.error}`);
+    await ctx.reply(`⚠️ ${sanitizeErrorForUser(winResult.error)}`);
     return;
   }
 
@@ -205,7 +205,7 @@ export async function handleNewChat(ctx: BotContext, deps: CommandDeps): Promise
   const createResult = await deps.commandExecutor.newChat(genId());
   if (!createResult.ok) {
     logWarn('TG_NEW_CHAT_CREATE_FAIL', createResult.error ?? 'newChat failed', threadCtx('new_chat', { threadId, chatId, windowId: winResult.targetWin.id }));
-    await ctx.reply(`⚠️ ${createResult.error ?? t('tg.msg.newChat.createFailed', 'Could not create chat')}`);
+    await ctx.reply(`⚠️ ${sanitizeErrorForUser(createResult.error ?? t('tg.msg.newChat.createFailed', 'Could not create chat'))}`);
     return;
   }
 
@@ -240,7 +240,7 @@ export async function handleNewChat(ctx: BotContext, deps: CommandDeps): Promise
   } catch (err) {
     const norm = normalizeError(err);
     logError('TG_NEW_CHAT_TOPIC_FAIL', formatErrDetail(err), threadCtx('new_chat', { threadId, chatId, errno: norm.errno }));
-    await ctx.reply(t('tg.msg.newChat.threadFailed', '⚠️ Chat created in Cursor but Telegram thread failed: {error}', { error: norm.message }));
+    await ctx.reply(t('tg.msg.newChat.threadFailed', '⚠️ Chat created in Cursor but Telegram thread failed: {error}', { error: sanitizeErrorForUser(norm.message) }));
     return;
   }
 

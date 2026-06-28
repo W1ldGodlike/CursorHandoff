@@ -1322,7 +1322,7 @@ describe('web Relay http-routes logging', () => {
 
   it('logInfo logWarn logError imported from log-event in source', () => {
     const src = readFileSync(new URL('../../src/web/http-routes.ts', import.meta.url), 'utf-8');
-    assert.match(src, /import \{ logError, logInfo, logWarn \} from '\.\.\/core\/log-event\.js'/);
+    assert.match(src, /import \{ logError, logInfo, logWarn, sanitizeErrorForUser, sanitizePathForUi \} from '\.\.\/core\/log-event\.js'/);
     assert.match(src, /import type \{ LogContext \} from '\.\.\/core\/log-event\.js'/);
   });
 

@@ -1071,7 +1071,7 @@ describe('offline-queue logging coverage', () => {
       src.indexOf('export function loadQueue'),
       src.indexOf('export function saveQueue'),
     );
-    assert.match(block, /QUEUE_LOAD_INVALID[\s\S]*hint: path/);
+    assert.match(block, /QUEUE_LOAD_INVALID[\s\S]*hint: sanitizePathForUi\(path\)/);
   });
 
   it('markDone success path emits no log sites in source', () => {

@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
-import { existsSync, readdirSync, statSync } from 'fs';
+import { existsSync } from 'fs';
 import { join } from 'path';
-import { loadLocaleStrings, normalizeLocale, tr } from './extension-locale.js';
+import { formatServerChildLogLine, sanitizeLogForUi } from './log-event.js';
+import { appendExtDiskLog } from './ext-disk-log.js';
+import { tr } from './extension-locale.js';
 
 const CHANNEL_NAME = 'CursorHandoff';
-const EXT_LOG_REL = join('exthost', 'cursor-handoff.cursor-handoff', 'CursorHandoff.log');
 
 /**
  * Wraps LogOutputChannel or plain OutputChannel in a unified interface
@@ -18,7 +19,14 @@ export interface UnifiedOutputChannel extends vscode.Disposable {
   appendLine(msg: string): void;
 }
 
-export function createOutputChannel(): UnifiedOutputChannel {
+export interface OutputChannels {
+  /** Extension messages — mirrored to data/handoff-ext.log. */
+  ext: UnifiedOutputChannel;
+  /** Server child stdout/stderr — Output only, not ext disk (visor reads server log). */
+  serverPipe: UnifiedOutputChannel;
+}
+
+function createBaseChannel(): UnifiedOutputChannel {
   try {
     const ch = vscode.window.createOutputChannel(CHANNEL_NAME, { log: true });
     return ch as UnifiedOutputChannel;
@@ -35,82 +43,98 @@ export function createOutputChannel(): UnifiedOutputChannel {
   }
 }
 
-import { formatServerChildLogLine } from './log-event.js';
-
-/** Latest CursorHandoff.log under Cursor logs (LogOutputChannel sink). */
-export function findLatestExtensionLogUri(): vscode.Uri | undefined {
-  const logsRoot = cursorLogsRoot();
-  if (!logsRoot || !existsSync(logsRoot)) return undefined;
-
-  let newest: { path: string; mtime: number } | undefined;
-
-  for (const session of readdirSync(logsRoot)) {
-    const sessionPath = join(logsRoot, session);
-    try {
-      if (!statSync(sessionPath).isDirectory()) continue;
-    } catch {
-      continue;
-    }
-
-    for (const windowDir of readdirSync(sessionPath)) {
-      const logPath = join(sessionPath, windowDir, EXT_LOG_REL);
-      if (!existsSync(logPath)) continue;
-      const mtime = statSync(logPath).mtimeMs;
-      if (!newest || mtime > newest.mtime) {
-        newest = { path: logPath, mtime };
-      }
-    }
-  }
-
-  return newest ? vscode.Uri.file(newest.path) : undefined;
+function withSanitize(ch: UnifiedOutputChannel): UnifiedOutputChannel {
+  return {
+    info: (m) => ch.info(sanitizeLogForUi(m)),
+    warn: (m) => ch.warn(sanitizeLogForUi(m)),
+    error: (m) => ch.error(sanitizeLogForUi(m)),
+    appendLine: (m) => ch.appendLine(sanitizeLogForUi(m)),
+    show: (preserveFocus) => ch.show(preserveFocus),
+    dispose: () => ch.dispose(),
+  };
 }
 
-function cursorLogsRoot(): string | undefined {
-  if (process.platform === 'win32') {
-    const appData = process.env.APPDATA;
-    return appData ? join(appData, 'Cursor', 'logs') : undefined;
-  }
-  const home = process.env.HOME;
-  if (!home) return undefined;
-  if (process.platform === 'darwin') {
-    return join(home, 'Library', 'Application Support', 'Cursor', 'logs');
-  }
-  return join(home, '.config', 'Cursor', 'logs');
+function withExtDiskMirror(ch: UnifiedOutputChannel): UnifiedOutputChannel {
+  return {
+    info: (m) => {
+      const s = sanitizeLogForUi(m);
+      appendExtDiskLog(s);
+      ch.info(s);
+    },
+    warn: (m) => {
+      const s = sanitizeLogForUi(m);
+      appendExtDiskLog(s);
+      ch.warn(s);
+    },
+    error: (m) => {
+      const s = sanitizeLogForUi(m);
+      appendExtDiskLog(s);
+      ch.error(s);
+    },
+    appendLine: (m) => {
+      const s = sanitizeLogForUi(m);
+      appendExtDiskLog(s);
+      ch.appendLine(s);
+    },
+    show: (preserveFocus) => ch.show(preserveFocus),
+    dispose: () => ch.dispose(),
+  };
 }
 
-/** Output panel focus is unreliable in Cursor Glass — also open the on-disk log. */
-export async function revealOutputChannel(channel: UnifiedOutputChannel): Promise<void> {
-  for (const cmd of [
-    'workbench.panel.output.focus',
-    'workbench.action.output.show',
-    'workbench.action.output.toggleOutput',
-  ]) {
-    try {
-      await vscode.commands.executeCommand(cmd);
-      break;
-    } catch {
-      /* try next command */
-    }
-  }
+export function createOutputChannels(): OutputChannels {
+  const base = createBaseChannel();
+  const sanitized = withSanitize(base);
+  let disposed = false;
+  const disposeOnce = (): void => {
+    if (disposed) return;
+    disposed = true;
+    base.dispose();
+  };
+  const ext = withExtDiskMirror(sanitized);
+  const serverPipe = sanitized;
+  return {
+    ext: { ...ext, dispose: disposeOnce },
+    serverPipe: { ...serverPipe, dispose: disposeOnce },
+  };
+}
 
-  channel.show(false);
+/** @deprecated use createOutputChannels — kept for tests importing single channel shape */
+export function createOutputChannel(): UnifiedOutputChannel {
+  return createOutputChannels().ext;
+}
 
-  const logUri = findLatestExtensionLogUri();
-  if (logUri) {
-    const doc = await vscode.workspace.openTextDocument(logUri);
-    await vscode.window.showTextDocument(doc, { preview: false });
+function scrollEditorToEnd(editor: vscode.TextEditor, doc: vscode.TextDocument): void {
+  if (doc.lineCount === 0) return;
+  const line = doc.lineAt(doc.lineCount - 1);
+  const pos = line.range.end;
+  editor.selection = new vscode.Selection(pos, pos);
+  editor.revealRange(line.range, vscode.TextEditorRevealType.AtBottom);
+}
+
+/** Open merged `data/handoff.log` — visor updates the file on disk; editor reloads externally. */
+export async function revealHandoffLog(
+  _channel: UnifiedOutputChannel,
+  dataDir: string,
+  dict: Record<string, string>,
+): Promise<void> {
+  const mergedPath = join(dataDir, 'handoff.log');
+  if (!existsSync(mergedPath)) {
+    void vscode.window.showInformationMessage(
+      tr(
+        dict,
+        'ext.output.mergedMissing',
+        'CursorHandoff: merged log not ready yet — start the server; visor writes data/handoff.log every few seconds.',
+      ),
+    );
     return;
   }
 
-  const config = vscode.workspace.getConfiguration('cursorHandoff');
-  const locale = normalizeLocale(config.get<string>('locale', 'en'));
-  const workspacePaths = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
-  const extPath = vscode.extensions.getExtension('cursor-handoff.cursor-handoff')?.extensionPath ?? '';
-  const dict = loadLocaleStrings(extPath, workspacePaths, locale);
-
-  void vscode.window.showInformationMessage(
-    tr(dict, 'ext.output.openedHint', 'CursorHandoff: Output panel opened. Select the «CursorHandoff» channel if empty.'),
-  );
+  const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(mergedPath));
+  const editor = await vscode.window.showTextDocument(doc, {
+    preview: false,
+    viewColumn: vscode.ViewColumn.Active,
+  });
+  scrollEditorToEnd(editor, doc);
 }
 
 export function appendLogLine(channel: UnifiedOutputChannel, raw: string): void {

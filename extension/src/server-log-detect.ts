@@ -87,7 +87,7 @@ export function pickDataDirMessageFromStderr(stderrBuffer: string, prefix: strin
 
 /** Non-empty lines from one child stdout/stderr data chunk. */
 export function splitChildLogChunk(data: string): string[] {
-  return data.split('\n').filter((l) => l.trim());
+  return data.split('\n').map((l) => l.trim()).filter(Boolean);
 }
 
 export function createToastDedupe(ms = TOAST_DEDUPE_MS): {

@@ -84,12 +84,62 @@ export function maskSecrets(text: string): string {
   return out;
 }
 
-export function sanitizePathForUi(path: string): string {
-  const home = process.env.USERPROFILE ?? process.env.HOME ?? '';
-  if (home && path.startsWith(home)) {
-    return `~${path.slice(home.length).replace(/\\/g, '/')}`;
+function homeDir(): string {
+  return process.env.USERPROFILE ?? process.env.HOME ?? '';
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function sanitizePathsInText(text: string): string {
+  const home = homeDir();
+  if (!home) return text.replace(/\\/g, '/');
+
+  const homeSlash = home.replace(/\\/g, '/');
+  if (process.platform === 'win32') {
+    const re = new RegExp(escapeRegExp(homeSlash), 'gi');
+    return text.replace(/\\/g, '/').replace(re, '~');
   }
-  return path.replace(/\\/g, '/');
+  if (text.includes(home)) {
+    return text.split(home).join('~').replace(/\\/g, '/');
+  }
+  return text.replace(/\\/g, '/');
+}
+
+export function sanitizePathForUi(path: string): string {
+  const home = homeDir();
+  const norm = path.replace(/\\/g, '/');
+  if (home) {
+    const homeSlash = home.replace(/\\/g, '/');
+    if (process.platform === 'win32') {
+      if (norm.toLowerCase().startsWith(homeSlash.toLowerCase())) {
+        return `~${norm.slice(homeSlash.length)}`;
+      }
+    } else if (path.startsWith(home)) {
+      return `~${path.slice(home.length).replace(/\\/g, '/')}`;
+    }
+  }
+  return norm;
+}
+
+/** Human-facing log line: secrets redacted, home paths shortened. */
+export function sanitizeLogForUi(text: string): string {
+  return sanitizePathsInText(maskSecrets(text));
+}
+
+/** User-visible errors (TG, web, bug reports) — same rules as Output. */
+export function sanitizeErrorForUser(text: string): string {
+  return sanitizeLogForUi(text);
+}
+
+function sanitizeLogContext(ctx?: LogContext): LogContext | undefined {
+  if (!ctx) return ctx;
+  const out = { ...ctx };
+  if (typeof out.hint === 'string') {
+    out.hint = sanitizePathsInText(maskSecrets(out.hint));
+  }
+  return out;
 }
 
 export function normalizeError(err: unknown): { message: string; errno?: string; code?: string } {
@@ -158,7 +208,11 @@ function formatContextTail(ctx?: LogContext, forUi = false): string {
   const pairs: string[] = [];
   const add = (k: string, v: string | number | undefined) => {
     if (v === undefined || v === '') return;
-    pairs.push(`${k}=${forUi && typeof v === 'string' ? sanitizePathForUi(v) : v}`);
+    if (forUi && typeof v === 'string') {
+      pairs.push(`${k}=${sanitizePathsInText(maskSecrets(v))}`);
+      return;
+    }
+    pairs.push(`${k}=${v}`);
   };
   add('code', undefined); // code is separate
   if (ctx.scope) pairs.push(`scope=${ctx.scope}`);
@@ -183,16 +237,17 @@ export function formatEvent(
   message: string,
   ctx?: LogContext,
 ): FormattedLogLine {
-  const msg = maskSecrets(message);
-  const tail = formatContextTail(ctx);
-  const prefix = ctx?.scope ? `[${ctx.scope}]` : '';
+  const msg = sanitizePathsInText(maskSecrets(message));
+  const safeCtx = sanitizeLogContext(ctx);
+  const tail = formatContextTail(safeCtx, true);
+  const prefix = safeCtx?.scope ? `[${safeCtx.scope}]` : '';
   const human = `${prefix} ${msg}${tail ? ` ${tail}` : ''} code=${code}`.trim();
   const json: Record<string, unknown> = {
     ts: Date.now(),
     level,
     code,
     msg,
-    ...ctx,
+    ...safeCtx,
   };
   return { human, json };
 }
@@ -229,4 +284,16 @@ export function logError(code: string, message: string, ctx?: LogContext): void 
 export function parseCodeFromLine(line: string): string | undefined {
   const m = line.match(/\bcode=([A-Z][A-Z0-9_]+)/);
   return m?.[1];
+}
+
+/** logEvent JSON line — pass through console hook without double-wrapping. */
+export function isStructuredLogLine(line: string): boolean {
+  const t = line.trim();
+  if (!t.startsWith('{')) return false;
+  try {
+    const o = JSON.parse(t) as { code?: string };
+    return typeof o.code === 'string' && /^[A-Z][A-Z0-9_]+$/.test(o.code);
+  } catch {
+    return false;
+  }
 }

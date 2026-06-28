@@ -20,6 +20,7 @@ import {
   verifyBundleBeforeSpawn,
 } from './compat-version.js';
 import { appendLogLine, type UnifiedOutputChannel } from './output-channel.js';
+import { sanitizeLogForUi, sanitizePathForUi } from './log-event.js';
 import {
   classifyServerStdoutLine,
   isServerStderrNoiseLine,
@@ -74,6 +75,7 @@ export class ServerManager extends EventEmitter {
   constructor(
     context: vscode.ExtensionContext,
     outputChannel: UnifiedOutputChannel,
+    private serverPipeChannel: UnifiedOutputChannel,
     statusBarItem: vscode.StatusBarItem,
   ) {
     super();
@@ -168,7 +170,7 @@ export class ServerManager extends EventEmitter {
       const parsed = JSON.parse(raw) as { path?: string };
       const projectPath = parsed.path?.trim();
       if (!projectPath || !existsSync(projectPath)) {
-        this.outputChannel.warn(`[${this.windowName}] open-project: invalid path "${projectPath ?? ''}"`);
+        this.outputChannel.warn(`[${this.windowName}] open-project: invalid path "${sanitizePathForUi(projectPath ?? '')}"`);
         return;
       }
 
@@ -177,10 +179,11 @@ export class ServerManager extends EventEmitter {
         vscode.Uri.file(projectPath),
         { forceNewWindow: true }
       );
-      this.outputChannel.info(`[${this.windowName}] Opened project in new window: ${projectPath}`);
+      this.outputChannel.info(`[${this.windowName}] Opened project in new window: ${sanitizePathForUi(projectPath)}`);
     } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
       this.outputChannel.warn(
-        `[${this.windowName}] open-project failed: ${err instanceof Error ? err.message : err}`
+        `[${this.windowName}] open-project failed: ${sanitizeLogForUi(detail)}`
       );
     } finally {
       this.handlingOpenProject = false;
@@ -336,7 +339,7 @@ export class ServerManager extends EventEmitter {
       try {
         const lines = splitChildLogChunk(data.toString());
         for (const line of lines) {
-          appendLogLine(this.outputChannel, line);
+          appendLogLine(this.serverPipeChannel, line);
           this.detectStatusFromLog(line);
         }
       } catch {
@@ -350,7 +353,7 @@ export class ServerManager extends EventEmitter {
       const lines = text.split('\n').filter(l => l.trim());
       for (const line of lines) {
         if (isServerStderrNoiseLine(line)) continue;
-        appendLogLine(this.outputChannel, line);
+        appendLogLine(this.serverPipeChannel, line);
       }
     });
 

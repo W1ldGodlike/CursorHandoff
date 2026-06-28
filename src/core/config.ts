@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import type { ServerConfig, SelectorConfig } from './types.js';
-import { logWarn } from './log-event.js';
+import { logWarn, sanitizePathForUi } from './log-event.js';
 import { startupCtx } from './startup-boot.js';
 import { getDataDir } from './paths.js';
 
@@ -58,7 +58,8 @@ export function loadSelectors(config: ServerConfig): SelectorConfig {
     const raw = readFileSync(fullPath, 'utf-8');
     return JSON.parse(raw) as SelectorConfig;
   } catch (err) {
-    logWarn('CONFIG_SELECTORS_FALLBACK', `Could not load selectors from ${fullPath}, using defaults`, startupCtx('load_selectors', { hint: fullPath }));
+    const safePath = sanitizePathForUi(fullPath);
+    logWarn('CONFIG_SELECTORS_FALLBACK', `Could not load selectors from ${safePath}, using defaults`, startupCtx('load_selectors', { hint: safePath }));
     return getDefaultSelectors();
   }
 }
