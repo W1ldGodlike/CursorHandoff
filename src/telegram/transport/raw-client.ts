@@ -218,10 +218,9 @@ export class RawTelegramTransport extends BaseTelegramTransport {
         const userId = update.message.from?.id;
         if (!userId || !this.registeredUsers.has(userId)) return;
         const ctx = this.makeContext(update);
-        // Same routing as Grammy transport: General → menu,
-        // topic messages → handleTopicMessage (chat keyboard, queue handoff).
+        // General → plain-text handler; topic → agent text / files / queue.
         if (isGeneralChat(ctx)) {
-          await handleGeneralMessage(ctx, this.deps, (cmd, c, d) => this.dispatchCommand(cmd, c, d));
+          await handleGeneralMessage(ctx, this.deps);
         } else if (ctx.message?.message_thread_id != null) {
           await handleTopicMessage(ctx, this.deps);
         } else {

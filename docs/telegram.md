@@ -10,7 +10,7 @@ Installation and networking: [Getting started guide](guide.md). Keys, files on d
 
 - Creates one **forum topic per Cursor chat tab** after you run `/bridge`
 - Streams agent activity and messages to your phone
-- Exposes slash commands and reply-keyboard shortcuts
+- Exposes slash commands (native Telegram `/` hints via `setMyCommands`)
 - Accepts files in project threads (photos, documents, video, voice, GIF, stickers); sends files the agent drops in `.cursor-handoff/outbox/`
 - On Windows, works with **CursorWake** to queue traffic while Cursor is off
 
@@ -19,7 +19,7 @@ Installation and networking: [Getting started guide](guide.md). Keys, files on d
 ```mermaid
 flowchart LR
   TAB["Cursor chat tab\ncomposerId + title"]
-  MAP["data/telegram-topics.json"]
+  MAP["<data-root>/telegram-topics.json"]
   TOPIC["Forum topic\nmessage_thread_id"]
 
   TAB <-->|/bridge /bridge_all| MAP
@@ -56,7 +56,7 @@ Setting: `cursorHandoff.telegram.allowedUsers`. When non-empty, only those IDs c
 Create a group, enable **Topics** (supergroup), add the bot as administrator with **Manage Topics**, **Delete messages**, and **Pin messages**.
 
 **4 — Link this PC to the group**  
-With the server **Running**, copy `/register <token>` from step 4 in the panel and send it **in the group** (any topic). Registered users appear in the panel. Tokens: `data/telegram-auth.json`.
+With the server **Running**, copy `/register <token>` from step 4 in the panel and send it **in the group** (any topic). Registered users appear in the panel. Tokens: `<data-root>/telegram-auth.json`.
 
 **5 — Create chat topics**  
 Open **# General** in the group (not a project thread). Send **`/bridge`** to create topics for active Cursor tabs with messages. **`/bridge_all`** covers every open tab.
@@ -134,11 +134,7 @@ In a **project thread**:
 
 **Size:** up to **20 MB** per file — Telegram Bot API `getFile` limit (not a Handoff cap).
 
-**CursorWake:** while Cursor is off, the same attachment types are queued in `pending-telegram-queue.json` and delivered after connect.
-
-### Reply keyboards
-
-Tiles in **# General** and project threads execute slash commands locally. They are **not** forwarded as agent prompts.
+**CursorWake:** while Cursor is off, the same attachment types are queued in `<data-root>/pending-telegram-queue.json` and delivered after connect.
 
 ---
 
@@ -161,12 +157,11 @@ Registered for the BotFather menu (`src/telegram/commands/registry.ts`):
 | `/pick_model` | Model picker (inline buttons) |
 | `/pause` | Pause CursorWake |
 | `/resume` | Resume CursorWake |
-| `/menu` | Show command tiles |
 | `/open_project` | Open a project by name |
 | `/projects` | List names for `/open_project` |
 | `/web_url` | HTTPS link to the web client (# General) |
 | `/setup_tg_send` | Enable file relay for this workspace |
-| `/thread_status` | Poll, agent, and queue state |
+| `/thread_status` | Poll, agent state, composer queue length, pending approve count |
 | `/last_commit` | Latest git commit (hash + subject) for the thread workspace |
 | `/whereami` | Window, composer, and tab routing |
 | `/thread_rename` | Rename the thread for the current task |
@@ -228,8 +223,6 @@ Telegram allows **one** long-polling client per bot token.
 While Cursor stays off with an empty queue, Wake retries launch every **`autostartIntervalSec`** (default **300** = 5 min) if **Raise Cursor** is enabled.
 
 **`/pause`** / **`/resume`** (or the tray checkbox) control whether Wake launches Cursor on new messages.
-
-Scenarios: [Development guide](development.md).
 
 ---
 

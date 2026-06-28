@@ -67,9 +67,9 @@ Pluggable transport via `TELEGRAM_IMPL` (default **`raw`**):
 | `raw` | Native `fetch` long-poll + outbound client — bundled default |
 | `grammy` | Grammy handlers; polling may still use native fetch in hybrid paths |
 
-Shared loop: `transport/poll-loop.ts` — mappings, inbound routing, outbound diff/edit, send queue (~300 ms send / ~100 ms edit), reply keyboards, bridge commands.
+Shared loop: `transport/poll-loop.ts` — mappings, inbound routing, outbound diff/edit, send queue (~300 ms send / ~100 ms edit), slash commands, bridge commands.
 
-**Inbound path:** forum message → resolve window/tab (`composerId` first) → switch tab → paste text/images or stage other files with paths → submit. Keyboard tiles never become agent prompts.
+**Inbound path:** forum message → resolve window/tab (`composerId` first) → switch tab → paste text/images or stage other files with paths → submit. Plain text in **# General** is not forwarded as an agent prompt (slash commands only).
 
 ```mermaid
 flowchart TD
@@ -151,7 +151,14 @@ Extension and server bundle must share the same **`compatVersion`** integer. Bum
 
 **Extension:** `extension/src/compat-version.ts` → `verifyBundleBeforeSpawn()` in `server-process.ts` blocks spawn when manifest, stamp, package version, or SHA disagree.
 
-**Cursor upgrade:** {#cursor-upgrade} extension toast, Telegram # General, and web banner when running Cursor ≠ pinned `testedCursorVersion`. Fires after CDP is healthy on each server start; `data/cursor-upgrade-server-notify.json` dedupes redeploy within 120s (per server `pid` and channel). Web dismiss hides until the next notify wave (`cursorUpgradeServerNotifyAt` on `/health`).
+**Cursor upgrade:** {#cursor-upgrade} extension toast, Telegram # General, and web banner when running Cursor ≠ pinned `testedCursorVersion`. Fires after CDP is healthy on each server start; `<data-root>/cursor-upgrade-server-notify.json` dedupes redeploy within 120s (per server `pid` and channel). Web dismiss hides until the next notify wave (`cursorUpgradeServerNotifyAt` on `/health`).
+
+### Logging (`src/core/log-visor.ts`, `log-event.ts`)
+
+- Server disk: `handoff-server.log` — structured JSON or human lines with `code=` tails; secrets and home paths sanitized for UI surfaces.
+- Extension: `handoff-ext.log` for extension-native events; child stdout uses a separate pipe (no TG duplicates on ext disk).
+- **Visor** polls every 4 s, tail-merges server + ext + optional `cursor-wake.log` → `handoff.log` with `[server|ext|wake]` prefix and local timestamp before JSON.
+- Sidebar **Handoff log** opens the merged file in the editor.
 
 ---
 
@@ -167,12 +174,13 @@ Spawns `dist/server/bundle.mjs` as a child process — never imports server code
 | `cursor-upgrade-advisory.ts` | Publishes `cursor-host.json`; extension toast on server-ready health |
 | `config-bridge.ts` | Settings → environment |
 | `handoff-settings.ts` / `handoff-settings-view.ts` | Handoff settings webview |
-| `ui-sidebar.ts` | Status tree |
+| `log-event.ts` / `ext-disk-log.ts` / `output-channel.ts` | Extension logging; merged **Handoff log** UI |
+| `ui-sidebar.ts` | Status tree; **Test CDP**, **Test Telegram bot**, **Restart server** |
 | `wake-launcher.ts` | Start `CursorWake.exe` (Windows) |
 | `tunnel-launcher.ts` | Spawn cloudflared quick tunnel (`scripts/tunnel/run-cloudflared-quick.ps1` or `.sh`) |
 | `install-cloudflared.ts` | Install cloudflared (winget / Homebrew / GitHub binary to `~/.local/bin`) |
 
-**Owner/observer:** the first window with a healthy CDP session spawns the server; if it exits, another window takes over within ~15 s.
+**Owner/observer:** the first window with a healthy CDP session spawns the server; if it exits, another window takes over after **~15–20 s** (health poll every 5 s; takeover after 3 failed polls + up to 3 s jitter).
 
 ```mermaid
 flowchart TB
@@ -191,7 +199,7 @@ flowchart TB
   B -->|observer: health poll| SRV
   SRV --> CDP
   A -.->|A closes| B
-  B -->|takeover ~15s| SRV
+  B -->|takeover ~15–20s| SRV
 ```
 
 Build pipeline: esbuild → `dist/extension.cjs` + `dist/server/bundle.mjs`; client assets copied to `dist/client/`.
@@ -215,7 +223,7 @@ Build pipeline: esbuild → `dist/extension.cjs` + `dist/server/bundle.mjs`; cli
 
 ```
 src/
-├── core/           entry, config, paths, compatVersion audit (fingerprint.ts)
+├── core/           entry, config, paths, log-visor, compatVersion audit (fingerprint.ts)
 ├── ide/            CDP session, parse/*, actions/*
 ├── state/          broadcast, window monitor, hang recovery
 ├── web/            routes, socket hub, tunnel, plans
@@ -247,4 +255,4 @@ Express, socket.io, `ws`, grammy, node-html-parser, mermaid (client bundle). No 
 - Web and Telegram formatters consume `codeBlocks` / `diffBlock`, not Monaco HTML dumps.
 - Plan “View Plan” reads `~/.cursor/plans/<label>` through `src/web/plans.ts`.
 
-Developer workflows: [Development guide](development.md).
+Developer workflows: [Development guide](development.md) (build, logs, release).

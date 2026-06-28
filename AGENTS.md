@@ -70,7 +70,7 @@ Installs `cursor-handoff-telegram-send` and `plan-widget-tg` skills under `~/.cu
 
 | Path | Purpose |
 |------|---------|
-| `<repo>/data/` | Bot state, queue, sessions (override: `cursorHandoff.dataDir`) |
+| `<data-root>/` | Bot state, queue, sessions — [data root resolution](docs/reference.md#data-root-resolution) (`<repo>/data/` in dev; VSIX install folder `/data` when another workspace is open) |
 | `<workspace>/.cursor-handoff/outbox/` | Files agent sends to Telegram (stale purge after 1 h) |
 | `<workspace>/.cursor-handoff/file-relay/` | Inbound staging: `photo/inbound/` (images), `inbound/` (other files) |
 

@@ -36,7 +36,7 @@ export interface DataDirInfo {
   source: DataDirSource;
 }
 
-/** Canonical DATA_DIR: setting → `<repo>/data` → extension global storage. */
+/** Canonical DATA_DIR: custom → cursor-handoff package root (`<root>/data`) → globalStorage. */
 export function resolveDataDirInfo(context: vscode.ExtensionContext): DataDirInfo {
   const config = vscode.workspace.getConfiguration('cursorHandoff');
   const custom = config.get<string>('dataDir', '').trim();

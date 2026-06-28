@@ -851,7 +851,6 @@ describe('inbound-handlers logging', () => {
       await handleGeneralMessage(
         { chat: { id: CHAT_ID }, message: { text: 'hello general' }, reply: async () => ({ message_id: 1 }) },
         connectedDeps(),
-        async () => {},
       );
     });
     assertNoInboundLogs(lines);
@@ -1794,7 +1793,7 @@ describe('inbound-handlers logging', () => {
       new URL('../../src/telegram/commands/inbound-handlers.ts', import.meta.url),
       'utf-8',
     );
-    const block = src.match(/if \(menuCmd\) \{[\s\S]*?continue;\s*\}/)?.[0] ?? '';
+    const block = src.match(/if \(slashCmd && THREAD_CHAT_COMMANDS\.has\(slashCmd\)\) \{[\s\S]*?continue;\s*\}/)?.[0] ?? '';
     assert.ok(block.includes('catch (err)'));
     assert.ok(!block.includes('logWarn('));
   });

@@ -11,7 +11,7 @@
 [![Version](https://img.shields.io/badge/version-1.1.0-blue)](https://github.com/W1ldGodlike/CursorHandoff/releases)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-orange)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#requirements)
-[![Cursor](https://img.shields.io/badge/Cursor-CDP%20%3A9222-000?style=flat&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSIjZmZmIj48cGF0aCBkPSJNMTIgMkM2LjQ4IDIgMiA2LjQ4IDIgMTJzNC40OCAxMCAxMCAxMCAxMC00LjQ4IDEwLTEwUzE3LjUyIDIgMTIgMnoiLz48L3N2Zz4=)](#prerequisites)
+[![Cursor](https://img.shields.io/badge/Cursor-CDP%20%3A9222-000?style=flat&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSIjZmZmIj48cGF0aCBkPSJNMTIgMkM2LjQ4IDIgMiA2LjQ4IDIgMTJzNC40OCAxMCAxMCAxMCAxMC00LjQ4IDEwLTEwUzE3LjUyIDIgMTIgMnoiLz48L3N2Zz4=)](#requirements)
 
 **Control your local Cursor agent from your phone** — live feed, approvals, plan widgets, Telegram bridge.  
 Everything runs **on your machine**. No cloud agent runtime. No model hosting.
@@ -58,9 +58,12 @@ You approve tool runs, send follow-ups, attach files (photos and documents), and
 
 | Area | What you get |
 |------|----------------|
-| **Web client** | Live chat feed, tool approval cards, plan widgets (View Plan / Build), code & diff blocks, file attachments (images paste; other files via path), queue & `$` force-send |
-| **Telegram** | Forum topic per tab, slash commands, reply keyboard, inbound files (images, video, voice, documents), outbound [file relay](docs/telegram.md) from `.cursor-handoff/outbox/` |
+| **Web client** | Live chat feed, tool approval cards (optional approve sound), plan widgets (View Plan / Build), code & diff blocks, file attachments (images paste; other files via path), queue & `$` force-send |
+| **Telegram** | Forum topic per tab, slash commands, inbound files (images, video, voice, documents), outbound [file relay](docs/telegram.md) from `.cursor-handoff/outbox/` |
 | **Handoff settings** | One panel: network bind, web password, Telegram setup, add-ons — UI in **English** or **Russian** |
+| **Sidebar diagnostics** | **Test CDP** / **Test Telegram bot** (no server required), **Restart server** (owner), version and tunnel status |
+| **Handoff log** | Merged `<data-root>/handoff.log` — server visor combines server, extension, and Wake lines (`[server\|ext\|wake]` + local time + JSON); open from sidebar |
+| **Cursor upgrade advisory** | Toast, Telegram # General, and web banner when Cursor ≠ version pinned at package build (`testedCursorVersion` on `/health`) |
 | **CursorWake** (Windows) | Tray app: queue Telegram while Cursor is off, launch IDE on message, `/pause` & `/resume` |
 | **Cloudflare tunnel** | Optional `*.trycloudflare.com` HTTPS link — no VPN on the phone |
 | **Multi-window** | One server per PC; first healthy window **owns**, others **observe** |
@@ -172,7 +175,7 @@ Install from **Handoff settings → Add-ons** (or Command Palette).
 | Add-on | Platforms | Standard VSIX | Complete VSIX |
 |--------|-----------|---------------|---------------|
 | **CursorWake** | Windows | Downloads `CursorWake-windows.exe` from this repo's Releases | Copies bundled exe → `%LOCALAPPDATA%\CursorWake\` |
-| **cloudflared** | All | Downloads from [cloudflare/cloudflared](https://github.com/cloudflare/cloudflared/releases); winget fallback on Windows | Copies bundled exe → `%LOCALAPPDATA%\cloudflared\` |
+| **cloudflared** | All | Downloads from [cloudflare/cloudflared](https://github.com/cloudflare/cloudflared/releases); winget fallback on Windows | **Windows:** copies bundled `cloudflared.exe` → `%LOCALAPPDATA%\cloudflared\`. **macOS/Linux:** same download path as Standard (Complete ships only Windows binaries) |
 | **Agent skills** | All | Auto-installed on extension activation; manual: **Install agent skills** | Same |
 
 Toggle **autostart** for Wake (Windows Startup) and Cloudflare tunnel (`cursorHandoff.webTunnel.enabled`) in the same panel.
@@ -207,16 +210,44 @@ Never expose the server without a **strong web password**.
 
 ## Where data lives
 
-| What | Default path |
-|------|----------------|
-| Bot state, queue, tunnel URL | `<repo>/data/` (override: `cursorHandoff.dataDir`) |
-| Telegram auth tokens | `data/telegram-auth.json` |
+Handoff picks a **data root** first. Paths in the next table are under that root unless noted.
+
+When `cursorHandoff.dataDir` is empty, the extension walks **workspace folders**, then the **extension install folder**, looking for `package.json` with `"name": "cursor-handoff"`. If found → `<that-folder>/data/`. If not → extension global storage (rare).
+
+| Scenario | Typical `<data-root>` |
+|----------|-------------------------|
+| Custom `cursorHandoff.dataDir` | Your path |
+| Developing in this git repo | `<repo>/data/` |
+| VSIX installed, any workspace open | `<IDE-extensions>/cursor-handoff.cursor-handoff-<version>/data/` |
+| Fallback (missing package.json) | Global storage (table below) |
+
+| What | Path |
+|------|------|
+| Bot state, queue, tunnel URL, logs | `<data-root>/` |
+| Telegram auth tokens | `<data-root>/telegram-auth.json` |
+| Merged diagnostic log | `<data-root>/handoff.log` (visor; sidebar **Handoff log**) |
+| Server / extension / Wake raw logs | `<data-root>/handoff-server.log`, `handoff-ext.log`, `cursor-wake.log` |
 | Outbox (files to Telegram) | `<workspace>/.cursor-handoff/outbox/` (auto-purge after 1 h) |
 | Inbound file staging | `<workspace>/.cursor-handoff/file-relay/` (`photo/inbound/`, `inbound/`) |
 | CursorWake install (Windows) | `%LOCALAPPDATA%\CursorWake\` |
-| cloudflared (user install) | `%LOCALAPPDATA%\cloudflared\` or `~/.local/bin/cloudflared` |
+| cloudflared (user install) | Windows: `%LOCALAPPDATA%\cloudflared\` · macOS/Linux: `~/.local/bin/cloudflared` (or Homebrew / system path) |
 
-Full reference: [Settings & paths](docs/reference.md).
+**Installed VSIX example (Windows, Cursor):** `%USERPROFILE%\.cursor\extensions\cursor-handoff.cursor-handoff-1.1.0\data\`  
+VS Code: `~/.vscode/extensions/cursor-handoff.cursor-handoff-1.1.0/data/`
+
+**Global storage fallback** (only when no `cursor-handoff` package root is found):
+
+| OS | Cursor |
+|----|--------|
+| Windows | `%APPDATA%\Cursor\User\globalStorage\cursor-handoff.cursor-handoff\` |
+| macOS | `~/Library/Application Support/Cursor/User/globalStorage/cursor-handoff.cursor-handoff/` |
+| Linux | `~/.config/Cursor/User/globalStorage/cursor-handoff.cursor-handoff/` |
+
+Handoff settings shows the active path and source. Installed VSIX usually labels the folder **Project default (./data)** (the extension install directory), not global storage. Server, extension disk logs, and CursorWake (when launched by Handoff) all share one `DATA_DIR`.
+
+**CursorWake alone** (tray started without Handoff `DATA_DIR`): on Windows defaults to global storage per `wake/config.py`.
+
+Full reference: [Settings & paths](docs/reference.md#storage).
 
 ---
 
@@ -239,9 +270,11 @@ Full reference: [Settings & paths](docs/reference.md).
 | Sidebar **No CDP** / disconnected | Cursor launched with `--remote-debugging-port=9222`; visit `localhost:9222/json` |
 | Phone cannot open `:3000` | Firewall; server still on `127.0.0.1`; use LAN IP or Tailscale |
 | Telegram bot silent | [Bot won't connect](docs/telegram.md#bot-wont-connect); `telegramPoll: true` in `/health` |
-| Tunnel URL missing | Handoff settings → install cloudflared → Start; log: `data/cloudflared-quick.log` |
+| Tunnel URL missing | Handoff settings → install cloudflared → Start; log: `<data-root>/cloudflared-quick.log` |
 | Wake not starting | Handoff settings → Download & install Wake; tray **Raise Cursor** checked |
 | Web UI stale on macOS | Cursor backgrounded — bring to foreground; CDP may pause |
+| Need logs or error codes | Sidebar **Handoff log** → `<data-root>/handoff.log` (merged every 4 s); raw: `handoff-server.log`, `handoff-ext.log`, `cursor-wake.log` |
+| Cursor upgrade warning | Informational — compare `cursorVersion` vs `testedCursorVersion` on `/health`; update Cursor or dismiss the banner |
 
 More: [Getting started — common blockers](docs/guide.md#appendix-common-blockers).
 
@@ -259,7 +292,7 @@ npm run package:standard
 npm run package:complete
 ```
 
-Install from `releases/`. Maintainer smoke tests: [Development guide](docs/development.md).
+Install from `releases/`. Build and release: [Development guide](docs/development.md).
 
 ---
 
@@ -267,11 +300,11 @@ Install from `releases/`. Maintainer smoke tests: [Development guide](docs/devel
 
 | Document | For |
 |----------|-----|
-| [Getting started guide](docs/guide.md) | CDP, Handoff settings, network, Wake, tunnels |
+| [Getting started guide](docs/guide.md) | CDP, Handoff settings, network, Wake, tunnels, [diagnostics & logs](docs/guide.md#diagnostics-and-logs) |
 | [Telegram bridge guide](docs/telegram.md) | Bot, commands, file relay, fixes |
 | [Settings reference](docs/reference.md) | Every `cursorHandoff.*` key, `/health`, files on disk |
 | [Architecture overview](docs/architecture.md) | Contributors — CDP, state, Telegram transport |
-| [Development guide](docs/development.md) | Pre-release smoke, Wake acceptance |
+| [Development guide](docs/development.md) | Build, logs, release, Cursor compat |
 | [AGENTS.md](AGENTS.md) | AI coding agents working in this repo |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |
 

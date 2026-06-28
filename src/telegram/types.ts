@@ -16,7 +16,7 @@ export interface TgReplyKeyboard {
   input_field_placeholder?: string;
 }
 
-/** Hide reply keyboard (does not remove slash commands and /menu). */
+/** Hide reply keyboard (legacy; slash commands use setMyCommands). */
 export interface TgRemoveKeyboard {
   remove_keyboard: boolean;
   selective?: boolean;
@@ -30,9 +30,6 @@ export interface TgForceReply {
 }
 
 export type TgReplyMarkup = TgKeyboard | TgReplyKeyboard | TgRemoveKeyboard | TgForceReply;
-
-/** Telegram rejects empty text, NBSP and ZWSP — need a visible character. */
-export const KEYBOARD_PLACEHOLDER_TEXT = '⌨';
 
 export class TgKeyboardBuilder {
   private rows: TgInlineButton[][] = [[]];

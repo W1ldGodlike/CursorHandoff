@@ -14,10 +14,10 @@ Developer setup: [docs/guide.md](docs/guide.md) (appendix Standalone) and [docs/
 
 1. **Open an Issue** for bugs, ideas, or larger changes — especially before a big pull request.
 2. **Fork** the repository on GitHub.
-3. Create a **branch** from `main`.
+3. Create a **branch** from `master`.
 4. Make your changes; keep the diff focused.
 5. Run **`npm test`** (do not run `npx tsx --test` directly — use the npm script so stale runners are cleaned up).
-6. Open a **Pull Request** against `main` with a clear description. Link related issues (`Fixes #12`).
+6. Open a **Pull Request** against `master` with a clear description. Link related issues (`Fixes #12`).
 
 ## Commit messages
 

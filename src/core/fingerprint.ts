@@ -98,7 +98,7 @@ export function logStartupAudit(result: StartupAuditResult): void {
       `BUILD OK compatVersion=${HANDOFF_COMPAT_VERSION} bundle=${shortBundle} builtAt=${built}`,
       startupCtx('startup_audit', { hint: `fingerprint=${BUILD_FINGERPRINT}` }),
     );
-    logInfo('STARTUP_AUDIT_FEATURES', 'features: queued-telegram-api=on auto-chat-keyboards=off menus=/menu-only', startupCtx('startup_audit'));
+    logInfo('STARTUP_AUDIT_FEATURES', 'features: queued-telegram-api=on slash-commands-only', startupCtx('startup_audit'));
     return;
   }
 

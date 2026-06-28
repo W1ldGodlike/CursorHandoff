@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **Telegram reply keyboards** — `/menu` and on-demand reply-keyboard tiles in **# General** and project threads; use native slash commands only (`setMyCommands` and the bot menu button). CursorWake no longer posts reply keyboards on `/pause`, `/resume`, or `/status`.
+
+### Documentation
+
+- README and bridge docs no longer describe reply-keyboard tiles or `/menu`.
+
 ## [1.1.0] - 2026-06-28
 
 ### Fixed

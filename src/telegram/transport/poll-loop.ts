@@ -87,7 +87,6 @@ import { WindowHangMonitor } from '../../state/window-hang.js';
 import { flushAllOutboxWatchers, restoreOutboxWatchers } from '../../media/outbox-paths.js';
 import { stopAllOutboxWatchers, type OutboxWatcherDeps } from '../../media/outbox-watch.js';
 import { purgeStaleFileRelayFiles } from '../../media/lifecycle.js';
-import { showGeneralKeyboard } from '../ui/menus.js';
 import { isTransientTelegramError } from './telegram-errors.js';
 import { readWebTunnelUrl } from '../../web/tunnel.js';
 import { ensureWebTunnel } from '../../web/tunnel-ensure.js';
@@ -774,7 +773,7 @@ export abstract class BaseTelegramTransport implements Transport {
       }
     }
     if (threadId != null) {
-      const chatCmds = new Set(['menu', 'thread_status', 'last_commit', 'whereami', 'thread_rename', 'notify_mode', 'close_chat', 'new_chat', 'setup_tg_send']);
+      const chatCmds = new Set(['thread_status', 'last_commit', 'whereami', 'thread_rename', 'notify_mode', 'close_chat', 'new_chat', 'setup_tg_send']);
       if (chatCmds.has(cmd)) {
         return dispatchChatCommand(cmd, ctx, deps);
       }
@@ -793,11 +792,6 @@ export abstract class BaseTelegramTransport implements Transport {
       case 'pick_model': return handleModel(ctx, deps);
       case 'pause': return handlePause(ctx, deps);
       case 'resume': return handleResume(ctx, deps);
-      case 'menu': {
-        const gid = deps.chatId ?? ctx.chat?.id;
-        if (gid != null) await showGeneralKeyboard(this.api, gid);
-        return;
-      }
       case 'open_project': return handleOpenProject(ctx, deps);
       case 'projects': return handleProjects(ctx, deps);
       case 'web_url': return handleWebUrl(ctx, deps);

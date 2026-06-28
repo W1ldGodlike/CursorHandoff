@@ -299,7 +299,7 @@ export async function handleWebUrl(ctx: BotContext, deps: CommandDeps): Promise<
   const liveUrl = await ensureWebTunnel(dataDir, port);
   if (!liveUrl) {
     await ctx.reply(
-      t('tg.msg.webUrl.failed', '❌ Could not start tunnel.\n\nCheck VPN, cloudflared, and <code>data/cloudflared-quick.log</code>.'),
+      t('tg.msg.webUrl.failed', '❌ Could not start tunnel.\n\nCheck VPN, cloudflared, and cloudflared-quick.log in the Handoff runtime data folder (Handoff settings).'),
       { parse_mode: 'HTML' },
     );
     return;

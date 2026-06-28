@@ -11,7 +11,7 @@
 [![Version](https://img.shields.io/badge/version-1.1.0-blue)](https://github.com/W1ldGodlike/CursorHandoff/releases)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-orange)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#требования)
-[![Cursor](https://img.shields.io/badge/Cursor-CDP%20%3A9222-000?style=flat&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSIjZmZmIj48cGF0aCBkPSJNMTIgMkM2LjQ4IDIgMiA2LjQ4IDIgMTJzNC40OCAxMCAxMCAxMCAxMC00LjQ4IDEwLTEwUzE3LjUyIDIgMTIgMnoiLz48L3N2Zz4=)](#предварительные-требования)
+[![Cursor](https://img.shields.io/badge/Cursor-CDP%20%3A9222-000?style=flat&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSIjZmZmIj48cGF0aCBkPSJNMTIgMkM2LjQ4IDIgMiA2LjQ4IDIgMTJzNC40OCAxMCAxMCAxMCAxMC00LjQ4IDEwLTEwUzE3LjUyIDIgMTIgMnoiLz48L3N2Zz4=)](#требования)
 
 **Управляйте локальным агентом Cursor с телефона** — веб-клиент, Telegram, без облачного рантайма.  
 Всё работает **на вашем компьютере**. Модели не уезжают на чужой сервер.
@@ -58,9 +58,12 @@
 
 | Область | Что даёт |
 |---------|----------|
-| **Веб-клиент** | Живая лента, карточки Run/Skip, виджеты плана (View Plan / Build), код и диффы, вложения (картинки — paste, остальное — путь к файлу), очередь и `$` |
-| **Telegram** | Топик форума на вкладку, слэш-команды, reply-клавиатура, входящие файлы (фото, видео, голос, документы), исходящий [file relay](docs/telegram.md) из `.cursor-handoff/outbox/` |
+| **Веб-клиент** | Живая лента, карточки Run/Skip (опциональный звук approve), виджеты плана (View Plan / Build), код и диффы, вложения (картинки — paste, остальное — путь к файлу), очередь и `$` |
+| **Telegram** | Топик форума на вкладку, слэш-команды, входящие файлы (фото, видео, голос, документы), исходящий [file relay](docs/telegram.md) из `.cursor-handoff/outbox/` |
 | **Handoff settings** | Одна панель: сеть, пароль веба, Telegram, дополнения — интерфейс на **английском** или **русском** |
+| **Диагностика в сайдбаре** | **Test CDP** / **Test Telegram bot** (сервер не нужен), **Restart server** (владелец), версия и статус туннеля |
+| **Лог Handoff** | Объединённый `<data-root>/handoff.log` — визор склеивает server, extension и Wake (`[server\|ext\|wake]` + локальное время + JSON); кнопка в сайдбаре |
+| **Advisory по апдейту Cursor** | Тост, пост в # General и баннер в вебе, если Cursor ≠ версия, зашитая при сборке VSIX (`testedCursorVersion` в `/health`) |
 | **CursorWake** (Windows) | Трей: очередь Telegram при выключенном Cursor, запуск IDE по сообщению, `/pause` и `/resume` |
 | **Туннель Cloudflare** | Опциональная HTTPS-ссылка `*.trycloudflare.com` — VPN на телефоне не нужен |
 | **Несколько окон** | Один сервер на ПК; первое здоровое окно — **владелец**, остальные — **наблюдатели** |
@@ -172,7 +175,7 @@ cursor --install-extension cursor-handoff-1.1.0-complete.vsix
 | Дополнение | Платформы | Standard VSIX | Complete VSIX |
 |------------|-----------|---------------|---------------|
 | **CursorWake** | Windows | Качает `CursorWake-windows.exe` с Releases репозитория | Копирует bundled → `%LOCALAPPDATA%\CursorWake\` |
-| **cloudflared** | Все | Качает с [cloudflare/cloudflared](https://github.com/cloudflare/cloudflared/releases); запасной вариант — winget на Windows | Копирует bundled → `%LOCALAPPDATA%\cloudflared\` |
+| **cloudflared** | Все | Качает с [cloudflare/cloudflared](https://github.com/cloudflare/cloudflared/releases); запасной вариант — winget на Windows | **Windows:** копирует bundled `cloudflared.exe` → `%LOCALAPPDATA%\cloudflared\`. **macOS/Linux:** как Standard (в Complete только Windows-бинарники) |
 | **Agent skills** | Все | Авто при активации; вручную: **Install agent skills** | То же |
 
 Автозапуск Wake (Startup Windows) и туннеля (`cursorHandoff.webTunnel.enabled`) — в той же панели.
@@ -207,16 +210,44 @@ cursor --install-extension cursor-handoff-1.1.0-complete.vsix
 
 ## Где лежат данные
 
-| Что | Путь по умолчанию |
-|-----|-------------------|
-| Состояние бота, очередь, URL туннеля | `<repo>/data/` (переопределение: `cursorHandoff.dataDir`) |
-| Токены Telegram | `data/telegram-auth.json` |
+Сначала Handoff выбирает **корень данных**. Пути ниже — относительно него, если не указано иное.
+
+Если `cursorHandoff.dataDir` пустой, расширение ищет `package.json` с `"name": "cursor-handoff"` в **workspace**, затем в **папке установки VSIX**. Нашёл → `<эта-папка>/data/`. Не нашёл → global storage (редко).
+
+| Сценарий | Типичный `<data-root>` |
+|----------|-------------------------|
+| Задан `cursorHandoff.dataDir` | Ваш путь |
+| Разработка в git-репо | `<repo>/data/` |
+| VSIX на любом другом проекте | `<IDE-extensions>/cursor-handoff.cursor-handoff-<version>/data/` |
+| Fallback (нет package.json) | Global storage (таблица ниже) |
+
+| Что | Путь |
+|-----|------|
+| Состояние бота, очередь, URL туннеля, логи | `<data-root>/` |
+| Токены Telegram | `<data-root>/telegram-auth.json` |
+| Объединённый лог | `<data-root>/handoff.log` (визор; **Handoff log** в сайдбаре) |
+| Сырые логи server / ext / Wake | `<data-root>/handoff-server.log`, `handoff-ext.log`, `cursor-wake.log` |
 | Исходящие файлы в TG | `<workspace>/.cursor-handoff/outbox/` (автоочистка через 1 ч) |
 | Входящие файлы | `<workspace>/.cursor-handoff/file-relay/` (`photo/inbound/`, `inbound/`) |
 | Установка CursorWake (Windows) | `%LOCALAPPDATA%\CursorWake\` |
-| cloudflared (пользовательская) | `%LOCALAPPDATA%\cloudflared\` или `~/.local/bin/cloudflared` |
+| cloudflared (пользовательская) | Windows: `%LOCALAPPDATA%\cloudflared\` · macOS/Linux: `~/.local/bin/cloudflared` (или Homebrew / system path) |
 
-Справочник: [Settings reference](docs/reference.md) (англ.).
+**Пример VSIX (Windows, Cursor):** `%USERPROFILE%\.cursor\extensions\cursor-handoff.cursor-handoff-1.1.0\data\`  
+VS Code: `~/.vscode/extensions/cursor-handoff.cursor-handoff-1.1.0/data/`
+
+**Global storage fallback** (только если корень `cursor-handoff` не найден):
+
+| ОС | Cursor |
+|----|--------|
+| Windows | `%APPDATA%\Cursor\User\globalStorage\cursor-handoff.cursor-handoff\` |
+| macOS | `~/Library/Application Support/Cursor/User/globalStorage/cursor-handoff.cursor-handoff/` |
+| Linux | `~/.config/Cursor/User/globalStorage/cursor-handoff.cursor-handoff/` |
+
+В Handoff settings виден активный путь. Установленный VSIX обычно показывает **Project default (./data)** (папка расширения), не global storage. Сервер, ext-логи и CursorWake (если запущен Handoff) — один `DATA_DIR`.
+
+**CursorWake отдельно** (без `DATA_DIR` от Handoff): на Windows по умолчанию global storage (`wake/config.py`).
+
+Справочник: [Settings reference](docs/reference.md#storage) (англ.).
 
 ---
 
@@ -239,9 +270,11 @@ cursor --install-extension cursor-handoff-1.1.0-complete.vsix
 | В сайдбаре **No CDP** / disconnected | Cursor с `--remote-debugging-port=9222`; `localhost:9222/json` |
 | Телефон не открывает `:3000` | Файрвол; сервер на `127.0.0.1`; LAN IP или Tailscale |
 | Бот молчит | [Bot won't connect](docs/telegram.md#bot-wont-connect); в `/health` — `telegramPoll: true` |
-| Нет URL туннеля | Handoff settings → cloudflared → Start; лог: `data/cloudflared-quick.log` |
+| Нет URL туннеля | Handoff settings → cloudflared → Start; лог: `<data-root>/cloudflared-quick.log` |
 | Wake не стартует | Handoff settings → Скачать и установить Wake; в трее включён **Raise Cursor** |
 | Веб залипает на macOS | Cursor в фоне — выведите на передний план; CDP может засыпать |
+| Нужны логи или коды ошибок | Сайдбар **Handoff log** → `<data-root>/handoff.log` (склейка каждые 4 с); сырые: `handoff-server.log`, `handoff-ext.log`, `cursor-wake.log` |
+| Предупреждение об апдейте Cursor | Информационно — сравни `cursorVersion` и `testedCursorVersion` в `/health`; обнови Cursor или закрой баннер |
 
 Ещё: [Common blockers](docs/guide.md#appendix-common-blockers) в гайде.
 
@@ -259,7 +292,7 @@ npm run package:standard
 npm run package:complete
 ```
 
-Установите из `releases/`. Smoke-тесты: [Development guide](docs/development.md).
+Установите из `releases/`. Сборка и релиз: [Development guide](docs/development.md).
 
 ---
 
@@ -267,11 +300,11 @@ npm run package:complete
 
 | Документ | Для кого |
 |----------|----------|
-| [Getting started guide](docs/guide.md) | CDP, Handoff settings, сеть, Wake, туннели |
+| [Getting started guide](docs/guide.md) | CDP, Handoff settings, сеть, Wake, туннели, [диагностика и логи](docs/guide.md#diagnostics-and-logs) |
 | [Telegram bridge guide](docs/telegram.md) | Бот, команды, file relay |
 | [Settings reference](docs/reference.md) | Все ключи `cursorHandoff.*`, `/health`, файлы |
 | [Architecture overview](docs/architecture.md) | Устройство системы (контрибьюторы) |
-| [Development guide](docs/development.md) | Pre-release smoke, Wake acceptance |
+| [Development guide](docs/development.md) | Сборка, логи, релиз, совместимость Cursor |
 | [AGENTS.md](AGENTS.md) | AI-агенты в этом репозитории |
 | [CHANGELOG.md](CHANGELOG.md) | История релизов |
 

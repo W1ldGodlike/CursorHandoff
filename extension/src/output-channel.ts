@@ -111,7 +111,7 @@ function scrollEditorToEnd(editor: vscode.TextEditor, doc: vscode.TextDocument):
   editor.revealRange(line.range, vscode.TextEditorRevealType.AtBottom);
 }
 
-/** Open merged `data/handoff.log` — visor updates the file on disk; editor reloads externally. */
+/** Open merged `<data-root>/handoff.log` — visor updates the file on disk; editor reloads externally. */
 export async function revealHandoffLog(
   _channel: UnifiedOutputChannel,
   dataDir: string,
@@ -123,7 +123,7 @@ export async function revealHandoffLog(
       tr(
         dict,
         'ext.output.mergedMissing',
-        'CursorHandoff: merged log not ready yet — start the server; visor writes data/handoff.log every few seconds.',
+        'CursorHandoff: merged log not ready yet — start the server; visor writes handoff.log under the runtime data folder every few seconds.',
       ),
     );
     return;

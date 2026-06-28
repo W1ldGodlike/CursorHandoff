@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import threading
 import urllib.error
 import urllib.parse
@@ -14,8 +13,7 @@ from config import Config, log_line
 from health import cursor_process_running
 import storage
 
-# Keep in sync with src/telegram/commands/registry.ts (BOT_COMMANDS)
-# and src/telegram/ui/menus.ts (GENERAL_MENU_DEFS).
+# Keep in sync with src/telegram/commands/registry.ts (BOT_COMMANDS).
 TELEGRAM_BOT_COMMANDS: list[dict[str, str]] = [
     {"command": "register", "description": "Register: /register <token>"},
     {"command": "bridge", "description": "Link active Cursor tabs to forum threads"},
@@ -30,7 +28,6 @@ TELEGRAM_BOT_COMMANDS: list[dict[str, str]] = [
     {"command": "pick_model", "description": "Pick model (buttons)"},
     {"command": "pause", "description": "Pause CursorWake"},
     {"command": "resume", "description": "Resume CursorWake"},
-    {"command": "menu", "description": "Show command tiles"},
     {"command": "open_project", "description": "Open project by name"},
     {"command": "projects", "description": "List projects for /open_project"},
     {"command": "web_url", "description": "HTTPS link to web client"},
@@ -41,44 +38,6 @@ TELEGRAM_BOT_COMMANDS: list[dict[str, str]] = [
     {"command": "thread_rename", "description": "Rename thread for this task"},
     {"command": "notify_mode", "description": "TG noise: full / quiet / final"},
 ]
-
-TELEGRAM_BUTTON_MAX = 64
-
-GENERAL_MENU_ITEMS: list[dict[str, str]] = [
-    {"command": "status", "icon": "📊", "description": "Connection and bridge status"},
-    {"command": "pause", "icon": "⏸", "description": "Pause CursorWake"},
-    {"command": "resume", "icon": "▶️", "description": "Resume CursorWake"},
-    {"command": "bridge", "icon": "🔄", "description": "Link active Cursor tabs to forum threads"},
-    {"command": "bridge_all", "icon": "📂", "description": "Topics for all tabs and windows"},
-    {"command": "unbridge", "icon": "❌", "description": "Disable bridge and remove topics"},
-    {"command": "merge_threads", "icon": "🔀", "description": "Merge duplicate forum threads"},
-    {"command": "set_mode", "icon": "🎛", "description": "Agent mode (Plan / Agent)"},
-    {"command": "pick_model", "icon": "🤖", "description": "Pick model (buttons)"},
-]
-
-
-def _menu_button_text(icon: str, command: str, description: str) -> str:
-    text = f"{icon} /{command} — {description}"
-    if len(text) <= TELEGRAM_BUTTON_MAX:
-        return text
-    prefix = f"{icon} /{command} — "
-    room = TELEGRAM_BUTTON_MAX - len(prefix) - 1
-    return f"{prefix}{description[: max(room, 0)]}…"
-
-
-GENERAL_BUTTON_COMMANDS: dict[str, str] = {
-    _menu_button_text(item["icon"], item["command"], item["description"]): item["command"]
-    for item in GENERAL_MENU_ITEMS
-}
-
-
-def _general_reply_keyboard() -> dict[str, Any]:
-    return {
-        "keyboard": [[{"text": _menu_button_text(item["icon"], item["command"], item["description"])}] for item in GENERAL_MENU_ITEMS],
-        "resize_keyboard": True,
-        "is_persistent": False,
-        "input_field_placeholder": "Command or /status",
-    }
 
 
 class TelegramPoller:
@@ -131,14 +90,13 @@ class TelegramPoller:
                     label = f"chat {scope['chat_id']}"
                 log_line(self.cfg, f"[telegram] Registered {len(TELEGRAM_BOT_COMMANDS)} commands ({label})", code="WAKE_TG_CMDS_REG")
         if chat_id is not None:
-            self._ensure_general_keyboard(chat_id)
+            self._setup_menu_button()
 
-    def _ensure_general_keyboard(self, chat_id: int) -> None:
+    def _setup_menu_button(self) -> None:
         self._api("setChatMenuButton", {
             "menu_button": json.dumps({"type": "commands"}),
         })
-        # Tiles only via /menu — automatic reply_markup expands keyboard on chat entry.
-        log_line(self.cfg, "[telegram] General menu button set (tiles via /menu)", code="WAKE_TG_MENU_BTN")
+        log_line(self.cfg, "[telegram] Slash-command menu button set", code="WAKE_TG_MENU_BTN")
 
     def stop(self) -> None:
         self._stop.set()
@@ -286,31 +244,19 @@ class TelegramPoller:
 
         stripped = text.strip()
 
-        mapped = GENERAL_BUTTON_COMMANDS.get(stripped)
-        if mapped:
-            text = f"/{mapped.lstrip('/')}"
-        elif stripped.startswith("/"):
-            text = stripped
-        else:
-            match = re.search(r"/([a-z_]+)", stripped)
-            if match and any(item["command"] == match.group(1) for item in GENERAL_MENU_ITEMS):
-                text = f"/{match.group(1)}"
-
-        kb = _general_reply_keyboard()
-        if text.startswith("/"):
-            cmd = text.split()[0].split("@")[0].lower()
+        if stripped.startswith("/"):
+            cmd = stripped.split()[0].split("@")[0].lower()
             if cmd == "/pause":
                 storage.write_raise_cursor(self.cfg, False, "telegram")
                 self.send_message(
                     chat_id,
                     "⏸ CursorWake paused. /resume or check the tray.",
                     thread_id,
-                    reply_markup=kb,
                 )
                 return
             if cmd == "/resume":
                 storage.write_raise_cursor(self.cfg, True, "telegram")
-                self.send_message(chat_id, "▶️ CursorWake resumed.", thread_id, reply_markup=kb)
+                self.send_message(chat_id, "▶️ CursorWake resumed.", thread_id)
                 return
             if cmd == "/status":
                 pending = storage.count_pending(self.cfg)
@@ -319,18 +265,16 @@ class TelegramPoller:
                     chat_id,
                     f"CursorWake: {'running' if raised else 'paused'}\nQueue: {pending} pending",
                     thread_id,
-                    reply_markup=kb,
                 )
                 return
             return
 
         if thread_id is None:
-            if text.strip():
+            if stripped:
                 self.send_message(
                     chat_id,
                     "ℹ️ # General — commands only. Agent tasks go in a project topic.",
                     thread_id,
-                    reply_markup=kb,
                 )
             return
 

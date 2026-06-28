@@ -127,3 +127,24 @@ export function cleanupExpiredProjectPicks(): void {
     if (now - item.createdAt > PROJECT_PICK_TTL_MS) pendingProjectPicks.delete(token);
   }
 }
+
+/** Slash commands routed to dispatchChatCommand in a project thread. */
+export const THREAD_CHAT_COMMANDS = new Set([
+  'close_chat',
+  'new_chat',
+  'setup_tg_send',
+  'thread_status',
+  'last_commit',
+  'whereami',
+  'thread_rename',
+  'notify_mode',
+  'set_mode',
+  'pick_model',
+]);
+
+export function parseLeadingSlashCommand(text: string): string | undefined {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('/')) return undefined;
+  const cmd = trimmed.split(/\s/)[0].slice(1).split('@')[0].toLowerCase();
+  return cmd || undefined;
+}

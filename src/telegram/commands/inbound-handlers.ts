@@ -47,21 +47,15 @@ import {
   purgeOldDoneItems,
   type PendingQueueItem,
 } from '../../workspace/offline-queue.js';
-import {
-  resolveGeneralButtonCommand,
-  showGeneralKeyboard,
-  withGeneralKeyboard,
-  isGeneralChat,
-  resolveChatButtonCommand,
-  showChatKeyboard,
-  withChatKeyboard,
-} from '../ui/menus.js';
+import { isGeneralChat } from '../ui/menus.js';
 import type { BotContext } from '../types.js';
 import { t } from '../../i18n/t.js';
 import {
   type CommandDeps,
   genId,
+  parseLeadingSlashCommand,
   sleep,
+  THREAD_CHAT_COMMANDS,
   waitForFreshExtraction,
 } from './shared.js';
 import {
@@ -84,32 +78,14 @@ function inboundCtx(op: string, extra?: Omit<LogContext, 'scope' | 'op'>): LogCo
   return { scope: 'telegram', op, ...extra };
 }
 
-// --- Reply keyboard on demand (/menu) ---
-
-export async function handleShowChatMenu(ctx: BotContext, deps: CommandDeps): Promise<void> {
-  const chatId = deps.chatId ?? ctx.chat?.id;
-  const threadId = ctx.message?.message_thread_id;
-  if (!chatId || threadId == null) {
-    await ctx.reply(t('tg.msg.menu.threadOnly', '⚠️ /menu — only in a project thread.'));
-    return;
-  }
-  await showChatKeyboard(deps.api, chatId, threadId);
-}
-// --- General menu (reply keyboard) ---
+// --- # General (slash commands only; agent text → project threads) ---
 
 export async function handleGeneralMessage(
   ctx: BotContext,
   deps: CommandDeps,
-  dispatch: (cmd: string, ctx: BotContext, deps: CommandDeps) => Promise<void>,
 ): Promise<void> {
   const text = ctx.message?.text?.trim();
   if (!text) return;
-
-  const cmd = resolveGeneralButtonCommand(text);
-  if (cmd) {
-    await dispatch(cmd, withGeneralKeyboard(ctx), deps);
-    return;
-  }
 
   if (text.startsWith('/open_project')) {
     const rest = text.replace(/^\/open_project(@\w+)?/i, '').trim();
@@ -156,7 +132,6 @@ export async function dispatchChatCommand(
     case 'notify_mode': return handleNotifyMode(ctx, deps);
     case 'set_mode': return handleMode(ctx, deps);
     case 'pick_model': return handleModel(ctx, deps);
-    case 'menu': return handleShowChatMenu(ctx, deps);
     default:
       await ctx.reply(t('tg.msg.chat.unknownCmd', '⚠️ Unknown chat command: /{cmd}', { cmd }));
   }
@@ -381,13 +356,7 @@ export async function handleTopicMessage(
   const text = ctx.message?.text?.trim();
   if (!text) return;
 
-  const cmd = resolveChatButtonCommand(text);
-  if (cmd) {
-    await dispatchChatCommand(cmd, withChatKeyboard(ctx), deps);
-    return;
-  }
-
-  await handleTextMessage(withChatKeyboard(ctx), deps);
+  await handleTextMessage(ctx, deps);
 }
 // --- Topic message dispatch + queue ---
 
@@ -758,11 +727,11 @@ export async function processPendingQueue(deps: CommandDeps): Promise<void> {
         continue;
       }
 
-      const menuCmd = resolveChatButtonCommand(item.text.trim());
-      if (menuCmd) {
-        const ctx = withChatKeyboard(makeThreadBotContext(item.chatId, item.threadId, item.text, deps));
+      const slashCmd = parseLeadingSlashCommand(item.text);
+      if (slashCmd && THREAD_CHAT_COMMANDS.has(slashCmd)) {
+        const ctx = makeThreadBotContext(item.chatId, item.threadId, item.text, deps);
         try {
-          await dispatchChatCommand(menuCmd, ctx, deps);
+          await dispatchChatCommand(slashCmd, ctx, deps);
           markDone(dataDir, item.id);
           completed++;
         } catch (err) {
@@ -770,7 +739,7 @@ export async function processPendingQueue(deps: CommandDeps): Promise<void> {
           markFailed(dataDir, item.id, msg);
           await deps.api.sendMessage(
             item.chatId,
-            t('tg.msg.queue.cmdFailed', '⚠️ Command /{cmd}: {error}', { cmd: menuCmd, error: sanitizeErrorForUser(msg) }),
+            t('tg.msg.queue.cmdFailed', '⚠️ Command /{cmd}: {error}', { cmd: slashCmd, error: sanitizeErrorForUser(msg) }),
             { message_thread_id: item.threadId },
           );
         }
@@ -911,12 +880,6 @@ export async function handleTextMessage(ctx: BotContext, deps: CommandDeps): Pro
       `Skip duplicate inbound msg ${ctx.message?.message_id} (thread ${threadId})`,
       inboundCtx('inbound_text', { threadId, chatId }),
     );
-    return;
-  }
-
-  const menuCmd = resolveChatButtonCommand(text.trim());
-  if (menuCmd) {
-    await dispatchChatCommand(menuCmd, withChatKeyboard(ctx), deps);
     return;
   }
 

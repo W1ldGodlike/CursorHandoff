@@ -18,12 +18,11 @@ export const BOT_COMMANDS = [
   { command: 'pick_model', description: 'Pick model (buttons)' },
   { command: 'pause', description: 'Pause CursorWake' },
   { command: 'resume', description: 'Resume CursorWake' },
-  { command: 'menu', description: 'Show command tiles' },
   { command: 'open_project', description: 'Open project by name' },
   { command: 'projects', description: 'List projects for /open_project' },
   { command: 'web_url', description: 'HTTPS link to web client' },
   { command: 'setup_tg_send', description: 'Enable photo/file relay in this project' },
-  { command: 'thread_status', description: 'Thread status: poll, agent, queue' },
+  { command: 'thread_status', description: 'Thread status: poll, agent, queue, pending approves' },
   { command: 'last_commit', description: 'Last git commit in workspace' },
   { command: 'whereami', description: 'Routing: window, composer, tab' },
   { command: 'thread_rename', description: 'Rename thread for this task' },
@@ -44,7 +43,6 @@ const BOT_COMMAND_KEYS: Record<(typeof BOT_COMMANDS)[number]['command'], string>
   pick_model: 'tg.cmd.pick_model',
   pause: 'tg.cmd.pause',
   resume: 'tg.cmd.resume',
-  menu: 'tg.cmd.menu',
   open_project: 'tg.cmd.open_project',
   projects: 'tg.cmd.projects',
   web_url: 'tg.cmd.web_url',
@@ -67,7 +65,7 @@ function localizedBotCommands(): Array<{ command: string; description: string }>
   }));
 }
 
-/** Register slash hints + menu button + General reply keyboard. */
+/** Register slash hints + native commands menu button. */
 export async function registerBotCommands(
   api: Pick<TelegramApiClient, 'setMyCommands' | 'setChatMenuButton' | 'sendMessage'>,
   groupId?: number,
@@ -173,7 +171,6 @@ export {
 export {
   handleGeneralMessage,
   dispatchChatCommand,
-  handleShowChatMenu,
   handleTopicMessage,
   handleTextMessage,
   dispatchTopicMessage,

@@ -98,7 +98,7 @@
         "cursorHandoff.dataDir": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Folder for runtime state (topics, queue, Wake). Empty uses `<repo>/data/`."
+          "markdownDescription": "Folder for runtime state (topics, queue, logs). Empty: `<cursor-handoff-package>/data/` (git repo or VSIX install folder), else global storage. [Data root](docs/reference.md#data-root-resolution)."
         },
         "cursorHandoff.locale": {
           "type": "string",
@@ -127,7 +127,7 @@
         "cursorHandoff.webTunnel.enabled": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Start a Cloudflare quick tunnel with the server (Windows, macOS, Linux). URL in `data/web-tunnel-url.json`; `/web_url` in Telegram # General."
+          "markdownDescription": "Start a Cloudflare quick tunnel with the server (Windows, macOS, Linux). URL in `<data-root>/web-tunnel-url.json`; `/web_url` in Telegram # General."
         },
         "cursorHandoff.wake.startupEnabled": {
           "type": "boolean",
@@ -237,7 +237,7 @@
           {
             "id": "cursorHandoff.walkthrough.done",
             "title": "Open web client",
-            "description": "Ready! Open the web client on your phone.\n\n[Open web client](command:cursorHandoff.openWebClient)\n\nQuick reference:\n- Status bar — connection state (click to start/stop the server)\n- Activity bar — CursorHandoff panel: windows, model, pending approvals\n- Command Palette — commands prefixed with `CursorHandoff:`\n- Output — CursorHandoff channel for server logs\n\nDocs: [Getting started guide](command:cursorHandoff.openDoc?%22docs%2Fguide.md%22) · [Telegram bridge guide](command:cursorHandoff.openDoc?%22docs%2Ftelegram.md%22) · [Settings reference](command:cursorHandoff.openDoc?%22docs%2Freference.md%22)",
+            "description": "Ready! Open the web client on your phone.\n\n[Open web client](command:cursorHandoff.openWebClient)\n\nQuick reference:\n- Status bar — connection state (click to start/stop the server)\n- Activity bar — CursorHandoff panel: windows, model, pending approvals\n- Command Palette — commands prefixed with `CursorHandoff:`\n- **Handoff log** — merged server + extension + Wake log (`handoff.log`)\n\nDocs: [Getting started guide](command:cursorHandoff.openDoc?%22docs%2Fguide.md%22) · [Telegram bridge guide](command:cursorHandoff.openDoc?%22docs%2Ftelegram.md%22) · [Settings reference](command:cursorHandoff.openDoc?%22docs%2Freference.md%22)",
             "completionEvents": [
               "onCommand:cursorHandoff.openWebClient"
             ]

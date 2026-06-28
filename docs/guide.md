@@ -2,7 +2,7 @@
 
 CursorHandoff sits between Cursor and your phone: a **local server** reads the IDE over Chrome DevTools Protocol (CDP), serves a mobile web UI, and can mirror chats into Telegram forum topics.
 
-**Also read:** [Telegram bridge](telegram.md) · [Settings & paths](reference.md) · [Maintainer checks](development.md)
+**Also read:** [Telegram bridge](telegram.md) · [Settings & paths](reference.md) · [Development](development.md) (build, logs, release)
 
 ---
 
@@ -91,7 +91,11 @@ sequenceDiagram
 
 ### Activity bar sidebar
 
-The **CursorHandoff** view shows version, server state (Running / Stopped / No CDP), CursorWake status (Windows), Cloudflare tunnel status, and controls to start or stop the server, open the CDP workspace, switch agent mode, and inspect connected clients and windows. Shortcuts: **Open Handoff settings**, **Open web client**, **Handoff log** (opens `data/handoff.log` — the server visor merges server, extension, and Wake lines in the background every few seconds; the editor tab refreshes as the file grows).
+The **CursorHandoff** view shows version, server state (Running / Stopped / No CDP), CursorWake status (Windows), Cloudflare tunnel status, and controls to start or stop the server, **restart server** (owner), open the CDP workspace, switch agent mode, and inspect connected clients and windows.
+
+Shortcuts: **Open Handoff settings**, **Open web client**, **Handoff log** (opens `<data-root>/handoff.log` — the server visor merges server, extension, and Wake lines every 4 seconds; the editor tab refreshes as the file grows).
+
+Diagnostics (no server required): **Test CDP** (`/json` on `cdpUrl`) and **Test Telegram bot** (`getMe` with the saved token) — listed under **Handoff log**.
 
 Palette commands include **Start/Stop/Restart server**, **Install CursorWake** (Windows), **Install cloudflared**, and **Install agent skills**.
 
@@ -147,7 +151,7 @@ Open from the sidebar or at `http://<host>:3000`, then sign in with the web pass
 
 The header status strip includes an **Access** chip: it shows how you reached this page (**Local**, **LAN**, **Tailscale**, **Cloudflare**, or **Direct**), based on the hostname in the browser address bar (for example `192.168.x.x` → LAN, `*.ts.net` or `100.64.x.x` → Tailscale, `*.trycloudflare.com` → Cloudflare).
 
-You get a live chat feed, approval cards, plan widgets, rendered code and diffs, and file attachments from the phone (images paste into the composer; other files land on disk and paths go in the message). Messages starting with `$` force-submit even when the agent is busy; other text queues until the agent is idle. Preferences sync to `data/web-settings.json`.
+You get a live chat feed, approval cards (optional approve sound in ⚙, default off), plan widgets, rendered code and diffs, and file attachments from the phone (images paste into the composer; other files land on disk and paths go in the message). Messages starting with `$` force-submit even when the agent is busy; other text queues until the agent is idle. Preferences sync to `<data-root>/web-settings.json`.
 
 ---
 
@@ -187,7 +191,7 @@ cloudflared can publish a short-lived HTTPS URL (`*.trycloudflare.com`) so the p
    - macOS / Linux: `brew install cloudflared` (or let Handoff download to `~/.local/bin`)
 2. Turn on **`cursorHandoff.webTunnel.enabled`** (default on) or enable autostart in Handoff settings.
 3. Set a strong **webapp password**.
-4. The active URL is written to `data/web-tunnel-url.json`; **`/web_url`** in Telegram # General posts the link.
+4. The active URL is written to `<data-root>/web-tunnel-url.json`; **`/web_url`** in Telegram # General posts the link.
 
 Manual start/stop:
 
@@ -241,20 +245,18 @@ Install from Handoff settings → **Add-ons** → Wake, **CursorHandoff: Install
 .\scripts\install\install-handoff-wake.ps1
 ```
 
-It reads the same `cursorHandoff.telegram.*` settings; state lives under `<repo>/data/` (or `cursorHandoff.dataDir`).
+It reads the same `cursorHandoff.telegram.*` settings; state lives under the Handoff **data root** (see [Where data lives](../README.md#where-data-lives) — `<repo>/data/` in dev, VSIX install folder `/data` when another workspace is open, custom `cursorHandoff.dataDir`, or global storage fallback).
 
 - Tray **Raise Cursor** — periodic autostart while Cursor is down (default every 5 min) plus **immediate** launch on Telegram messages.
 - **`/pause`** and **`/resume`** mirror the tray checkbox.
-- Log file: `data/cursor-wake.log` — lines include stable `code=WAKE_*` tails (e.g. `WAKE_LAUNCH_START`, `WAKE_HEALTH_ZOMBIE_PORT`). Grep: `rg "code=WAKE_" data/cursor-wake.log`.
+- Log file: `<data-root>/cursor-wake.log` — lines include stable `code=WAKE_*` tails (e.g. `WAKE_LAUNCH_START`, `WAKE_HEALTH_ZOMBIE_PORT`). Grep: `rg "code=WAKE_" <data-root>/cursor-wake.log`.
 - After changing Wake Python sources, rebuild before the tray picks up new logging: `.\scripts\install\build-cursor-wake.ps1` (Complete VSIX bundles the fresh exe).
-
-Acceptance scenarios: [Development guide](development.md).
 
 ---
 
 ## Multiple Cursor windows
 
-One server process per machine. The first healthy window **owns** it; other windows **observe** via health polling. If the owner closes, an observer becomes owner within about 15 seconds.
+One server process per machine. The first healthy window **owns** it; other windows **observe** via health polling (5 s). If the owner closes, an observer takes over after **~15–20 s** (three failed health polls + up to 3 s jitter).
 
 ```mermaid
 flowchart TB
@@ -273,8 +275,50 @@ flowchart TB
   B -->|observer: health poll| SRV
   SRV --> CDP
   A -.->|A closes| B
-  B -->|takeover ~15s| SRV
+  B -->|takeover ~15–20s| SRV
 ```
+
+---
+
+<a id="diagnostics-and-logs"></a>
+
+## Diagnostics and logs
+
+### Sidebar probes
+
+Under **Handoff log** in the activity bar:
+
+| Action | What it checks |
+|--------|----------------|
+| **Test CDP** | `GET` on `cursorHandoff.cdpUrl` `/json` — server need not be running |
+| **Test Telegram bot** | Bot API `getMe` with the saved token |
+| **Restart server** | Owner only — stop then start the Handoff child |
+
+### Handoff log (merged)
+
+The server **visor** (`src/core/log-visor.ts`) tail-merges three sources into `<data-root>/handoff.log` every **4 seconds**:
+
+| Source file | Line prefix |
+|-------------|-------------|
+| `handoff-server.log` | `[server]` |
+| `handoff-ext.log` | `[ext]` |
+| `cursor-wake.log` (when Wake runs) | `[wake]` |
+
+Each merged line: `[component] DD.MM.YYYY HH:mm:ss:SSS {json}` (`ts` unix ms inside JSON). Structured lines use stable `code=` tails (`TG_*`, `CDP_*`, `WAKE_*`, …).
+
+Sidebar **Handoff log** opens the merged file in the editor (scroll to end). Cursor reloads the tab as the visor appends. Raw files stay on disk for `rg`.
+
+The extension Output channel still mirrors child-process stdout during development; prefer **Handoff log** for support.
+
+### Cursor upgrade advisory
+
+When running Cursor ≠ `testedCursorVersion` (pinned at `npm run package`):
+
+- Extension toast after CDP is healthy
+- Telegram post in **# General**
+- Dismissible web banner (`cursorUpgradeServerNotifyAt` on `/health`)
+
+Dedup: `<data-root>/cursor-upgrade-server-notify.json`. Details: [Development — Upgrade advisory](development.md#upgrade-advisory).
 
 ---
 
@@ -299,9 +343,11 @@ npm run dev
 
 Environment variables: [Settings reference](reference.md). Telegram after `.env`: [Telegram bridge guide](telegram.md).
 
-Production build: `npm run build && npm start` · server log: `data/handoff-server.log` · merged (visor): `data/handoff.log` · extension: `data/handoff-ext.log`
+Production build: `npm run build && npm start` · server log: `<data-root>/handoff-server.log` · merged (visor): `<data-root>/handoff.log` · extension: `<data-root>/handoff-ext.log`
 
 ---
+
+<a id="appendix-common-blockers"></a>
 
 ## Appendix: common blockers
 
@@ -309,5 +355,6 @@ Production build: `npm run build && npm start` · server log: `data/handoff-serv
 |---------|---------------------|
 | Web UI shows disconnected | `GET /health` — `connected`, `extractorStatus`; macOS backgrounding can stale CDP |
 | Phone cannot open `:3000` | Firewall, bind still on `127.0.0.1`, WSL port forwarding |
-| Sidebar empty or “No CDP” | `localhost:9222/json`; restart server from sidebar; extension Output channel |
-| Telegram bot quiet | [Telegram guide](telegram.md#bot-wont-connect) |
+| Sidebar empty or “No CDP” | `localhost:9222/json`; **Test CDP** in sidebar; restart server |
+| Telegram bot quiet | **Test Telegram bot** in sidebar; [Telegram guide](telegram.md#bot-wont-connect) |
+| Logs / error codes | Sidebar **Handoff log** → `<data-root>/handoff.log`; grep `handoff-server.log`, `cursor-wake.log` |
