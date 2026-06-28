@@ -20,16 +20,16 @@ const build: ServerBuildInfo = {
   version: '1.0.1',
   builtAt: '2026-06-27T00:00:00.000Z',
   compatVersion: 1,
-  testedCursorVersion: '3.9.8',
+  testedCursorVersion: '3.9.16',
   fingerprint: 'handoff-1.0.1-compatVersion-1',
   bundleSha256: 'abc',
 };
 
 describe('cursor-upgrade-advisory', () => {
   it('advisory when host Cursor version differs from dev-pinned target', () => {
-    assert.equal(isCursorUpgradeAdvisory('3.9.9', '3.9.8'), true);
-    assert.equal(isCursorUpgradeAdvisory('3.9.8', '3.9.8'), false);
-    assert.equal(isCursorUpgradeAdvisory(null, '3.9.8'), false);
+    assert.equal(isCursorUpgradeAdvisory('3.9.17', '3.9.16'), true);
+    assert.equal(isCursorUpgradeAdvisory('3.9.16', '3.9.16'), false);
+    assert.equal(isCursorUpgradeAdvisory(null, '3.9.16'), false);
   });
 
   it('health payload uses cursor-host.json and build manifest', () => {
@@ -38,7 +38,7 @@ describe('cursor-upgrade-advisory', () => {
     const health = getCursorUpgradeHealthPayload(dir, build);
     assert.equal(health.cursorUpgradeAdvisory, true);
     assert.equal(health.cursorVersion, '3.9.9');
-    assert.equal(health.testedCursorVersion, '3.9.8');
+    assert.equal(health.testedCursorVersion, '3.9.16');
     assert.equal(health.handoffVersion, '1.0.1');
     assert.equal(health.cursorUpgradeServerNotifyAt, null);
   });
@@ -80,8 +80,8 @@ describe('cursor-upgrade-advisory', () => {
   });
 
   it('formatCursorUpgradeMessage substitutes versions', () => {
-    const text = formatCursorUpgradeMessage('3.9.9', '3.9.8');
-    assert.match(text, /3\.9\.9/);
-    assert.match(text, /3\.9\.8/);
+    const text = formatCursorUpgradeMessage('3.9.17', '3.9.16');
+    assert.match(text, /3\.9\.17/);
+    assert.match(text, /3\.9\.16/);
   });
 });

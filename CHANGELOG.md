@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-06-28
+
+### Added
+
+- **Web mode picker** — Header **Mode** pill opens a bottom sheet; options load from the live Cursor mode menu via CDP (`get_mode_options` / `set_mode`). Supports Agent, Plan, Debug, Multitask, and Ask on Cursor 3.9.x unified dropdown.
+- **Web model picker** — Header **Model** pill mirrors the IDE model menu: Auto toggle, model list when Auto is off, per-row **Edit → Options** (Fast, Thinking, Context, Effort, and other controls read from DOM). No hardcoded model names; round-trip uses stable DOM ids or `label::<text>`.
+- **CDP navigation helpers** — Shared in-browser model/menu lookup for Cursor ~3.5.17+ (`ui-model-picker__trigger`, portaled `[role="menu"]`, `composer-unified-dropdown-model`) and mode items (`[id*="composer-mode-"]`).
+
+### Changed
+
+- **Telegram `/set_mode` and `/pick_model`** — Use the same CDP option snapshots as the web client; Auto-on model pick shows a hint to turn Auto off in Cursor instead of a fake list.
+- **Extract `mode.available`** — No longer hardcoded; empty in poll until a menu read (web/TG open the sheet or command path).
+
 ### Removed
 
 - **Telegram reply keyboards** — `/menu` and on-demand reply-keyboard tiles in **# General** and project threads; use native slash commands only (`setMyCommands` and the bot menu button). CursorWake no longer posts reply keyboards on `/pause`, `/resume`, or `/status`.
@@ -14,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 
 - README and bridge docs no longer describe reply-keyboard tiles or `/menu`.
+- **Cursor compatibility** — Last verified **Cursor 3.9.16** (2026-06-27); `testedCursorVersion` pinned at package build.
+- **Web client** — `docs/guide.md` documents Mode and Model pills on the mobile header.
+
+### Build
+
+- Rebuild **CursorWake** (`scripts/install/build-cursor-wake.ps1`) before Complete VSIX or `CursorWake-windows.exe` release asset — Wake command list synced (no `/menu`).
 
 ## [1.1.0] - 2026-06-28
 

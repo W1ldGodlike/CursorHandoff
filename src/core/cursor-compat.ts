@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
-const FALLBACK_TESTED_CURSOR_VERSION = '3.9.8';
+const FALLBACK_TESTED_CURSOR_VERSION = '3.9.16';
 
 function readFromRepoJson(root: string): string | null {
   try {

@@ -11,7 +11,7 @@ Build, logs, and release notes for maintaining CursorHandoff.
 | | Version |
 |---|---------|
 | **Minimum** | Cursor **3.8** (`data-message-index`, thinking messages, unified composer) |
-| **Last verified** | **3.9.8** (2026-06-27) |
+| **Last verified** | **3.9.16** (2026-06-27) |
 
 DOM parsing (`src/ide/parse/tabs.ts`) and TG action clicks (`register-callbacks.ts`) are tuned to this build. **`npm run package`** pins `testedCursorVersion` from the Cursor install on the build machine (`scripts/build/pin-cursor-compat.mjs`). Bump **Last verified** here after you smoke a newer Cursor build.
 
