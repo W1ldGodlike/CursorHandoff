@@ -707,6 +707,7 @@
   "web.questionnaire.freeformHint": "Type your answer above — not in the message box below.",
   "web.input.placeholder": "Message…",
   "web.input.send": "Send",
+  "web.input.sending": "Sending…",
   "web.input.attachPhoto": "Photo",
   "web.input.attachFile": "Attach file",
   "web.input.modeSelect": "Select mode",

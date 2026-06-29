@@ -707,6 +707,7 @@
   "web.questionnaire.freeformHint": "Пиши ответ в поле выше, не в строку сообщения внизу.",
   "web.input.placeholder": "Сообщение…",
   "web.input.send": "Отправить",
+  "web.input.sending": "Отправка…",
   "web.input.attachPhoto": "Фото",
   "web.input.attachFile": "Прикрепить файл",
   "web.input.modeSelect": "Выбор режима",

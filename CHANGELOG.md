@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Web send progress on attachments** — While a message with photos or files is uploading and the server is pasting into Cursor, the Send button shows a spinner, disables Send and attach, and uses localized “Sending…” label until `command:result` returns.
 - **Telegram `/auto_off` and `/auto_on`** — Toggle model **Auto** in Cursor from a project thread (same CDP path as the web Model sheet). When Auto is on, `/pick_model` hints to run `/auto_off` first, then `/pick_model` again for inline model buttons.
 
 ### Fixed

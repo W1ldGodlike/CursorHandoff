@@ -2942,6 +2942,30 @@ html[data-theme="light"] .markdown-body .md-diagram-wrap svg .cluster rect {
 
 .btn-send:disabled { background: var(--text-quaternary); }
 
+.btn-send--busy {
+  position: relative;
+  pointer-events: none;
+}
+
+.btn-send--busy svg {
+  opacity: 0;
+}
+
+.btn-send--busy::after {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: btn-send-spin 0.7s linear infinite;
+}
+
+@keyframes btn-send-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* --- Toast --- */
 
 #toast-container {

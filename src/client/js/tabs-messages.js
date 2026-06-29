@@ -43,8 +43,29 @@ export function canSendNow() {
   return !!ctx.$input.value.trim() || ctx.pendingPhotos.length > 0;
 }
 
+export function setSendInProgress(busy, { spinner = false } = {}) {
+  ctx.sendInProgress = busy;
+  if (!ctx.$btnSend) return;
+  ctx.$btnSend.classList.toggle('btn-send--busy', busy && spinner);
+  ctx.$btnSend.setAttribute('aria-busy', busy && spinner ? 'true' : 'false');
+  if (busy && spinner) {
+    ctx.$btnSend.setAttribute(
+      'aria-label',
+      t('web.input.sending', 'Sending…'),
+    );
+  } else {
+    ctx.$btnSend.setAttribute(
+      'aria-label',
+      t('web.input.send', 'Send'),
+    );
+  }
+  syncSendButton();
+}
+
 export function syncSendButton() {
-  ctx.$btnSend.disabled = !canSendNow() || ctx.$input.disabled;
+  const blocked = ctx.sendInProgress || ctx.$input.disabled;
+  ctx.$btnSend.disabled = !canSendNow() || blocked;
+  if (ctx.$btnAttach) ctx.$btnAttach.disabled = blocked;
 }
 
 export function pushPromptHistory(text) {
@@ -446,6 +467,7 @@ export function notifySendSuccess(label) {
 }
 
 export async function sendMessage() {
+  if (ctx.sendInProgress) return;
   const raw = ctx.$input.value;
   const photos = snapshotPendingPhotos();
   if (!raw.trim() && photos.length === 0) return;
@@ -455,66 +477,77 @@ export async function sendMessage() {
     return;
   }
 
+  const hasAttachments = photos.length > 0;
+  setSendInProgress(true, { spinner: hasAttachments });
+
   ctx.$input.value = '';
   ctx.$input.style.height = 'auto';
   clearPendingPhotos();
-  syncSendButton();
   if (parsed.text) pushPromptHistory(parsed.text);
 
-  const result = await deliverSendMessage(parsed.text, parsed.submit, photos);
-  if (result.ok) {
-    const label = photos.length > 0
-      ? (parsed.force
-        ? t('web.toast.photoForceSent', 'Photo sent (forced)')
-        : tp('web.toast.photosSent', 'Sent {count} photo(s)', { count: photos.length }))
-      : (parsed.force
-        ? t('web.toast.forceSent', 'Sent (forced)')
-        : t('web.toast.messageSent', 'Message sent'));
-    notifySendSuccess(label);
-    return;
-  }
+  try {
+    const result = await deliverSendMessage(parsed.text, parsed.submit, photos);
+    if (result.ok) {
+      const label = photos.length > 0
+        ? (parsed.force
+          ? t('web.toast.photoForceSent', 'Photo sent (forced)')
+          : tp('web.toast.photosSent', 'Sent {count} photo(s)', { count: photos.length }))
+        : (parsed.force
+          ? t('web.toast.forceSent', 'Sent (forced)')
+          : t('web.toast.messageSent', 'Message sent'));
+      notifySendSuccess(label);
+      return;
+    }
 
-  restorePendingPhotos(photos);
-  ctx.failedSends.push({
-    id: 'failed-' + result.commandId,
-    text: parsed.text,
-    submit: parsed.submit,
-    photos,
-    error: result.error || t('web.toast.sendFailed', 'Failed to send'),
-    retrying: false,
-  });
-  if (ctx.state.messages.length === 0) {
-    ctx.$emptyState.style.display = 'none';
+    restorePendingPhotos(photos);
+    ctx.failedSends.push({
+      id: 'failed-' + result.commandId,
+      text: parsed.text,
+      submit: parsed.submit,
+      photos,
+      error: result.error || t('web.toast.sendFailed', 'Failed to send'),
+      retrying: false,
+    });
+    if (ctx.state.messages.length === 0) {
+      ctx.$emptyState.style.display = 'none';
+    }
+    renderFailedSends();
+    socketState.showToast(result.error || t('web.toast.sendFailed', 'Failed to send'), 'error');
+  } finally {
+    setSendInProgress(false);
   }
-  renderFailedSends();
-  socketState.showToast(result.error || t('web.toast.sendFailed', 'Failed to send'), 'error');
 }
 
 export async function retryFailedSend(id) {
   const item = ctx.failedSends.find((s) => s.id === id);
-  if (!item || item.retrying) return;
+  if (!item || item.retrying || ctx.sendInProgress) return;
+  const hasAttachments = (item.photos?.length ?? 0) > 0;
   item.retrying = true;
   renderFailedSends();
+  setSendInProgress(true, { spinner: hasAttachments });
 
-  const result = await deliverSendMessage(item.text, item.submit, item.photos || []);
-  if (result.ok) {
-    const idx = ctx.failedSends.findIndex((s) => s.id === id);
-    if (idx >= 0) ctx.failedSends.splice(idx, 1);
+  try {
+    const result = await deliverSendMessage(item.text, item.submit, item.photos || []);
+    if (result.ok) {
+      const idx = ctx.failedSends.findIndex((s) => s.id === id);
+      if (idx >= 0) ctx.failedSends.splice(idx, 1);
+      renderFailedSends();
+      renderMessages();
+      notifySendSuccess(
+        hasAttachments
+          ? t('web.toast.photoSent', 'Photo sent')
+          : (item.submit === 'ctrlEnter' ? t('web.toast.forceSent', 'Sent (forced)') : t('web.toast.messageSent', 'Message sent')),
+      );
+      return;
+    }
+
+    item.retrying = false;
+    item.error = result.error || t('web.toast.sendFailed', 'Failed to send');
     renderFailedSends();
-    renderMessages();
-    const hasPhotos = (item.photos?.length ?? 0) > 0;
-    notifySendSuccess(
-      hasPhotos
-        ? t('web.toast.photoSent', 'Photo sent')
-        : (item.submit === 'ctrlEnter' ? t('web.toast.forceSent', 'Sent (forced)') : t('web.toast.messageSent', 'Message sent')),
-    );
-    return;
+    socketState.showToast(item.error, 'error');
+  } finally {
+    setSendInProgress(false);
   }
-
-  item.retrying = false;
-  item.error = result.error || t('web.toast.sendFailed', 'Failed to send');
-  renderFailedSends();
-  socketState.showToast(item.error, 'error');
 }
 
 

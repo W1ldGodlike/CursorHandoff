@@ -46,6 +46,7 @@ ctx.activePlanModal = null;
 ctx.activePlanModelContext = null;
 ctx.pendingCommandResults = new Map();
 ctx.failedSends = [];
+ctx.sendInProgress = false;
 
 
 ctx.$messages = document.getElementById('messages');

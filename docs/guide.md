@@ -151,7 +151,7 @@ Open from the sidebar or at `http://<host>:3000`, then sign in with the web pass
 
 The header status strip includes an **Access** chip: it shows how you reached this page (**Local**, **LAN**, **Tailscale**, **Cloudflare**, or **Direct**), based on the hostname in the browser address bar (for example `192.168.x.x` → LAN, `*.ts.net` or `100.64.x.x` → Tailscale, `*.trycloudflare.com` → Cloudflare).
 
-You get a live chat feed, approval cards (optional approve sound in ⚙, default off), plan widgets, rendered code and diffs, and file attachments from the phone (images paste into the composer; other files land on disk and paths go in the message). Messages starting with `$` force-submit even when the agent is busy; other text queues until the agent is idle. Header **Mode** and **Model** pills open sheets that read the live Cursor menus over CDP (same lists as in the IDE — not a hardcoded catalog). Preferences sync to `<data-root>/web-settings.json`.
+You get a live chat feed, approval cards (optional approve sound in ⚙, default off), plan widgets, rendered code and diffs, and file attachments from the phone (images paste into the composer; other files land on disk and paths go in the message). While an attachment send is in flight, **Send** shows a spinner and stays disabled until the server answers (large photos over a tunnel can take a few seconds). Messages starting with `$` force-submit even when the agent is busy; other text queues until the agent is idle. Header **Mode** and **Model** pills open sheets that read the live Cursor menus over CDP (same lists as in the IDE — not a hardcoded catalog). Preferences sync to `<data-root>/web-settings.json`.
 
 ---
 
