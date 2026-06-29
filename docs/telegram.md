@@ -166,7 +166,6 @@ Registered for the BotFather menu (`src/telegram/commands/registry.ts`):
 | `/thread_status` | Poll, agent state, composer queue length, pending approve count |
 | `/last_commit` | Latest git commit (hash + subject) for the thread workspace |
 | `/whereami` | Window, composer, and tab routing |
-| `/thread_rename` | Rename the thread for the current task |
 | `/notify_mode` | Notification level: full / quiet / final |
 
 **Stable bridge surface (1.0.0):** `/bridge`, `/bridge_all`, `/unbridge`, `/merge_threads`, `/flush`.

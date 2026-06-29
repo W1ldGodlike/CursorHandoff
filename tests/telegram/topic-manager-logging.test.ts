@@ -246,19 +246,6 @@ describe('topic-manager logging', () => {
     assert.ok(ok.some((line) => line.includes('threadId=12')));
   });
 
-  it('logs TG_TOPIC_LABEL_MISS and TG_TOPIC_LABEL_REJECT', async () => {
-    const tm = seedMapping(dataDir);
-    const miss = await capture('warn', () => {
-      tm.setTopicLabel(404, 'name');
-    });
-    assert.ok(miss.some((line) => line.includes('code=TG_TOPIC_LABEL_MISS')));
-
-    const reject = await capture('warn', () => {
-      tm.setTopicLabel(7, '   ');
-    });
-    assert.ok(reject.some((line) => line.includes('code=TG_TOPIC_LABEL_REJECT')));
-  });
-
   it('logs TG_TOPIC_MODE_MISS and TG_TOPIC_MODE_REJECT', async () => {
     const tm = seedMapping(dataDir);
     const miss = await capture('warn', () => {
@@ -438,8 +425,6 @@ const MANAGER_TG_TOPIC_CODES = [
   'TG_TOPIC_UPDATE_MISS',
   'TG_TOPIC_RUNTIME_KEY_TAKEN',
   'TG_TOPIC_UPDATE_OK',
-  'TG_TOPIC_LABEL_MISS',
-  'TG_TOPIC_LABEL_REJECT',
   'TG_TOPIC_MODE_MISS',
   'TG_TOPIC_MODE_REJECT',
   'TG_TOPIC_NOTIFY_MISS',
@@ -463,7 +448,7 @@ describe('topic-manager logging coverage', () => {
         `topic-manager-logging.test.ts missing assertion for ${code}`,
       );
     }
-    assert.equal(MANAGER_TG_TOPIC_CODES.length, 28);
+    assert.equal(MANAGER_TG_TOPIC_CODES.length, 26);
   });
 
   it('manager.ts declares exactly the covered TG_TOPIC codes', () => {

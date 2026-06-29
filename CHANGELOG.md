@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **Telegram `/thread_rename`** — Use Telegram’s native “Edit topic” on the forum thread; the bot still renames topics when Cursor tab titles change (`syncForumTopicLabel`).
+
 ### Added
 
 - **Web send progress on attachments** — While a message with photos or files is uploading and the server is pasting into Cursor, the Send button shows a spinner, disables Send and attach, and uses localized “Sending…” label until `command:result` returns.

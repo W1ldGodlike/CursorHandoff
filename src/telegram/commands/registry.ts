@@ -27,7 +27,6 @@ export const BOT_COMMANDS = [
   { command: 'thread_status', description: 'Thread status: poll, agent, queue, pending approves' },
   { command: 'last_commit', description: 'Last git commit in workspace' },
   { command: 'whereami', description: 'Routing: window, composer, tab' },
-  { command: 'thread_rename', description: 'Rename thread for this task' },
   { command: 'notify_mode', description: 'TG noise: full / quiet / final' },
 ] as const;
 
@@ -54,7 +53,6 @@ const BOT_COMMAND_KEYS: Record<(typeof BOT_COMMANDS)[number]['command'], string>
   thread_status: 'tg.cmd.thread_status',
   last_commit: 'tg.cmd.last_commit',
   whereami: 'tg.cmd.whereami',
-  thread_rename: 'tg.cmd.thread_rename',
   notify_mode: 'tg.cmd.notify_mode',
 };
 
@@ -144,7 +142,6 @@ export {
   handleLastCommit,
   buildWhereamiLines,
   handleWhereami,
-  handleThreadRename,
   waitForActiveTabAfterNewChat,
   type WhereamiContext,
 } from './chat-threads.js';

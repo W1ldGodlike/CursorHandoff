@@ -136,7 +136,6 @@ export const THREAD_CHAT_COMMANDS = new Set([
   'thread_status',
   'last_commit',
   'whereami',
-  'thread_rename',
   'notify_mode',
   'set_mode',
   'pick_model',

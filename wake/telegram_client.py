@@ -37,7 +37,6 @@ TELEGRAM_BOT_COMMANDS: list[dict[str, str]] = [
     {"command": "thread_status", "description": "Thread status: poll, agent, queue"},
     {"command": "last_commit", "description": "Last git commit in workspace"},
     {"command": "whereami", "description": "Routing: window, composer, tab"},
-    {"command": "thread_rename", "description": "Rename thread for this task"},
     {"command": "notify_mode", "description": "TG noise: full / quiet / final"},
 ]
 

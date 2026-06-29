@@ -8,7 +8,6 @@ import {
   isPlaceholderTabTitle,
   isStableComposerId,
   normalizeComposerId,
-  normalizeTopicLabelInput,
   normalizeTopicMode,
   shouldAllowMappingTitleUpdate,
 } from './guards.js';
@@ -560,24 +559,6 @@ export class TopicManager {
         windowTitle,
       }),
     );
-    return existing;
-  }
-
-  /** User forum topic name (§28). tabTitle / routing unchanged. */
-  setTopicLabel(threadId: number, topicLabel: string): TopicMapping | undefined {
-    const existing = this.byThread.get(threadId);
-    if (!existing) {
-      logWarn('TG_TOPIC_LABEL_MISS', `setTopicLabel: unknown thread ${threadId}`, topicCtx('set_topic_label', { threadId }));
-      return undefined;
-    }
-    const cleaned = normalizeTopicLabelInput(topicLabel);
-    if (!cleaned) {
-      logWarn('TG_TOPIC_LABEL_REJECT', `setTopicLabel: empty label for thread ${threadId}`, topicCtx('set_topic_label', { threadId }));
-      return undefined;
-    }
-    existing.topicLabel = cleaned;
-    existing.lastActive = Date.now();
-    this.saveToDisk();
     return existing;
   }
 

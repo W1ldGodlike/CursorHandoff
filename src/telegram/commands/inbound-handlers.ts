@@ -64,7 +64,6 @@ import {
   handleThreadStatus,
   handleLastCommit,
   handleWhereami,
-  handleThreadRename,
 } from './chat-threads.js';
 import {
   handleMode,
@@ -130,7 +129,6 @@ export async function dispatchChatCommand(
     case 'thread_status': return handleThreadStatus(ctx, deps);
     case 'last_commit': return handleLastCommit(ctx, deps);
     case 'whereami': return handleWhereami(ctx, deps);
-    case 'thread_rename': return handleThreadRename(ctx, deps);
     case 'notify_mode': return handleNotifyMode(ctx, deps);
     case 'set_mode': return handleMode(ctx, deps);
     case 'pick_model': return handleModel(ctx, deps);

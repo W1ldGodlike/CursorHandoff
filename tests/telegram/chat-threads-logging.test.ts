@@ -10,7 +10,6 @@ import {
   buildWhereamiLines,
   handleCloseChat,
   handleNewChat,
-  handleThreadRename,
   handleThreadStatus,
   handleWhereami,
   waitForActiveTabAfterNewChat,
@@ -699,91 +698,6 @@ describe('chat-threads logging', () => {
     assertThreadLog(lines, 'TG_NEW_CHAT_OK', { threadId: 55, chatId: CHAT_ID, op: 'new_chat', composerId: NEW_COMPOSER });
   });
 
-  it('handleThreadRename without threadId stays silent without TG_THREAD_RENAME_FAIL', async () => {
-    const lines = await captureAll(async () => {
-      await handleThreadRename(
-        makeMessageCtx({ message: { message_id: 1 }, match: 'X' }),
-        connectedDeps(),
-      );
-    });
-    assertNoThreadLogs(lines);
-  });
-
-  it('handleThreadRename without chatId stays silent without TG_THREAD_RENAME_FAIL', async () => {
-    const lines = await captureAll(async () => {
-      await handleThreadRename(
-        makeMessageCtx({ match: 'X' }),
-        connectedDeps({ chatId: undefined }),
-      );
-    });
-    assertNoThreadLogs(lines);
-  });
-
-  it('handleThreadRename unmapped thread stays silent without TG_THREAD_RENAME_FAIL', async () => {
-    const lines = await captureAll(async () => {
-      await handleThreadRename(
-        makeMessageCtx({ message: { message_id: 1, message_thread_id: 9999 }, match: 'X' }),
-        connectedDeps(),
-      );
-    });
-    assertNoThreadLogs(lines);
-  });
-
-  it('handleThreadRename empty arg stays silent without TG_THREAD_RENAME_FAIL', async () => {
-    const lines = await captureAll(async () => {
-      await handleThreadRename(makeMessageCtx({ match: '' }), connectedDeps());
-    });
-    assertNoThreadLogs(lines);
-  });
-
-  it('handleThreadRename bad title stays silent without TG_THREAD_RENAME_FAIL', async () => {
-    const lines = await captureAll(async () => {
-      await handleThreadRename(makeMessageCtx({ match: '   ' }), connectedDeps());
-    });
-    assertNoThreadLogs(lines);
-  });
-
-  it('handleThreadRename from message text stays silent without TG_THREAD_RENAME_FAIL', async () => {
-    const lines = await captureAll(async () => {
-      await handleThreadRename(
-        makeMessageCtx({
-          match: '',
-          message: { message_id: 1, message_thread_id: THREAD_ID, text: '/thread_rename Parsed Title' },
-        }),
-        connectedDeps(),
-      );
-    });
-    assertNoThreadLogs(lines);
-  });
-
-  it('logs TG_THREAD_RENAME_FAIL when editForumTopic throws', async () => {
-    const err = Object.assign(new Error('403 forbidden'), { code: 'ETELEGRAM' });
-    const lines = await captureAll(async () => {
-      await handleThreadRename(
-        makeMessageCtx({ match: 'New Title' }),
-        connectedDeps({
-          api: {
-            editForumTopic: async () => { throw err; },
-          } as unknown as TelegramApiClient,
-        }),
-      );
-    });
-    assertThreadLog(lines, 'TG_THREAD_RENAME_FAIL', {
-      threadId: THREAD_ID,
-      chatId: CHAT_ID,
-      op: 'thread_rename',
-      errno: 'ETELEGRAM',
-      text: '403 forbidden',
-    });
-  });
-
-  it('handleThreadRename success stays silent without TG_THREAD_RENAME_FAIL', async () => {
-    const lines = await captureAll(async () => {
-      await handleThreadRename(makeMessageCtx({ match: 'Renamed' }), connectedDeps());
-    });
-    assertNoThreadLogs(lines);
-  });
-
   it('handleThreadStatus without threadId stays silent without thread log codes', async () => {
     const lines = await captureAll(async () => {
       await handleThreadStatus(
@@ -912,14 +826,12 @@ const CHAT_THREAD_LOG_CODES = [
   'TG_NEW_CHAT_ACTIVE',
   'TG_NEW_CHAT_TOPIC_FAIL',
   'TG_NEW_CHAT_OK',
-  'TG_THREAD_RENAME_FAIL',
 ] as const;
 
 const SILENT_PATH_MARKERS = [
   'stays silent',
   'without TG_CLOSE',
   'without TG_NEW',
-  'without TG_THREAD',
   'without thread logs',
   'without thread log codes',
   'inFlight resets',
@@ -941,7 +853,6 @@ const CHAT_THREADS_PATH_MATRIX = [
   { kind: 'fail' as const, code: 'TG_NEW_CHAT_CREATE_FAIL', marker: 'newChat command fails' },
   { kind: 'fail' as const, code: 'TG_NEW_CHAT_TOPIC_FAIL', marker: 'createForumTopic throws' },
   { kind: 'fail' as const, code: 'TG_NEW_CHAT_START', marker: 'TG_NEW_CHAT_START and TG_NEW_CHAT_ACTIVE and TG_NEW_CHAT_OK' },
-  { kind: 'fail' as const, code: 'TG_THREAD_RENAME_FAIL', marker: 'editForumTopic throws' },
   { kind: 'silent' as const, marker: 'handleCloseChat without threadId' },
   { kind: 'silent' as const, marker: 'handleCloseChat unmapped' },
   { kind: 'silent' as const, marker: 'handleCloseChat success' },
@@ -950,13 +861,6 @@ const CHAT_THREADS_PATH_MATRIX = [
   { kind: 'silent' as const, marker: 'inFlight resets after window fail' },
   { kind: 'silent' as const, marker: 'inFlight resets after create fail' },
   { kind: 'silent' as const, marker: 'inFlight resets after topic fail' },
-  { kind: 'silent' as const, marker: 'handleThreadRename without threadId' },
-  { kind: 'silent' as const, marker: 'handleThreadRename without chatId' },
-  { kind: 'silent' as const, marker: 'handleThreadRename unmapped' },
-  { kind: 'silent' as const, marker: 'handleThreadRename empty arg' },
-  { kind: 'silent' as const, marker: 'handleThreadRename bad title' },
-  { kind: 'silent' as const, marker: 'from message text' },
-  { kind: 'silent' as const, marker: 'handleThreadRename success' },
   { kind: 'silent' as const, marker: 'handleThreadStatus without threadId' },
   { kind: 'silent' as const, marker: 'handleThreadStatus unmapped' },
   { kind: 'silent' as const, marker: 'handleWhereami without threadId' },
@@ -974,7 +878,7 @@ describe('chat-threads logging coverage', () => {
         || src.includes(`assertThreadLog(lines, '${code}'`);
       assert.ok(covered, `missing assertion for ${code}`);
     }
-    assert.equal(CHAT_THREAD_LOG_CODES.length, 12);
+    assert.equal(CHAT_THREAD_LOG_CODES.length, 11);
   });
 
   it('chat-threads.ts declares exactly the covered codes', () => {
@@ -983,7 +887,7 @@ describe('chat-threads logging coverage', () => {
       'utf-8',
     );
     const found = new Set<string>();
-    for (const m of src.matchAll(/'((?:TG_CLOSE_CHAT|TG_NEW_CHAT|TG_THREAD_RENAME)_[A-Z_]+)'/g)) {
+    for (const m of src.matchAll(/'((?:TG_CLOSE_CHAT|TG_NEW_CHAT)_[A-Z_]+)'/g)) {
       found.add(m[1]);
     }
     for (const code of CHAT_THREAD_LOG_CODES) {
@@ -1000,13 +904,13 @@ describe('chat-threads logging coverage', () => {
     assert.ok(!src.includes('console.log('));
     assert.ok(!src.includes('console.warn('));
     assert.ok(!src.includes('console.error('));
-    const re = /log(?:Info|Warn|Error)\(\s*'((?:TG_CLOSE_CHAT|TG_NEW_CHAT|TG_THREAD_RENAME)_[A-Z_]+)'[\s\S]*?\);/g;
+    const re = /log(?:Info|Warn|Error)\(\s*'((?:TG_CLOSE_CHAT|TG_NEW_CHAT)_[A-Z_]+)'[\s\S]*?\);/g;
     const codes: string[] = [];
     for (const m of src.matchAll(re)) {
       codes.push(m[1]);
       assert.ok(m[0].includes('threadCtx('), `log site ${m[1]} missing threadCtx(`);
     }
-    assert.equal(codes.length, 12);
+    assert.equal(codes.length, 11);
     assert.equal(new Set(codes).size, CHAT_THREAD_LOG_CODES.length);
     assert.ok(!src.match(/log(?:Info|Warn|Error)\([^)]*\{ scope: 'telegram'/));
   });
@@ -1088,13 +992,13 @@ describe('chat-threads logging coverage', () => {
     assert.match(src, /logError\(\s*'TG_NEW_CHAT_TOPIC_FAIL',\s*formatErrDetail\(err\)/);
   });
 
-  it('chat-threads.ts declares exactly 12 log emission sites', () => {
+  it('chat-threads.ts declares exactly 11 log emission sites', () => {
     const src = readFileSync(
       new URL('../../src/telegram/commands/chat-threads.ts', import.meta.url),
       'utf-8',
     );
-    const siteCount = src.match(/log(?:Info|Warn|Error)\(\s*'(?:TG_CLOSE_CHAT|TG_NEW_CHAT|TG_THREAD_RENAME)/g)?.length ?? 0;
-    assert.equal(siteCount, 12);
+    const siteCount = src.match(/log(?:Info|Warn|Error)\(\s*'(?:TG_CLOSE_CHAT|TG_NEW_CHAT)/g)?.length ?? 0;
+    assert.equal(siteCount, 11);
   });
 
   it('handleNewChat resets newChatInFlight in finally block', () => {
@@ -1105,7 +1009,7 @@ describe('chat-threads logging coverage', () => {
     assert.match(src, /newChatInFlight = true[\s\S]*finally[\s\S]*newChatInFlight = false/);
   });
 
-  it('TG_NEW_CHAT warn codes and TG_THREAD_RENAME_FAIL use logWarn in source', () => {
+  it('TG_NEW_CHAT warn codes use logWarn in source', () => {
     const src = readFileSync(
       new URL('../../src/telegram/commands/chat-threads.ts', import.meta.url),
       'utf-8',
@@ -1118,20 +1022,9 @@ describe('chat-threads logging coverage', () => {
       'TG_NEW_CHAT_CREATE_FAIL',
       'TG_CLOSE_CHAT_CONTEXT_FAIL',
       'TG_CLOSE_CHAT_FAIL',
-      'TG_THREAD_RENAME_FAIL',
     ] as const) {
       assert.match(src, new RegExp(`logWarn\\(\\s*'${code}'`));
     }
-  });
-
-  it('TG_THREAD_RENAME_FAIL uses normalizeError for errno in source', () => {
-    const src = readFileSync(
-      new URL('../../src/telegram/commands/chat-threads.ts', import.meta.url),
-      'utf-8',
-    );
-    const block = src.match(/export async function handleThreadRename[\s\S]*?^}/m)?.[0] ?? '';
-    assert.match(block, /const norm = normalizeError\(err\)/);
-    assert.match(block, /TG_THREAD_RENAME_FAIL[\s\S]*errno: norm\.errno/);
   });
 
   it('waitForActiveTabAfterNewChat has no logEvent calls in source', () => {
@@ -1145,7 +1038,7 @@ describe('chat-threads logging coverage', () => {
     assert.ok(!block.includes('logError('));
   });
 
-  it('automated matrix: 12/12 codes have behavioral assertThreadLog', () => {
+  it('automated matrix: 11/11 codes have behavioral assertThreadLog', () => {
     const src = readFileSync(new URL('./chat-threads-logging.test.ts', import.meta.url), 'utf-8');
     for (const code of CHAT_THREAD_LOG_CODES) {
       assert.ok(
@@ -1153,7 +1046,7 @@ describe('chat-threads logging coverage', () => {
         `behavioral matrix missing assertThreadLog for ${code}`,
       );
     }
-    assert.equal(CHAT_THREAD_LOG_CODES.length, 12);
+    assert.equal(CHAT_THREAD_LOG_CODES.length, 11);
   });
 
   it('TG_NEW_CHAT post-window fail codes pass windowId via threadCtx in source', () => {
@@ -1180,7 +1073,7 @@ describe('chat-threads logging coverage', () => {
         assert.ok(src.includes(row.marker), `path matrix silent "${row.marker}" missing from behavioral titles`);
       }
     }
-    assert.equal(CHAT_THREADS_PATH_MATRIX.length, 34);
+    assert.equal(CHAT_THREADS_PATH_MATRIX.length, 26);
   });
 
   it('chat-threads.ts vs HEAD has zero console.log warn error in logging zone', () => {
@@ -1191,7 +1084,7 @@ describe('chat-threads logging coverage', () => {
     assert.ok(!src.includes('console.log('));
     assert.ok(!src.includes('console.warn('));
     assert.ok(!src.includes('console.error('));
-    assert.equal(src.match(/log(?:Info|Warn|Error)\(/g)?.length ?? 0, 12);
+    assert.equal(src.match(/log(?:Info|Warn|Error)\(/g)?.length ?? 0, 11);
   });
 
   it('ensureMappingWindow and ensureMappingChat emit no log sites in source', () => {
