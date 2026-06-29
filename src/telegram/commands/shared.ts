@@ -140,6 +140,8 @@ export const THREAD_CHAT_COMMANDS = new Set([
   'notify_mode',
   'set_mode',
   'pick_model',
+  'auto_off',
+  'auto_on',
 ]);
 
 export function parseLeadingSlashCommand(text: string): string | undefined {

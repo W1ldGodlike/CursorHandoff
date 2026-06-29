@@ -214,7 +214,7 @@ export async function handleModel(ctx: BotContext, deps: CommandDeps): Promise<v
   if (raw?.autoOn) {
     const desc = raw.autoDescription?.trim();
     await ctx.reply(
-      t('tg.msg.model.autoOn', '<b>Auto</b> is enabled.{desc}\n<i>Turn off Auto in Cursor to pick a specific model.</i>', {
+      t('tg.msg.model.autoOn', '<b>Auto</b> is enabled.{desc}\n\nRun <code>/auto_off</code> first, then <code>/pick_model</code> again.', {
         desc: desc ? `\n${escapeHtml(desc)}` : '',
       }),
       { parse_mode: 'HTML' },
@@ -259,6 +259,62 @@ export async function handleModel(ctx: BotContext, deps: CommandDeps): Promise<v
     { parse_mode: 'HTML', reply_markup: kb.build() }
   );
 }
+export async function handleAutoOff(ctx: BotContext, deps: CommandDeps): Promise<void> {
+  if (!await ensureTopicWindow(ctx, deps)) return;
+
+  const result = await deps.commandExecutor.toggleModelAuto(genId(), false);
+  const snapshot = result.data as { autoOn?: boolean } | undefined;
+
+  if (!result.ok) {
+    logWarn(
+      'TG_MODEL_AUTO_OFF_FAIL',
+      result.error ?? 'toggle failed',
+      modeCtx('auto_off', ctx),
+    );
+    await ctx.reply(t('tg.msg.model.autoOff.fail', '⚠️ Could not turn off Auto in Cursor. Open the composer and try again.'), { parse_mode: 'HTML' });
+    return;
+  }
+
+  if (snapshot?.autoOn) {
+    await ctx.reply(t('tg.msg.model.autoOff.stillOn', '⚠️ Auto is still on in Cursor. Try again or toggle it in the IDE.'), { parse_mode: 'HTML' });
+    return;
+  }
+
+  logInfo('TG_MODEL_AUTO_OFF_OK', 'Auto disabled via /auto_off', modeCtx('auto_off', ctx));
+  await ctx.reply(
+    t('tg.msg.model.autoOff.ok', '✅ Auto is off. Run <code>/pick_model</code> to choose a model.', {}),
+    { parse_mode: 'HTML' },
+  );
+}
+
+export async function handleAutoOn(ctx: BotContext, deps: CommandDeps): Promise<void> {
+  if (!await ensureTopicWindow(ctx, deps)) return;
+
+  const result = await deps.commandExecutor.toggleModelAuto(genId(), true);
+  const snapshot = result.data as { autoOn?: boolean } | undefined;
+
+  if (!result.ok) {
+    logWarn(
+      'TG_MODEL_AUTO_ON_FAIL',
+      result.error ?? 'toggle failed',
+      modeCtx('auto_on', ctx),
+    );
+    await ctx.reply(t('tg.msg.model.enableAuto.fail', '⚠️ Could not turn on Auto in Cursor. Open the composer and try again.'), { parse_mode: 'HTML' });
+    return;
+  }
+
+  if (!snapshot?.autoOn) {
+    await ctx.reply(t('tg.msg.model.enableAuto.stillOff', '⚠️ Auto is still off in Cursor. Try again or toggle it in the IDE.'), { parse_mode: 'HTML' });
+    return;
+  }
+
+  logInfo('TG_MODEL_AUTO_ON_OK', 'Auto enabled via /auto_on', modeCtx('auto_on', ctx));
+  await ctx.reply(
+    t('tg.msg.model.enableAuto.ok', '✅ Auto is on. Cursor picks the model for you.'),
+    { parse_mode: 'HTML' },
+  );
+}
+
 // --- /pause /resume (CursorWake) ---
 
 export async function handlePause(ctx: BotContext, _deps: CommandDeps): Promise<void> {

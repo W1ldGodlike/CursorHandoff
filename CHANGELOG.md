@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Telegram `/auto_off` and `/auto_on`** — Toggle model **Auto** in Cursor from a project thread (same CDP path as the web Model sheet). When Auto is on, `/pick_model` hints to run `/auto_off` first, then `/pick_model` again for inline model buttons.
+
+### Fixed
+
+- **CDP model Auto toggle** — Detect Auto-on when the model list is hidden (empty menu + Auto row); retry toggle and longer settle so `/auto_off` / `/auto_on` from Telegram and web match Cursor 3.9.x.
+
 ## [1.2.0] - 2026-06-28
 
 ### Added

@@ -127,26 +127,45 @@ export const MODEL_ITEM_HELPERS_JS = `
 
   const toggleLooksOn = (root) => {
     if (!root) return false;
-    const sw = root.querySelector('[role="switch"], [role="checkbox"], input[type="checkbox"], [aria-checked]');
-    if (sw) {
+    const switches = root.querySelectorAll('[role="switch"], [role="checkbox"], input[type="checkbox"]');
+    for (const sw of Array.from(switches)) {
       const ac = sw.getAttribute('aria-checked');
       if (ac === 'true') return true;
       if (ac === 'false') return false;
       const ds = sw.getAttribute('data-state');
       if (ds === 'checked' || ds === 'on') return true;
       if (ds === 'unchecked' || ds === 'off') return false;
+      if (sw.querySelector('[data-state="checked"], [data-state="on"]')) return true;
+      if (sw.querySelector('[data-state="unchecked"], [data-state="off"]')) return false;
     }
-    const cls = (root.className || '') + (sw?.className || '');
+    const ariaRow = root.getAttribute('aria-checked');
+    if (ariaRow === 'true') return true;
+    if (ariaRow === 'false') return false;
+    if (root.querySelector('[data-state="checked"], [data-state="on"]')) return true;
+    const cls = root.className || '';
     return /\\b(checked|on|enabled)\\b/i.test(cls);
+  };
+
+  const autoLooksOnFromMenu = (menu) => {
+    if (!menu) return true;
+    const autoRow = findAutoRow(menu);
+    if (!autoRow) return true;
+    if (toggleLooksOn(autoRow)) return true;
+    if (collectModelItems(menu).length === 0) return true;
+    return false;
   };
 
   const clickAutoToggleInRow = (row) => {
     if (!row) return false;
-    const sw = row.querySelector('[role="switch"]');
-    if (sw) { sw.click(); return true; }
-    const candidates = row.querySelectorAll('[role="switch"], [aria-checked], button, [data-state]');
+    const switches = row.querySelectorAll('[role="switch"]');
+    if (switches.length > 0) {
+      switches[switches.length - 1].click();
+      return true;
+    }
+    const candidates = row.querySelectorAll('[role="checkbox"], input[type="checkbox"], [aria-checked], button, [data-state]');
     for (const el of Array.from(candidates)) {
       if (el === row) continue;
+      if (/^edit$/i.test((el.textContent || '').trim())) continue;
       el.click();
       return true;
     }
@@ -296,10 +315,8 @@ export const MODEL_SNAPSHOT_READ_JS = `
     let autoOn = false;
     let autoDescription = '';
     if (autoRow) {
-      autoOn = toggleLooksOn(autoRow);
+      autoOn = autoLooksOnFromMenu(menu);
       autoDescription = autoDescriptionFromRow(autoRow);
-      const peek = collectModelItems(menu);
-      if (!autoOn && peek.length === 0) autoOn = true;
     }
 
     let maxModeOn = false;
@@ -1349,21 +1366,34 @@ export class CommandExecutor {
   async toggleModelAuto(commandId: string, on: boolean): Promise<CommandResult> {
     const result = await this.withRetryValue(commandId, async (client) => {
       await this.openModelMenu(client);
-      const clicked = await client.evaluate(`
-        (() => {
-          ${MODEL_MENU_LOOKUP_JS}
-          ${MODEL_ITEM_HELPERS_JS}
-          const menu = findModelMenu();
-          if (!menu) return false;
-          const autoRow = findAutoRow(menu);
-          if (!autoRow) return false;
-          const isOn = toggleLooksOn(autoRow);
-          if (isOn !== ${JSON.stringify(on)}) clickAutoToggleInRow(autoRow);
-          return true;
-        })()
-      `) as boolean;
-      if (!clicked) throw new Error('Auto toggle not found in model menu');
-      await sleep(300);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const toggled = await client.evaluate(`
+          (() => {
+            ${MODEL_MENU_LOOKUP_JS}
+            ${MODEL_ITEM_HELPERS_JS}
+            const menu = findModelMenu();
+            if (!menu) return false;
+            const autoRow = findAutoRow(menu);
+            if (!autoRow) return false;
+            const isOn = autoLooksOnFromMenu(menu);
+            if (isOn !== ${JSON.stringify(on)}) clickAutoToggleInRow(autoRow);
+            return true;
+          })()
+        `) as boolean;
+        if (!toggled) throw new Error('Auto toggle not found in model menu');
+        await sleep(500);
+        const snapshot = await client.evaluate(`
+          (() => {
+            ${MODEL_SNAPSHOT_READ_JS}
+            return readModelMenuSnapshot();
+          })()
+        `) as ModelOptionsSnapshot;
+        if (snapshot.autoOn === on) {
+          await client.pressKey('Escape', 'Escape', 27);
+          await sleep(100);
+          return snapshot;
+        }
+      }
       const snapshot = await client.evaluate(`
         (() => {
           ${MODEL_SNAPSHOT_READ_JS}

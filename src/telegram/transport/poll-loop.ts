@@ -68,6 +68,8 @@ import {
   handleStatus,
   handleMode,
   handleModel,
+  handleAutoOff,
+  handleAutoOn,
   handleCallbackQuery,
   handleTextMessage,
   handleRegister,
@@ -790,6 +792,8 @@ export abstract class BaseTelegramTransport implements Transport {
       case 'status': return handleStatus(ctx, deps);
       case 'set_mode': return handleMode(ctx, deps);
       case 'pick_model': return handleModel(ctx, deps);
+      case 'auto_off': return handleAutoOff(ctx, deps);
+      case 'auto_on': return handleAutoOn(ctx, deps);
       case 'pause': return handlePause(ctx, deps);
       case 'resume': return handleResume(ctx, deps);
       case 'open_project': return handleOpenProject(ctx, deps);

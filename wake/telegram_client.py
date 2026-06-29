@@ -26,6 +26,8 @@ TELEGRAM_BOT_COMMANDS: list[dict[str, str]] = [
     {"command": "status", "description": "Connection and bridge status"},
     {"command": "set_mode", "description": "Agent mode (Plan / Agent)"},
     {"command": "pick_model", "description": "Pick model (buttons)"},
+    {"command": "auto_off", "description": "Turn off model Auto (before /pick_model)"},
+    {"command": "auto_on", "description": "Turn on model Auto"},
     {"command": "pause", "description": "Pause CursorWake"},
     {"command": "resume", "description": "Resume CursorWake"},
     {"command": "open_project", "description": "Open project by name"},

@@ -154,7 +154,9 @@ Registered for the BotFather menu (`src/telegram/commands/registry.ts`):
 | `/new_chat` | New Cursor chat + new Telegram thread |
 | `/status` | Connection and bridge status |
 | `/set_mode` | Agent mode picker (dynamic list from CDP) |
-| `/pick_model` | Model picker (inline buttons; Auto-on → text hint) |
+| `/pick_model` | Model picker (inline buttons; Auto on → run `/auto_off` first) |
+| `/auto_off` | Turn off model Auto in Cursor (then `/pick_model`) |
+| `/auto_on` | Turn on model Auto in Cursor |
 | `/pause` | Pause CursorWake |
 | `/resume` | Resume CursorWake |
 | `/open_project` | Open a project by name |
@@ -168,6 +170,18 @@ Registered for the BotFather menu (`src/telegram/commands/registry.ts`):
 | `/notify_mode` | Notification level: full / quiet / final |
 
 **Stable bridge surface (1.0.0):** `/bridge`, `/bridge_all`, `/unbridge`, `/merge_threads`, `/flush`.
+
+### Mode and model (project thread)
+
+Run these in a **linked project thread**, not in # General. The bot switches to the mapped Cursor window/tab first.
+
+| Goal | What to do |
+|------|------------|
+| Change agent mode (Plan, Agent, …) | `/set_mode` → tap an inline button |
+| Pick a specific model | `/auto_off`, then `/pick_model` → tap a model button |
+| Let Cursor choose the model (Auto) | `/auto_on` |
+
+When **Auto** is on in Cursor, the IDE hides the model list — `/pick_model` only hints to run `/auto_off` first. `/auto_off` and `/auto_on` use the same CDP toggle as the web client **Model** sheet.
 
 ---
 

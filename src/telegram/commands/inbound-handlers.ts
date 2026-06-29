@@ -70,6 +70,8 @@ import {
   handleMode,
   handleModel,
   handleNotifyMode,
+  handleAutoOff,
+  handleAutoOn,
 } from './mode-model.js';
 import { handleOpenProject, handleProjects, handleWebUrl } from './projects-web.js';
 import { handleSetupTgSend } from './register-callbacks.js';
@@ -132,6 +134,8 @@ export async function dispatchChatCommand(
     case 'notify_mode': return handleNotifyMode(ctx, deps);
     case 'set_mode': return handleMode(ctx, deps);
     case 'pick_model': return handleModel(ctx, deps);
+    case 'auto_off': return handleAutoOff(ctx, deps);
+    case 'auto_on': return handleAutoOn(ctx, deps);
     default:
       await ctx.reply(t('tg.msg.chat.unknownCmd', '⚠️ Unknown chat command: /{cmd}', { cmd }));
   }

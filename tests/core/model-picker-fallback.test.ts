@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import vm from 'node:vm';
-import { MODEL_MENU_LOOKUP_JS, MODEL_ITEM_COLLECTOR_JS } from '../../src/ide/actions/navigation.js';
+import { MODEL_MENU_LOOKUP_JS, MODEL_ITEM_COLLECTOR_JS, MODEL_SNAPSHOT_READ_JS } from '../../src/ide/actions/navigation.js';
 
 // MODEL_MENU_LOOKUP_JS snippet is injected via evaluate() inside the Cursor
 // renderer browser context. We do not launch a real browser here, but we can
@@ -375,6 +375,151 @@ describe('MODEL_ITEM_COLLECTOR_JS', () => {
     }
     // Sanity: unknown id must not resolve.
     assert.equal(runPick(fixtureHtml, 'label::Not A Model'), false);
+  });
+});
+
+describe('MODEL_SNAPSHOT_READ_JS auto detection', () => {
+  type El = {
+    tagName: string;
+    id: string;
+    attrs: Record<string, string>;
+    children: El[];
+    parent: El | null;
+    getAttribute(name: string): string | null;
+    getBoundingClientRect(): { width: number; height: number };
+    querySelector(sel: string): El | null;
+    querySelectorAll(sel: string): El[];
+    contains(other: El): boolean;
+    get textContent(): string;
+    get className(): string;
+  };
+  const matches = (el: El, sel: string): boolean => {
+    if (sel === 'button') return el.tagName === 'BUTTON';
+    if (sel === '[id]') return !!el.id;
+    const m = sel.match(/^\[role="([^"]+)"\]$/);
+    if (m) return el.attrs.role === m[1];
+    return false;
+  };
+  const matchInTree = (root: El, sel: string): El[] => {
+    const out: El[] = [];
+    const walk = (el: El) => {
+      if (matches(el, sel)) out.push(el);
+      for (const c of el.children) walk(c);
+    };
+    for (const c of root.children) walk(c);
+    if (matches(root, sel)) out.unshift(root);
+    return out;
+  };
+  const makeEl = (tagName: string, opts: { id?: string; attrs?: Record<string, string>; text?: string; children?: El[] } = {}): El => {
+    const el: El = {
+      tagName: tagName.toUpperCase(),
+      id: opts.id ?? '',
+      attrs: opts.attrs ?? {},
+      children: [],
+      parent: null,
+      getAttribute(name: string) { return this.attrs[name] ?? null; },
+      getBoundingClientRect() { return { width: 200, height: 40 }; },
+      querySelector(sel: string) { return matchInTree(this, sel)[0] ?? null; },
+      querySelectorAll(sel: string) { return matchInTree(this, sel); },
+      contains(other: El) {
+        let p: El | null = other.parent;
+        while (p) { if (p === this) return true; p = p.parent; }
+        return false;
+      },
+      get textContent() {
+        if (opts.text) return opts.text;
+        return this.children.map(c => c.textContent).join('');
+      },
+      get className() { return this.attrs.class ?? ''; },
+    };
+    for (const ch of opts.children ?? []) {
+      ch.parent = el;
+      el.children.push(ch);
+    }
+    return el;
+  };
+  const runSnapshot = (html: string) => {
+    const compact = html.replace(/>\s+</g, '><').trim();
+    let i = 0;
+    const parseNode = (): El => {
+      i++;
+      while (i < compact.length && compact[i] !== '<') i++;
+      i++;
+      let tag = '';
+      while (i < compact.length && /[a-z0-9]/i.test(compact[i])) tag += compact[i++];
+      const attrs: Record<string, string> = {};
+      while (compact[i] === ' ') {
+        i++;
+        let name = '';
+        while (i < compact.length && /[a-z0-9-]/i.test(compact[i])) name += compact[i++];
+        if (compact[i] === '=') {
+          i++;
+          const q = compact[i++];
+          let val = '';
+          while (i < compact.length && compact[i] !== q) val += compact[i++];
+          i++;
+          attrs[name] = val;
+        }
+      }
+      if (compact[i] === '>') i++;
+      const el = makeEl(tag, { id: attrs.id ?? '', attrs });
+      while (i < compact.length) {
+        if (compact[i] === '<' && compact[i + 1] === '/') {
+          i = compact.indexOf('>', i) + 1;
+          break;
+        }
+        if (compact[i] === '<') {
+          const child = parseNode();
+          child.parent = el;
+          el.children.push(child);
+        } else {
+          let txt = '';
+          while (i < compact.length && compact[i] !== '<') txt += compact[i++];
+          if (txt.trim()) {
+            const t = makeEl('span', { text: txt });
+            t.parent = el;
+            el.children.push(t);
+          }
+        }
+      }
+      return el;
+    };
+    const root = parseNode();
+    const fakeDoc = {
+      querySelector: (sel: string) => matchInTree(root, sel)[0] ?? (root.attrs.role === 'menu' ? root : null),
+      querySelectorAll: (sel: string) => matchInTree(root, sel),
+      getElementById: (id: string) => {
+        const all: El[] = [];
+        const walk = (el: El) => { all.push(el); for (const c of el.children) walk(c); };
+        walk(root);
+        return all.find(e => e.id === id) ?? null;
+      },
+    };
+    const code = `${MODEL_MENU_LOOKUP_JS}\n${MODEL_ITEM_COLLECTOR_JS}\n${MODEL_SNAPSHOT_READ_JS}\nreadModelMenuSnapshot();`;
+    return vm.runInNewContext(code, { document: fakeDoc, Array }) as { autoOn: boolean; options: unknown[] };
+  };
+
+  it('treats hidden model list as Auto on when switch reads off', () => {
+    const snap = runSnapshot(`
+      <div role="menu" data-state="open">
+        <div id="auto-row" role="menuitem">AutoBalanced quality and speed
+          <button role="switch" aria-checked="false" data-state="unchecked"></button>
+        </div>
+      </div>
+    `);
+    assert.equal(snap.autoOn, true);
+    assert.equal(snap.options.length, 0);
+  });
+
+  it('reads Auto on from switch aria-checked', () => {
+    const snap = runSnapshot(`
+      <div role="menu" data-state="open">
+        <div id="auto-row" role="menuitem">Auto picks for you
+          <button role="switch" aria-checked="true" data-state="checked"></button>
+        </div>
+      </div>
+    `);
+    assert.equal(snap.autoOn, true);
   });
 });
 
