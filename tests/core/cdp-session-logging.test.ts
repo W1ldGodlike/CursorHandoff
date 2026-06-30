@@ -1385,8 +1385,8 @@ describe('cdp-session logging coverage', () => {
   it('closeTarget logs CDP_TARGET_CLOSED only on response.ok in source', () => {
     const zone = cdpSessionZoneSrc();
     const body = zone.slice(zone.indexOf('async closeTarget'));
-    assert.match(body, /if \(response\.ok\) \{[\s\S]*?logInfo\([\s\S]*?'CDP_TARGET_CLOSED'/);
-    assert.match(body, /logWarn\([\s\S]*?'CDP_CONNECT_CLOSE_FAIL'/);
+    assert.match(body, /if \(!response\.ok\) \{[\s\S]*?logWarn\([\s\S]*?'CDP_CONNECT_CLOSE_FAIL'/);
+    assert.match(body, /logInfo\([\s\S]*?'CDP_TARGET_CLOSED'/);
   });
 
   it('intentionalDisconnect suppresses RECONNECT_LOST in disconnected handler in source', () => {

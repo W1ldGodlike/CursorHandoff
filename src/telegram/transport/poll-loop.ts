@@ -64,6 +64,7 @@ import {
   handlePurge,
   handleMergeThreads,
   handleCloseChat,
+  handleCloseProject,
   handleNewChat,
   handleStatus,
   handleMode,
@@ -775,7 +776,7 @@ export abstract class BaseTelegramTransport implements Transport {
       }
     }
     if (threadId != null) {
-      const chatCmds = new Set(['thread_status', 'last_commit', 'whereami', 'notify_mode', 'close_chat', 'new_chat', 'setup_tg_send']);
+      const chatCmds = new Set(['thread_status', 'last_commit', 'whereami', 'notify_mode', 'close_chat', 'close_project', 'new_chat', 'setup_tg_send']);
       if (chatCmds.has(cmd)) {
         return dispatchChatCommand(cmd, ctx, deps);
       }
@@ -788,6 +789,7 @@ export abstract class BaseTelegramTransport implements Transport {
       case 'merge_threads': return handleMergeThreads(ctx, deps);
       case 'flush': return handlePurge(ctx, deps);
       case 'close_chat': return handleCloseChat(ctx, deps);
+      case 'close_project': return handleCloseProject(ctx, deps);
       case 'new_chat': return handleNewChat(ctx, deps);
       case 'status': return handleStatus(ctx, deps);
       case 'set_mode': return handleMode(ctx, deps);

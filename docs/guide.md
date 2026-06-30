@@ -131,7 +131,7 @@ Left nav: **Telegram**. Five numbered steps in the panel:
 2. **Who may use the bot** — your numeric Telegram ID ([@userinfobot](https://t.me/userinfobot)), **Save**
 3. **Telegram group** — supergroup with **Topics**, bot as admin
 4. **Link this PC to the group** — server running → send `/register <token>` from the panel **in the group**
-5. **Create chat topics** — in **# General**, send `/bridge` (active tabs) or `/bridge_all` (all tabs). To open another repo from the phone, send **`/projects`** in # General and tap a project button (folders Cursor has opened before).
+5. **Create chat topics** — in **# General**, send `/bridge` (active tabs) or `/bridge_all` (all tabs). To open another repo from the phone, send **`/projects`** in # General and tap a project button (folders Cursor has opened before). To **close** a project window from the phone, send **`/close_project`** inside that project's forum thread (the thread stays linked for later reopen).
 
 **Bot API transport** (Raw / Grammy) is at the bottom of the same tab. Default is **`raw`**. Details: [Telegram bridge guide](telegram.md).
 
@@ -251,6 +251,73 @@ It reads the same `cursorHandoff.telegram.*` settings; state lives under the Han
 - **`/pause`** and **`/resume`** mirror the tray checkbox.
 - Log file: `<data-root>/cursor-wake.log` — lines include stable `code=WAKE_*` tails (e.g. `WAKE_LAUNCH_START`, `WAKE_HEALTH_ZOMBIE_PORT`). Grep: `rg "code=WAKE_" <data-root>/cursor-wake.log`.
 - After changing Wake Python sources, rebuild before the tray picks up new logging: `.\scripts\install\build-cursor-wake.ps1` (Complete VSIX bundles the fresh exe).
+
+<a id="opening-projects-from-telegram"></a>
+
+### Who opens what from Telegram
+
+Handoff has **two different jobs** that are easy to mix up:
+
+| Piece | Job |
+|-------|-----|
+| **CursorWake** (optional, Windows) | Keep Telegram alive while Cursor is **fully closed**; **start the Cursor app**; queue messages until Handoff is up |
+| **Handoff server + extension** | Poll Telegram when Cursor is running; **open a specific project folder**; route messages to the right window/tab |
+
+**CursorWake does not open a project folder by itself.** It only launches `Cursor.exe` (with CDP on port 9222). The **folder** comes from Handoff: the server writes `open-project.json`, and the extension runs `Open Folder` in a **new window** (`forceNewWindow: true`).
+
+That path is used when:
+
+- you run **`/open_project`** or tap **`/projects`** in # General;
+- you send a message in a **bridged project thread** whose window is closed (`resolveTargetWindow` + `AUTO_OPEN_PROJECTS`, default on);
+- Wake queued a message and the server drains the queue after CDP connects.
+
+The project path comes from the thread mapping (`workspacePath` in `telegram-topics.json`) or from Cursor’s known workspace list (open windows, recent folders, already bridged paths).
+
+#### Situation cheat sheet
+
+| Cursor | Wake | Telegram message in a project thread | `/open_project` from # General |
+|--------|------|--------------------------------------|--------------------------------|
+| **Fully closed** | **Yes** | Wake queues + starts Cursor → server drains queue → **Handoff opens the mapped project** | Same after Cursor is up (Wake or you opened Cursor manually) |
+| **Fully closed** | **No** | **Nothing** — no poller, no server, no extension | **Nothing** until you open Cursor yourself |
+| **Open** (any project) | doesn't matter | Server polls → if that project’s window is missing, **Handoff opens it** | **Handoff opens** the picked project in a new window + creates a forum topic |
+
+**Rule of thumb:** Wake is only for **“Cursor is completely off.”** Opening **which** project — always Handoff server + extension, whether Wake helped boot the IDE or not.
+
+**Minimum to use Telegram commands:** at least **one** Cursor window with the Handoff extension running (so the server on `:3000` is alive). Without Wake, you must start Cursor yourself first.
+
+```mermaid
+flowchart LR
+  subgraph closed["Cursor fully closed"]
+    TG1["TG message\nor /open_project"]
+    W["CursorWake\noptional"]
+    Q["pending-telegram-queue.json"]
+    CUR["Start Cursor.exe\nno folder yet"]
+    SRV["Handoff server"]
+    EXT["Extension reads\nopen-project.json"]
+    PROJ["Open mapped\nproject folder"]
+
+    TG1 --> W
+    W --> Q
+    W --> CUR
+    CUR --> SRV
+    SRV --> Q
+    SRV --> EXT
+    EXT --> PROJ
+  end
+
+  subgraph open["Cursor already open"]
+    TG2["TG message or\n/open_project"]
+    SRV2["Handoff server"]
+    EXT2["Extension"]
+    PROJ2["New window\nwith folder"]
+
+    TG2 --> SRV2
+    SRV2 --> EXT2
+    EXT2 --> PROJ2
+  end
+```
+
+See also [Open a project](telegram.md#open-a-project-general) and [Handoff with CursorWake](telegram.md#handoff-with-cursorwake) in the Telegram doc.
 
 ---
 

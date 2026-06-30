@@ -13,11 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Telegram `/close_project`** — From a **linked project thread** (not # General): close only that project's Cursor window via CDP `json/close`. Forum topic and `telegram-topics.json` mapping stay; write in the thread later to reopen via Wake/server routing.
+- **Docs: who opens projects from Telegram** — [guide § opening-projects-from-telegram](docs/guide.md#opening-projects-from-telegram): Wake starts the IDE when Cursor is off; Handoff server + extension open the folder (`open-project.json`). Cheat sheet for Wake on/off and Cursor open/closed.
 - **Web send progress on attachments** — While a message with photos or files is uploading and the server is pasting into Cursor, the Send button shows a spinner, disables Send and attach, and uses localized “Sending…” label until `command:result` returns.
 - **Telegram `/auto_off` and `/auto_on`** — Toggle model **Auto** in Cursor from a project thread (same CDP path as the web Model sheet). When Auto is on, `/pick_model` hints to run `/auto_off` first, then `/pick_model` again for inline model buttons.
 
 ### Fixed
 
+- **Telegram disconnect notice on `/close_project`** — Closing the active CDP target no longer posts `⚠️ Disconnected from Cursor IDE` to # General; `isClosingTarget` mirrors the existing `isSwitchingWindow` guard while the server reconnects to another window.
 - **CDP model Auto toggle** — Detect Auto-on when the model list is hidden (empty menu + Auto row); retry toggle and longer settle so `/auto_off` / `/auto_on` from Telegram and web match Cursor 3.9.x.
 
 ## [1.2.0] - 2026-06-28

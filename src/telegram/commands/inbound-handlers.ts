@@ -60,6 +60,7 @@ import {
 } from './shared.js';
 import {
   handleCloseChat,
+  handleCloseProject,
   handleNewChat,
   handleThreadStatus,
   handleLastCommit,
@@ -124,6 +125,7 @@ export async function dispatchChatCommand(
 ): Promise<void> {
   switch (cmd) {
     case 'close_chat': return handleCloseChat(ctx, deps);
+    case 'close_project': return handleCloseProject(ctx, deps);
     case 'new_chat': return handleNewChat(ctx, deps);
     case 'setup_tg_send': return handleSetupTgSend(ctx, deps);
     case 'thread_status': return handleThreadStatus(ctx, deps);

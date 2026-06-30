@@ -131,6 +131,7 @@ export function cleanupExpiredProjectPicks(): void {
 /** Slash commands routed to dispatchChatCommand in a project thread. */
 export const THREAD_CHAT_COMMANDS = new Set([
   'close_chat',
+  'close_project',
   'new_chat',
   'setup_tg_send',
   'thread_status',

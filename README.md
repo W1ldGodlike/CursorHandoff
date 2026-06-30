@@ -300,7 +300,7 @@ Install from `releases/`. Build and release: [Development guide](docs/developmen
 
 | Document | For |
 |----------|-----|
-| [Getting started guide](docs/guide.md) | CDP, Handoff settings, network, Wake, tunnels, [diagnostics & logs](docs/guide.md#diagnostics-and-logs) |
+| [Getting started guide](docs/guide.md) | CDP, Handoff settings, network, Wake, [who opens projects from TG](docs/guide.md#opening-projects-from-telegram), tunnels, [diagnostics & logs](docs/guide.md#diagnostics-and-logs) |
 | [Telegram bridge guide](docs/telegram.md) | Bot, commands, file relay, fixes |
 | [Settings reference](docs/reference.md) | Every `cursorHandoff.*` key, `/health`, files on disk |
 | [Architecture overview](docs/architecture.md) | Contributors — CDP, state, Telegram transport |

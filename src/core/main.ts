@@ -178,7 +178,7 @@ async function main(): Promise<void> {
   cdpBridge.on('disconnected', () => {
     commandExecutor.setClient(null);
     extractor.stop();
-    if (cdpBridge.isSwitchingWindow) return;
+    if (cdpBridge.isSwitchingWindow || cdpBridge.isClosingTarget) return;
     stateManager.onConnectionChanged(false);
   });
 

@@ -132,6 +132,7 @@ export class CDPBridge extends EventEmitter {
   private readonly maxReconnectDelay = 30000;
   private intentionalDisconnect = false;
   private _switchingWindow = false;
+  private _closingTarget = false;
   private _activeTargetId = '';
   private _windows: CursorWindow[] = [];
   private _activeWorkspaceName: string | null = null;
@@ -158,6 +159,11 @@ export class CDPBridge extends EventEmitter {
   /** true during switchWindow — do not treat as lost Cursor connection. */
   get isSwitchingWindow(): boolean {
     return this._switchingWindow;
+  }
+
+  /** true while closeTarget is closing the active CDP page — same as switching. */
+  get isClosingTarget(): boolean {
+    return this._closingTarget;
   }
 
   private beginReconnectCycle(): string {
@@ -223,6 +229,7 @@ export class CDPBridge extends EventEmitter {
 
       this.reconnectDelay = 1000;
       this.clearReconnectRid();
+      this._closingTarget = false;
       logInfo('CDP_CONNECT_OK', 'Connected successfully', cdpCtx('connect', { windowId: target.id }));
       this.emit('connected');
     } catch (err) {
@@ -386,30 +393,35 @@ export class CDPBridge extends EventEmitter {
 
   /** Closes one Cursor window without terminating the whole process. */
   async closeTarget(targetId: string): Promise<boolean> {
+    const closingActive = targetId === this._activeTargetId;
+    if (closingActive) this._closingTarget = true;
     try {
       const url = `${this.config.cdpUrl}/json/close/${encodeURIComponent(targetId)}`;
       const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
-      if (response.ok) {
-        this._windows = this._windows.filter((w) => w.id !== targetId);
-        if (this._activeTargetId === targetId) {
-          this._activeTargetId = '';
-        }
-        logInfo(
-          'CDP_TARGET_CLOSED',
-          targetId.substring(0, 8),
+      if (!response.ok) {
+        logWarn(
+          'CDP_CONNECT_CLOSE_FAIL',
+          `closeTarget HTTP ${response.status} for ${targetId.substring(0, 8)}`,
           cdpCtx('close_target', { windowId: targetId }),
         );
-        return true;
+        if (closingActive) this._closingTarget = false;
+        return false;
       }
-      logWarn(
-        'CDP_CONNECT_CLOSE_FAIL',
-        `closeTarget HTTP ${response.status} for ${targetId.substring(0, 8)}`,
+      this._windows = this._windows.filter((w) => w.id !== targetId);
+      if (closingActive) {
+        this._activeTargetId = '';
+        setTimeout(() => { this._closingTarget = false; }, 5000);
+      }
+      logInfo(
+        'CDP_TARGET_CLOSED',
+        targetId.substring(0, 8),
         cdpCtx('close_target', { windowId: targetId }),
       );
-      return false;
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logWarn('CDP_CONNECT_CLOSE_FAIL', `closeTarget failed: ${message}`, cdpCtx('close_target', { windowId: targetId }));
+      if (closingActive) this._closingTarget = false;
       return false;
     }
   }

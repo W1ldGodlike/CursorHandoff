@@ -151,6 +151,7 @@ Registered for the BotFather menu (`src/telegram/commands/registry.ts`):
 | `/merge_threads` | List duplicate threads; `/merge_threads yes` to merge |
 | `/flush` | Delete all topics (full reset) |
 | `/close_chat` | Close the Cursor chat tab |
+| `/close_project` | Close the Cursor project window (thread mapping stays) |
 | `/new_chat` | New Cursor chat + new Telegram thread |
 | `/status` | Connection and bridge status |
 | `/set_mode` | Agent mode picker (dynamic list from CDP) |
@@ -182,6 +183,19 @@ Run these in a **linked project thread**, not in # General. The bot switches to 
 
 When **Auto** is on in Cursor, the IDE hides the model list — `/pick_model` only hints to run `/auto_off` first. `/auto_off` and `/auto_on` use the same CDP toggle as the web client **Model** sheet.
 
+### Close project window (project thread)
+
+Run **`/close_project`** in a **linked project thread**, not in # General.
+
+| What happens | Detail |
+|--------------|--------|
+| Cursor | Only that project's window closes (`CDP /json/close/<targetId>`) |
+| Telegram | Same forum thread stays; mapping in `telegram-topics.json` is kept |
+| Reopen | Send a message in that thread (or `/open_project` from # General) — Handoff opens the project again from the stored path; if Cursor was fully closed, [CursorWake](guide.md#cursor-wake) may start the IDE first ([who opens what](guide.md#opening-projects-from-telegram)) |
+| # General | No disconnect spam — intentional window close is not treated as a lost IDE connection |
+
+Success reply is localized (`tg.msg.closeProject.ok`). On failure you get `tg.msg.closeProject.failed` (for example CDP close HTTP error).
+
 ### Open a project (# General)
 
 Run these in **# General**, not in a bridged project thread.
@@ -195,6 +209,8 @@ Run these in **# General**, not in a bridged project thread.
 **Where names come from:** open Cursor windows (CDP `workspacePath`), Cursor’s recent-folder list (`%APPDATA%/Cursor/User/globalStorage/storage.json` on Windows), and workspaces already bridged in `telegram-topics.json`. Handoff does **not** scan `~/Projects` or the whole home directory.
 
 `/open_project` with no argument prints usage. Pick buttons expire after 10 minutes — run `/projects` or `/open_project` again.
+
+**Requires a running Handoff server** (at least one open Cursor window with the extension). CursorWake is **not** required when Cursor is already open. See [Who opens what from Telegram](guide.md#opening-projects-from-telegram) for Wake vs server vs extension.
 
 ---
 
@@ -243,9 +259,9 @@ Same rules as Telegram: up to **10** attachments per message; JPEG/PNG/WebP past
 
 Telegram allows **one** long-polling client per bot token.
 
-1. While Cursor is off, CursorWake polls and appends to `pending-telegram-queue.json`. Inbound messages launch Cursor **immediately** (when **Raise Cursor** is on).
+1. While Cursor is off, CursorWake polls and appends to `pending-telegram-queue.json`. Inbound messages launch the **Cursor app** immediately (when **Raise Cursor** is on) — not a specific project folder; see [Who opens what from Telegram](guide.md#opening-projects-from-telegram).
 2. When `/health` reports CDP + `connected: true`, Wake stops polling so Handoff can own `getUpdates` (`telegramPoll` becomes true after the first successful server poll).
-3. The server drains the queue.
+3. The server drains the queue and opens the mapped project window when needed (`open-project.json` → extension).
 
 While Cursor stays off with an empty queue, Wake retries launch every **`autostartIntervalSec`** (default **300** = 5 min) if **Raise Cursor** is enabled.
 

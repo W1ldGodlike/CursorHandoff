@@ -9,6 +9,7 @@ import { TopicManager } from '../../src/telegram/topics/manager.js';
 import {
   buildWhereamiLines,
   handleCloseChat,
+  handleCloseProject,
   handleNewChat,
   handleThreadStatus,
   handleWhereami,
@@ -152,6 +153,7 @@ function makeDeps(overrides: Partial<CommandDeps> = {}): CommandDeps {
       windows: [{ id: 'win-1', title: 'Proj', url: '' }],
       activeTargetId: 'win-1',
       switchWindow: async () => {},
+      closeTarget: async () => true,
     } as CommandDeps['cdpBridge'],
     topicManager,
     messageTracker: {} as CommandDeps['messageTracker'],
@@ -346,6 +348,47 @@ describe('chat-threads logging', () => {
         makeMessageCtx({ message: { message_id: 1, message_thread_id: 9999 } }),
         connectedDeps(),
       );
+    });
+    assertNoThreadLogs(lines);
+  });
+
+  it('logs TG_CLOSE_PROJECT_CONTEXT_FAIL when window not found', async () => {
+    const lines = await captureAll(async () => {
+      await handleCloseProject(makeMessageCtx(), missingWindowDeps());
+    });
+    assertThreadLog(lines, 'TG_CLOSE_PROJECT_CONTEXT_FAIL', {
+      threadId: THREAD_ID,
+      op: 'close_project',
+      windowId: 'win-missing',
+    });
+  });
+
+  it('logs TG_CLOSE_PROJECT_FAIL when closeTarget returns false', async () => {
+    const lines = await captureAll(async () => {
+      await handleCloseProject(
+        makeMessageCtx(),
+        connectedDeps({
+          cdpBridge: {
+            refreshWindows: async () => {},
+            windows: [{ id: 'win-1', title: 'Proj', url: '' }],
+            activeTargetId: 'win-1',
+            switchWindow: async () => {},
+            closeTarget: async () => false,
+          } as CommandDeps['cdpBridge'],
+        }),
+      );
+    });
+    assertThreadLog(lines, 'TG_CLOSE_PROJECT_FAIL', {
+      threadId: THREAD_ID,
+      op: 'close_project',
+      windowId: 'win-1',
+      text: 'closeTarget failed',
+    });
+  });
+
+  it('handleCloseProject success stays silent without TG_CLOSE_PROJECT codes', async () => {
+    const lines = await captureAll(async () => {
+      await handleCloseProject(makeMessageCtx(), connectedDeps());
     });
     assertNoThreadLogs(lines);
   });
@@ -817,6 +860,8 @@ describe('chat-threads logging', () => {
 const CHAT_THREAD_LOG_CODES = [
   'TG_CLOSE_CHAT_CONTEXT_FAIL',
   'TG_CLOSE_CHAT_FAIL',
+  'TG_CLOSE_PROJECT_CONTEXT_FAIL',
+  'TG_CLOSE_PROJECT_FAIL',
   'TG_NEW_CHAT_IN_FLIGHT',
   'TG_NEW_CHAT_BRIDGE_OFF',
   'TG_NEW_CHAT_NOT_MAPPED',
@@ -845,6 +890,8 @@ const CHAT_THREADS_PATH_MATRIX = [
   { kind: 'fail' as const, code: 'TG_CLOSE_CHAT_CONTEXT_FAIL', marker: 'switchTab fails' },
   { kind: 'fail' as const, code: 'TG_CLOSE_CHAT_CONTEXT_FAIL', marker: 'switchWindow throws' },
   { kind: 'fail' as const, code: 'TG_CLOSE_CHAT_FAIL', marker: 'closeChat returns error' },
+  { kind: 'fail' as const, code: 'TG_CLOSE_PROJECT_CONTEXT_FAIL', marker: 'close_project window not found' },
+  { kind: 'fail' as const, code: 'TG_CLOSE_PROJECT_FAIL', marker: 'closeTarget returns false' },
   { kind: 'fail' as const, code: 'TG_NEW_CHAT_IN_FLIGHT', marker: 'second /new_chat while first running' },
   { kind: 'fail' as const, code: 'TG_NEW_CHAT_BRIDGE_OFF', marker: 'sync disabled' },
   { kind: 'fail' as const, code: 'TG_NEW_CHAT_NOT_MAPPED', marker: 'thread has no mapping' },
@@ -856,6 +903,7 @@ const CHAT_THREADS_PATH_MATRIX = [
   { kind: 'silent' as const, marker: 'handleCloseChat without threadId' },
   { kind: 'silent' as const, marker: 'handleCloseChat unmapped' },
   { kind: 'silent' as const, marker: 'handleCloseChat success' },
+  { kind: 'silent' as const, marker: 'handleCloseProject success' },
   { kind: 'silent' as const, marker: 'handleNewChat without threadId' },
   { kind: 'silent' as const, marker: 'handleNewChat without chatId' },
   { kind: 'silent' as const, marker: 'inFlight resets after window fail' },
@@ -878,7 +926,7 @@ describe('chat-threads logging coverage', () => {
         || src.includes(`assertThreadLog(lines, '${code}'`);
       assert.ok(covered, `missing assertion for ${code}`);
     }
-    assert.equal(CHAT_THREAD_LOG_CODES.length, 11);
+    assert.equal(CHAT_THREAD_LOG_CODES.length, 13);
   });
 
   it('chat-threads.ts declares exactly the covered codes', () => {
@@ -887,7 +935,7 @@ describe('chat-threads logging coverage', () => {
       'utf-8',
     );
     const found = new Set<string>();
-    for (const m of src.matchAll(/'((?:TG_CLOSE_CHAT|TG_NEW_CHAT)_[A-Z_]+)'/g)) {
+    for (const m of src.matchAll(/'((?:TG_CLOSE_CHAT|TG_CLOSE_PROJECT|TG_NEW_CHAT)_[A-Z_]+)'/g)) {
       found.add(m[1]);
     }
     for (const code of CHAT_THREAD_LOG_CODES) {
@@ -904,13 +952,13 @@ describe('chat-threads logging coverage', () => {
     assert.ok(!src.includes('console.log('));
     assert.ok(!src.includes('console.warn('));
     assert.ok(!src.includes('console.error('));
-    const re = /log(?:Info|Warn|Error)\(\s*'((?:TG_CLOSE_CHAT|TG_NEW_CHAT)_[A-Z_]+)'[\s\S]*?\);/g;
+    const re = /log(?:Info|Warn|Error)\(\s*'((?:TG_CLOSE_CHAT|TG_CLOSE_PROJECT|TG_NEW_CHAT)_[A-Z_]+)'[\s\S]*?\);/g;
     const codes: string[] = [];
     for (const m of src.matchAll(re)) {
       codes.push(m[1]);
       assert.ok(m[0].includes('threadCtx('), `log site ${m[1]} missing threadCtx(`);
     }
-    assert.equal(codes.length, 11);
+    assert.equal(codes.length, 13);
     assert.equal(new Set(codes).size, CHAT_THREAD_LOG_CODES.length);
     assert.ok(!src.match(/log(?:Info|Warn|Error)\([^)]*\{ scope: 'telegram'/));
   });
@@ -975,6 +1023,15 @@ describe('chat-threads logging coverage', () => {
     assert.ok(!whereamiBlock.includes('logWarn('));
   });
 
+  it('TG_CLOSE_PROJECT fail codes pass windowId via threadCtx in source', () => {
+    const src = readFileSync(
+      new URL('../../src/telegram/commands/chat-threads.ts', import.meta.url),
+      'utf-8',
+    );
+    assert.match(src, /TG_CLOSE_PROJECT_CONTEXT_FAIL[\s\S]*threadCtx\('close_project', \{ threadId, windowId: mapping\.windowId \}\)/);
+    assert.match(src, /TG_CLOSE_PROJECT_FAIL[\s\S]*threadCtx\('close_project', \{ threadId, windowId: mapping\.windowId \}\)/);
+  });
+
   it('TG_CLOSE_CHAT fail codes pass windowId via threadCtx in source', () => {
     const src = readFileSync(
       new URL('../../src/telegram/commands/chat-threads.ts', import.meta.url),
@@ -992,13 +1049,13 @@ describe('chat-threads logging coverage', () => {
     assert.match(src, /logError\(\s*'TG_NEW_CHAT_TOPIC_FAIL',\s*formatErrDetail\(err\)/);
   });
 
-  it('chat-threads.ts declares exactly 11 log emission sites', () => {
+  it('chat-threads.ts declares exactly 13 log emission sites', () => {
     const src = readFileSync(
       new URL('../../src/telegram/commands/chat-threads.ts', import.meta.url),
       'utf-8',
     );
-    const siteCount = src.match(/log(?:Info|Warn|Error)\(\s*'(?:TG_CLOSE_CHAT|TG_NEW_CHAT)/g)?.length ?? 0;
-    assert.equal(siteCount, 11);
+    const siteCount = src.match(/log(?:Info|Warn|Error)\(\s*'(?:TG_CLOSE_CHAT|TG_CLOSE_PROJECT|TG_NEW_CHAT)/g)?.length ?? 0;
+    assert.equal(siteCount, 13);
   });
 
   it('handleNewChat resets newChatInFlight in finally block', () => {
@@ -1022,6 +1079,8 @@ describe('chat-threads logging coverage', () => {
       'TG_NEW_CHAT_CREATE_FAIL',
       'TG_CLOSE_CHAT_CONTEXT_FAIL',
       'TG_CLOSE_CHAT_FAIL',
+      'TG_CLOSE_PROJECT_CONTEXT_FAIL',
+      'TG_CLOSE_PROJECT_FAIL',
     ] as const) {
       assert.match(src, new RegExp(`logWarn\\(\\s*'${code}'`));
     }
@@ -1046,7 +1105,7 @@ describe('chat-threads logging coverage', () => {
         `behavioral matrix missing assertThreadLog for ${code}`,
       );
     }
-    assert.equal(CHAT_THREAD_LOG_CODES.length, 11);
+    assert.equal(CHAT_THREAD_LOG_CODES.length, 13);
   });
 
   it('TG_NEW_CHAT post-window fail codes pass windowId via threadCtx in source', () => {
@@ -1073,7 +1132,7 @@ describe('chat-threads logging coverage', () => {
         assert.ok(src.includes(row.marker), `path matrix silent "${row.marker}" missing from behavioral titles`);
       }
     }
-    assert.equal(CHAT_THREADS_PATH_MATRIX.length, 26);
+    assert.equal(CHAT_THREADS_PATH_MATRIX.length, 29);
   });
 
   it('chat-threads.ts vs HEAD has zero console.log warn error in logging zone', () => {
@@ -1084,7 +1143,7 @@ describe('chat-threads logging coverage', () => {
     assert.ok(!src.includes('console.log('));
     assert.ok(!src.includes('console.warn('));
     assert.ok(!src.includes('console.error('));
-    assert.equal(src.match(/log(?:Info|Warn|Error)\(/g)?.length ?? 0, 11);
+    assert.equal(src.match(/log(?:Info|Warn|Error)\(/g)?.length ?? 0, 13);
   });
 
   it('ensureMappingWindow and ensureMappingChat emit no log sites in source', () => {

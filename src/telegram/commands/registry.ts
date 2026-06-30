@@ -11,6 +11,7 @@ export const BOT_COMMANDS = [
   { command: 'unbridge', description: 'Disable bridge and remove topics' },
   { command: 'merge_threads', description: 'Merge duplicate forum threads' },
   { command: 'close_chat', description: 'Close Cursor chat tab' },
+  { command: 'close_project', description: 'Close Cursor project window' },
   { command: 'new_chat', description: 'New chat + new Telegram thread' },
   { command: 'flush', description: 'Delete all topics (full reset)' },
   { command: 'status', description: 'Connection and bridge status' },
@@ -37,6 +38,7 @@ const BOT_COMMAND_KEYS: Record<(typeof BOT_COMMANDS)[number]['command'], string>
   unbridge: 'tg.cmd.unbridge',
   merge_threads: 'tg.cmd.merge_threads',
   close_chat: 'tg.cmd.close_chat',
+  close_project: 'tg.cmd.close_project',
   new_chat: 'tg.cmd.new_chat',
   flush: 'tg.cmd.flush',
   status: 'tg.cmd.status',
@@ -136,6 +138,7 @@ export {
 
 export {
   handleCloseChat,
+  handleCloseProject,
   handleNewChat,
   handleThreadStatus,
   resolveThreadWindowMetrics,

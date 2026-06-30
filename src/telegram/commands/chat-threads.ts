@@ -149,6 +149,42 @@ export async function handleCloseChat(ctx: BotContext, deps: CommandDeps): Promi
   );
 }
 
+export async function handleCloseProject(ctx: BotContext, deps: CommandDeps): Promise<void> {
+  const threadId = ctx.message?.message_thread_id;
+  if (!threadId) {
+    await ctx.reply(t('tg.msg.closeProject.threadOnly', '⚠️ /close_project — only inside a project Telegram thread, not in # General.'));
+    return;
+  }
+
+  const mapping = deps.topicManager.resolveThread(threadId);
+  if (!mapping) {
+    await ctx.reply(t('tg.msg.threadNotMapped', '⚠️ This thread is not linked. Run /bridge first.'));
+    return;
+  }
+
+  const winResult = await ensureMappingWindow(mapping, deps, {
+    onStatus: async (text) => { await ctx.reply(text, { parse_mode: 'HTML' }); },
+  });
+  if (!winResult.ok) {
+    logWarn('TG_CLOSE_PROJECT_CONTEXT_FAIL', winResult.error, threadCtx('close_project', { threadId, windowId: mapping.windowId }));
+    await ctx.reply(`⚠️ ${sanitizeErrorForUser(winResult.error)}`);
+    return;
+  }
+
+  const projectName = mapping.windowTitle;
+  const closed = await deps.cdpBridge.closeTarget(winResult.targetWin.id);
+  if (!closed) {
+    logWarn('TG_CLOSE_PROJECT_FAIL', 'closeTarget failed', threadCtx('close_project', { threadId, windowId: mapping.windowId }));
+    await ctx.reply(`⚠️ ${sanitizeErrorForUser(t('tg.msg.closeProject.failed', 'Could not close project window'))}`);
+    return;
+  }
+
+  await ctx.reply(
+    t('tg.msg.closeProject.ok', '✅ Project window <b>{name}</b> closed in Cursor.\n\nThis Telegram thread stays linked — write here to reopen the project.', { name: escapeHtml(projectName) }),
+    { parse_mode: 'HTML' },
+  );
+}
+
 export async function handleNewChat(ctx: BotContext, deps: CommandDeps): Promise<void> {
   const chatId = deps.chatId ?? ctx.chat?.id;
   if (!chatId) return;

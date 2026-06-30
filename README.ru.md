@@ -300,7 +300,7 @@ npm run package:complete
 
 | Документ | Для кого |
 |----------|----------|
-| [Getting started guide](docs/guide.md) | CDP, Handoff settings, сеть, Wake, туннели, [диагностика и логи](docs/guide.md#diagnostics-and-logs) |
+| [Getting started guide](docs/guide.md) | CDP, Handoff settings, сеть, Wake, [кто открывает проект из TG](docs/guide.md#opening-projects-from-telegram), туннели, [диагностика и логи](docs/guide.md#diagnostics-and-logs) |
 | [Telegram bridge guide](docs/telegram.md) | Бот, команды, file relay |
 | [Settings reference](docs/reference.md) | Все ключи `cursorHandoff.*`, `/health`, файлы |
 | [Architecture overview](docs/architecture.md) | Устройство системы (контрибьюторы) |
