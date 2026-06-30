@@ -28,6 +28,7 @@ function applyVersionStrings(text: string, version: string): string {
     .replace(COMPLETE_INSTALL_RE, `cursor --install-extension cursor-handoff-${version}-complete.vsix`)
     .replace(/cursor-handoff-\d+\.\d+\.\d+-complete\.vsix/g, `cursor-handoff-${version}-complete.vsix`)
     .replace(/cursor-handoff-\d+\.\d+\.\d+\.vsix/g, `cursor-handoff-${version}.vsix`)
+    .replace(/cursor-handoff\.cursor-handoff-\d+\.\d+\.\d+/g, `cursor-handoff.cursor-handoff-${version}`)
     .replace(/version-\d+\.\d+\.\d+/g, `version-${version}`);
 }
 
