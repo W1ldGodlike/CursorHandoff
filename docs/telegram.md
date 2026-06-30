@@ -159,8 +159,8 @@ Registered for the BotFather menu (`src/telegram/commands/registry.ts`):
 | `/auto_on` | Turn on model Auto in Cursor |
 | `/pause` | Pause CursorWake |
 | `/resume` | Resume CursorWake |
-| `/open_project` | Open a project by name |
-| `/projects` | List names for `/open_project` |
+| `/open_project` | Open a project by name fragment or full path |
+| `/projects` | Pick a project to open (inline buttons) |
 | `/web_url` | HTTPS link to the web client (# General) |
 | `/setup_tg_send` | Enable file relay for this workspace |
 | `/thread_status` | Poll, agent state, composer queue length, pending approve count |
@@ -181,6 +181,20 @@ Run these in a **linked project thread**, not in # General. The bot switches to 
 | Let Cursor choose the model (Auto) | `/auto_on` |
 
 When **Auto** is on in Cursor, the IDE hides the model list — `/pick_model` only hints to run `/auto_off` first. `/auto_off` and `/auto_on` use the same CDP toggle as the web client **Model** sheet.
+
+### Open a project (# General)
+
+Run these in **# General**, not in a bridged project thread.
+
+| Command | What it does |
+|---------|----------------|
+| `/projects` | Inline buttons — tap to open a project, create a forum topic, and start the first chat |
+| `/open_project <fragment>` | Open by folder name match; several hits → pick buttons |
+| `/open_project <full path>` | Open an absolute path when it exists on disk |
+
+**Where names come from:** open Cursor windows (CDP `workspacePath`), Cursor’s recent-folder list (`%APPDATA%/Cursor/User/globalStorage/storage.json` on Windows), and workspaces already bridged in `telegram-topics.json`. Handoff does **not** scan `~/Projects` or the whole home directory.
+
+`/open_project` with no argument prints usage. Pick buttons expire after 10 minutes — run `/projects` or `/open_project` again.
 
 ---
 

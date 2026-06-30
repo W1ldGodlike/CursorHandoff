@@ -15,6 +15,7 @@ import {
 } from '../../src/workspace/launcher.js';
 import type { TopicMapping } from '../../src/telegram/topics/manager.js';
 import { getDataDir } from '../../src/core/paths.js';
+import { workspacePathsToStorageJson } from '../../src/workspace/cursor-workspaces.js';
 
 const LAUNCH_LOG_CODES = [
   'LAUNCH_EXT_FAIL',
@@ -24,7 +25,7 @@ const LAUNCH_LOG_CODES = [
   'LAUNCH_TIMEOUT',
 ] as const;
 
-const ENV_KEYS = ['DATA_DIR', 'CURSOR_EXECUTABLE', 'PROJECTS_ROOT', 'CURSOR_HANDOFF_PROJECTS_ROOT', 'AUTO_OPEN_PROJECTS'] as const;
+const ENV_KEYS = ['DATA_DIR', 'CURSOR_EXECUTABLE', 'CURSOR_HANDOFF_CURSOR_STORAGE', 'AUTO_OPEN_PROJECTS'] as const;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -234,7 +235,7 @@ const LAUNCHER_PATH_MATRIX = [
   },
   {
     kind: 'silent' as const,
-    marker: 'resolveProjectPath CURSOR_HANDOFF_PROJECTS_ROOT stays silent on launch log codes',
+    marker: 'resolveProjectPath Cursor storage match stays silent on launch log codes',
   },
   {
     kind: 'silent' as const,
@@ -254,7 +255,7 @@ const LAUNCHER_PATH_MATRIX = [
   },
   {
     kind: 'silent' as const,
-    marker: 'resolveProjectPath prefers PROJECTS_ROOT over HANDOFF silently',
+    marker: 'resolveProjectPath exact basename wins over partial silently',
   },
   {
     kind: 'silent' as const,
@@ -262,7 +263,7 @@ const LAUNCHER_PATH_MATRIX = [
   },
   {
     kind: 'silent' as const,
-    marker: 'resolveProjectPath PROJECTS_ROOT candidate stays silent on launch log codes',
+    marker: 'resolveProjectPath Cursor storage candidate stays silent on launch log codes',
   },
 ] as const;
 
@@ -278,6 +279,15 @@ describe('workspace launcher logging', () => {
 
   function saveEnv(): void {
     for (const key of ENV_KEYS) saved[key] = process.env[key];
+  }
+
+  function writeCursorStorage(paths: string[]): string {
+    const dir = mkdtempSync(join(tmpdir(), 'handoff-launch-cursor-storage-'));
+    const storagePath = join(dir, 'storage.json');
+    writeFileSync(storagePath, workspacePathsToStorageJson(paths), 'utf-8');
+    saveEnv();
+    process.env.CURSOR_HANDOFF_CURSOR_STORAGE = storagePath;
+    return dir;
   }
 
   it('data dir is file logs LAUNCH_EXT_FAIL with errno', async () => {
@@ -685,35 +695,31 @@ describe('workspace launcher logging', () => {
   });
 
   it('resolveProjectPath stale workspacePath falls through silently', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'handoff-launch-stale-ws-'));
-    const projectDir = join(root, 'found-via-root');
+    const projectDir = join(mkdtempSync(join(tmpdir(), 'handoff-launch-stale-ws-')), 'found-via-cursor');
     mkdirSync(projectDir, { recursive: true });
-    saveEnv();
-    process.env.PROJECTS_ROOT = root;
+    const storageDir = writeCursorStorage([projectDir]);
     try {
       const mapping: TopicMapping = {
         threadId: 4,
         windowId: 'w4',
-        windowTitle: 'found-via-root',
+        windowTitle: 'found-via-cursor',
         tabTitle: 'Chat',
         lastActive: 0,
-        workspacePath: join(root, 'missing-stored-path'),
+        workspacePath: join(projectDir, '..', 'missing-stored-path'),
       };
       const lines = await captureAll(() => {
         assert.equal(resolveProjectPath(mapping), projectDir);
       });
       assertNoLaunchLogs(lines);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSync(storageDir, { recursive: true, force: true });
     }
   });
 
-  it('resolveProjectPath CURSOR_HANDOFF_PROJECTS_ROOT stays silent on launch log codes', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'handoff-launch-handoff-root-'));
-    const projectDir = join(root, 'handoff-demo');
+  it('resolveProjectPath Cursor storage match stays silent on launch log codes', async () => {
+    const projectDir = join(mkdtempSync(join(tmpdir(), 'handoff-launch-handoff-root-')), 'handoff-demo');
     mkdirSync(projectDir, { recursive: true });
-    saveEnv();
-    process.env.CURSOR_HANDOFF_PROJECTS_ROOT = root;
+    const storageDir = writeCursorStorage([projectDir]);
     try {
       const mapping: TopicMapping = {
         threadId: 5,
@@ -727,7 +733,7 @@ describe('workspace launcher logging', () => {
       });
       assertNoLaunchLogs(lines);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSync(storageDir, { recursive: true, force: true });
     }
   });
 
@@ -743,11 +749,9 @@ describe('workspace launcher logging', () => {
   });
 
   it('resolveProjectPath normalizes windowTitle for folder lookup silently', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'handoff-launch-norm-title-'));
-    const projectDir = join(root, 'MyApp');
+    const projectDir = join(mkdtempSync(join(tmpdir(), 'handoff-launch-norm-title-')), 'MyApp');
     mkdirSync(projectDir, { recursive: true });
-    saveEnv();
-    process.env.PROJECTS_ROOT = root;
+    const storageDir = writeCursorStorage([projectDir]);
     try {
       const mapping: TopicMapping = {
         threadId: 6,
@@ -761,7 +765,7 @@ describe('workspace launcher logging', () => {
       });
       assertNoLaunchLogs(lines);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSync(storageDir, { recursive: true, force: true });
     }
   });
 
@@ -774,45 +778,40 @@ describe('workspace launcher logging', () => {
     assertNoLaunchLogs(lines);
   });
 
-  it('resolveProjectPath prefers PROJECTS_ROOT over HANDOFF silently', async () => {
-    const proot = mkdtempSync(join(tmpdir(), 'handoff-launch-proot-win-'));
-    const handoffRoot = mkdtempSync(join(tmpdir(), 'handoff-launch-handoff-lose-'));
-    const fromProot = join(proot, 'same-name');
-    const fromHandoff = join(handoffRoot, 'same-name');
-    mkdirSync(fromProot, { recursive: true });
-    mkdirSync(fromHandoff, { recursive: true });
-    saveEnv();
-    process.env.PROJECTS_ROOT = proot;
-    process.env.CURSOR_HANDOFF_PROJECTS_ROOT = handoffRoot;
+  it('resolveProjectPath exact basename wins over partial silently', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'handoff-launch-exact-win-'));
+    const exactDir = join(root, 'demo');
+    const partialDir = join(root, 'demo-extra');
+    mkdirSync(exactDir, { recursive: true });
+    mkdirSync(partialDir, { recursive: true });
+    const storageDir = writeCursorStorage([exactDir, partialDir]);
     try {
       const mapping: TopicMapping = {
         threadId: 7,
         windowId: 'w7',
-        windowTitle: 'same-name',
+        windowTitle: 'demo',
         tabTitle: 'Chat',
         lastActive: 0,
       };
       const lines = await captureAll(() => {
-        assert.equal(resolveProjectPath(mapping), fromProot);
+        assert.equal(resolveProjectPath(mapping), exactDir);
       });
       assertNoLaunchLogs(lines);
     } finally {
-      rmSync(proot, { recursive: true, force: true });
-      rmSync(handoffRoot, { recursive: true, force: true });
+      rmSync(storageDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
   it('resolveProjectPath empty workspacePath falls through silently', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'handoff-launch-empty-ws-'));
-    const projectDir = join(root, 'via-root');
+    const projectDir = join(mkdtempSync(join(tmpdir(), 'handoff-launch-empty-ws-')), 'via-cursor');
     mkdirSync(projectDir, { recursive: true });
-    saveEnv();
-    process.env.PROJECTS_ROOT = root;
+    const storageDir = writeCursorStorage([projectDir]);
     try {
       const mapping: TopicMapping = {
         threadId: 8,
         windowId: 'w8',
-        windowTitle: 'via-root',
+        windowTitle: 'via-cursor',
         tabTitle: 'Chat',
         lastActive: 0,
         workspacePath: '',
@@ -822,16 +821,14 @@ describe('workspace launcher logging', () => {
       });
       assertNoLaunchLogs(lines);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSync(storageDir, { recursive: true, force: true });
     }
   });
 
-  it('resolveProjectPath PROJECTS_ROOT candidate stays silent on launch log codes', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'handoff-launch-proot-'));
-    const projectDir = join(root, 'layout-demo');
+  it('resolveProjectPath Cursor storage candidate stays silent on launch log codes', async () => {
+    const projectDir = join(mkdtempSync(join(tmpdir(), 'handoff-launch-proot-')), 'layout-demo');
     mkdirSync(projectDir, { recursive: true });
-    saveEnv();
-    process.env.PROJECTS_ROOT = root;
+    const storageDir = writeCursorStorage([projectDir]);
     try {
       const mapping: TopicMapping = {
         threadId: 3,
@@ -845,7 +842,7 @@ describe('workspace launcher logging', () => {
       });
       assertNoLaunchLogs(lines);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSync(storageDir, { recursive: true, force: true });
     }
   });
 
@@ -1021,12 +1018,10 @@ describe('workspace launcher logging', () => {
     assert.ok(!/\bthrow\s+/.test(body));
   });
 
-  it('resolveProjectPath pushes PROJECTS_ROOT before HANDOFF in source', () => {
+  it('resolveProjectPath uses collectKnownWorkspacePaths in source', () => {
     const src = readFileSync(new URL('../../src/workspace/launcher.ts', import.meta.url), 'utf-8');
     const body = src.slice(src.indexOf('export function resolveProjectPath'), src.indexOf('export function requestOpenViaExtension'));
-    const prootIdx = body.indexOf('PROJECTS_ROOT');
-    const handoffIdx = body.indexOf('CURSOR_HANDOFF_PROJECTS_ROOT');
-    assert.ok(prootIdx >= 0 && handoffIdx > prootIdx);
+    assert.match(body, /collectKnownWorkspacePaths\(\)/);
   });
 
   it('five launch log sites map to five distinct codes in source', () => {

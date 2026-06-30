@@ -131,7 +131,7 @@ Left nav: **Telegram**. Five numbered steps in the panel:
 2. **Who may use the bot** — your numeric Telegram ID ([@userinfobot](https://t.me/userinfobot)), **Save**
 3. **Telegram group** — supergroup with **Topics**, bot as admin
 4. **Link this PC to the group** — server running → send `/register <token>` from the panel **in the group**
-5. **Create chat topics** — in **# General**, send `/bridge` (active tabs) or `/bridge_all` (all tabs)
+5. **Create chat topics** — in **# General**, send `/bridge` (active tabs) or `/bridge_all` (all tabs). To open another repo from the phone, send **`/projects`** in # General and tap a project button (folders Cursor has opened before).
 
 **Bot API transport** (Raw / Grammy) is at the bottom of the same tab. Default is **`raw`**. Details: [Telegram bridge guide](telegram.md).
 

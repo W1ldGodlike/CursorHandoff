@@ -1,15 +1,18 @@
-import { existsSync, readdirSync } from 'fs';
-import { basename, join, resolve } from 'path';
+import { existsSync } from 'fs';
+import { basename, resolve } from 'path';
 import { sanitizeErrorForUser } from '../../core/log-event.js';
 import { escapeHtml } from '../format/html.js';
 import { formatForumTopicLabel } from '../topics/guards.js';
-import { isPersistableComposerId, normalizeComposerId } from '../topics/guards.js';
 import { launchCursorProject, waitForProjectWindow } from '../../workspace/launcher.js';
+import {
+  collectKnownWorkspacePaths,
+  projectScore,
+} from '../../workspace/cursor-workspaces.js';
 import { getDataDir } from '../../core/paths.js';
 import { probeWebTunnelLive, readWebTunnelState, readWebTunnelUrl, formatWebTunnelUpdatedAt, webTunnelTimezone } from '../../web/tunnel.js';
 import { ensureWebTunnel } from '../../web/tunnel-ensure.js';
 import { tgKeyboard, type BotContext } from '../types.js';
-import { isGeneralChat } from '../ui/menus.js';
+import { isBridgedProjectThread } from '../ui/menus.js';
 import { t } from '../../i18n/t.js';
 import {
   type CommandDeps,
@@ -17,7 +20,6 @@ import {
   sleep,
   TOPIC_CREATE_DELAY_MS,
   PROJECT_PICK_MAX,
-  PROJECT_SCAN_MAX,
   PROJECT_LIST_MAX,
   pendingProjectPicks,
   cleanupExpiredProjectPicks,
@@ -26,102 +28,73 @@ import {
 } from './shared.js';
 import { waitForActiveTabAfterNewChat } from './chat-threads.js';
 
-function knownProjectRoots(): string[] {
-  const roots = new Set<string>();
-  const push = (value?: string) => {
-    const v = value?.trim();
-    if (!v) return;
-    roots.add(resolve(v));
-  };
-
-  push(process.env.PROJECTS_ROOT);
-  push(process.env.CURSOR_HANDOFF_PROJECTS_ROOT);
-  const home = process.env.USERPROFILE || process.env.HOME;
-  if (home) {
-    push(home);
-    push(join(home, 'Projects'));
-    push(join(home, 'projects'));
-    push(join(home, 'dev'));
-    push(join(home, 'code'));
-    push(join(home, 'src'));
-  }
-
-  return [...roots].filter((root) => existsSync(root));
+function workspaceSources(deps: CommandDeps) {
+  return { windowMonitor: deps.windowMonitor, topicManager: deps.topicManager };
 }
 
-function listDirs(root: string): string[] {
-  try {
-    return readdirSync(root, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => join(root, entry.name));
-  } catch {
-    return [];
-  }
+function looksLikeAbsolutePath(query: string): boolean {
+  if (query.startsWith('/') && !query.startsWith('//')) return true;
+  return /^[a-zA-Z]:[\\/]/.test(query);
 }
 
-function projectScore(query: string, fullPath: string): number {
-  const q = query.toLowerCase();
-  const name = basename(fullPath).toLowerCase();
-  const pathLower = fullPath.toLowerCase();
-  if (name === q) return 400;
-  if (name.startsWith(q)) return 300;
-  const idx = name.indexOf(q);
-  if (idx >= 0) return 200 - idx;
-  if (pathLower.includes(q)) return 80;
-  return 0;
+function resolveAbsoluteProjectPath(query: string): string | null {
+  if (!looksLikeAbsolutePath(query)) return null;
+  const abs = resolve(query);
+  return existsSync(abs) ? abs : null;
 }
 
-function discoverProjectCandidates(query: string): ProjectCandidate[] {
+function discoverProjectCandidates(query: string, deps: CommandDeps): ProjectCandidate[] {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return [];
 
-  const roots = knownProjectRoots();
-  const seen = new Set<string>();
-  const candidates: ProjectCandidate[] = [];
-  let scanned = 0;
+  const absolute = resolveAbsoluteProjectPath(query.trim());
+  if (absolute) {
+    return [{ path: absolute, name: basename(absolute), score: 500 }];
+  }
 
-  for (const root of roots) {
-    const firstLevel = listDirs(root);
-    for (const dir of firstLevel) {
-      const key = resolve(dir).toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      scanned++;
-      const score = projectScore(normalized, dir);
-      if (score > 0) {
-        candidates.push({ path: dir, name: basename(dir), score });
-      }
-      if (scanned >= PROJECT_SCAN_MAX) break;
+  const candidates: ProjectCandidate[] = [];
+  for (const path of collectKnownWorkspacePaths(workspaceSources(deps))) {
+    const score = projectScore(normalized, path);
+    if (score > 0) {
+      candidates.push({ path, name: basename(path), score });
     }
-    if (scanned >= PROJECT_SCAN_MAX) break;
   }
 
   candidates.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, 'ru'));
   return candidates.slice(0, PROJECT_PICK_MAX);
 }
 
-function discoverProjectsList(): ProjectCandidate[] {
-  const roots = knownProjectRoots();
-  const seen = new Set<string>();
-  const items: ProjectCandidate[] = [];
-  let scanned = 0;
-
-  for (const root of roots) {
-    const firstLevel = listDirs(root);
-    for (const dir of firstLevel) {
-      const abs = resolve(dir);
-      const key = abs.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      scanned++;
-      items.push({ path: abs, name: basename(abs), score: 0 });
-      if (scanned >= PROJECT_SCAN_MAX) break;
-    }
-    if (scanned >= PROJECT_SCAN_MAX) break;
-  }
-
+function discoverProjectsList(deps: CommandDeps): ProjectCandidate[] {
+  const items = collectKnownWorkspacePaths(workspaceSources(deps)).map((path) => ({
+    path,
+    name: basename(path),
+    score: 0,
+  }));
   items.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
   return items.slice(0, PROJECT_LIST_MAX);
+}
+
+async function replyProjectPickKeyboard(
+  ctx: BotContext,
+  chatId: number,
+  candidates: ProjectCandidate[],
+  promptHtml: string,
+  queryLabel = '',
+): Promise<void> {
+  cleanupExpiredProjectPicks();
+  const token = makeProjectPickToken();
+  pendingProjectPicks.set(token, {
+    chatId,
+    createdAt: Date.now(),
+    query: queryLabel,
+    candidates,
+  });
+
+  const kb = tgKeyboard();
+  for (let i = 0; i < candidates.length; i++) {
+    kb.text(`📂 ${candidates[i].name}`, `opr:${token}:${i}`).row();
+  }
+  await ctx.reply(promptHtml, { parse_mode: 'HTML', reply_markup: kb.build() });
 }
 
 export async function bootstrapProjectFromPath(
@@ -200,10 +173,8 @@ export async function bootstrapProjectFromPath(
 export async function handleOpenProject(ctx: BotContext, deps: CommandDeps): Promise<void> {
   const query = (ctx.match ?? '').trim();
   const chatId = deps.chatId ?? ctx.chat?.id;
-  const threadId = ctx.message?.message_thread_id;
-
   if (!chatId) return;
-  if (threadId != null || !isGeneralChat(ctx)) {
+  if (isBridgedProjectThread(ctx.message?.message_thread_id, deps.topicManager)) {
     await ctx.reply(t('tg.msg.openProject.generalOnly', '⚠️ /open_project works only in # General.'));
     return;
   }
@@ -213,10 +184,10 @@ export async function handleOpenProject(ctx: BotContext, deps: CommandDeps): Pro
   }
 
   cleanupExpiredProjectPicks();
-  const candidates = discoverProjectCandidates(query);
+  const candidates = discoverProjectCandidates(query, deps);
   if (candidates.length === 0) {
     await ctx.reply(
-      t('tg.msg.openProject.notFound', '⚠️ Nothing found for «{query}».\nSearching standard folders only: Projects/dev/code/src.', { query: escapeHtml(query) }),
+      t('tg.msg.openProject.notFound', '⚠️ Nothing found for «{query}».\nOpen the folder in Cursor first, or pass a full path.', { query: escapeHtml(query) }),
       { parse_mode: 'HTML' },
     );
     return;
@@ -227,56 +198,41 @@ export async function handleOpenProject(ctx: BotContext, deps: CommandDeps): Pro
     return;
   }
 
-  const token = makeProjectPickToken();
-  pendingProjectPicks.set(token, {
+  await replyProjectPickKeyboard(
+    ctx,
     chatId,
-    createdAt: Date.now(),
-    query,
     candidates,
-  });
-
-  const kb = tgKeyboard();
-  for (let i = 0; i < candidates.length; i++) {
-    kb.text(`📂 ${candidates[i].name}`, `opr:${token}:${i}`).row();
-  }
-  await ctx.reply(
     t('tg.msg.openProject.pick', 'Found several projects for «{query}». Pick a button:', { query: escapeHtml(query) }),
-    { parse_mode: 'HTML', reply_markup: kb.build() },
+    query,
   );
 }
 
 export async function handleProjects(ctx: BotContext, deps: CommandDeps): Promise<void> {
   const chatId = deps.chatId ?? ctx.chat?.id;
-  const threadId = ctx.message?.message_thread_id;
   if (!chatId) return;
-  if (threadId != null || !isGeneralChat(ctx)) {
+  if (isBridgedProjectThread(ctx.message?.message_thread_id, deps.topicManager)) {
     await ctx.reply(t('tg.msg.projects.generalOnly', '⚠️ /projects works only in # General.'));
     return;
   }
 
-  const items = discoverProjectsList();
+  const items = discoverProjectsList(deps);
   if (items.length === 0) {
-    await ctx.reply(t('tg.msg.projects.none', '⚠️ No projects found in standard folders.'));
+    await ctx.reply(t('tg.msg.projects.none', '⚠️ No projects found. Open a folder in Cursor first.'));
     return;
   }
 
-  const lines: string[] = [
-    t('tg.msg.projects.header', '<b>Projects found: {count}</b>', { count: items.length }),
-    '',
-    t('tg.msg.projects.hint', 'Use: <code>/open_project name_fragment</code>'),
-    '',
-  ];
-  for (const item of items) {
-    lines.push(`• <b>${escapeHtml(item.name)}</b> — <code>${escapeHtml(item.path)}</code>`);
-  }
-  await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
+  await replyProjectPickKeyboard(
+    ctx,
+    chatId,
+    items,
+    t('tg.msg.projects.pick', '<b>Projects</b> — tap to open:'),
+  );
 }
 
 export async function handleWebUrl(ctx: BotContext, deps: CommandDeps): Promise<void> {
   const chatId = deps.chatId ?? ctx.chat?.id;
-  const threadId = ctx.message?.message_thread_id;
   if (!chatId) return;
-  if (threadId != null || !isGeneralChat(ctx)) {
+  if (isBridgedProjectThread(ctx.message?.message_thread_id, deps.topicManager)) {
     await ctx.reply(t('tg.msg.webUrl.generalOnly', '⚠️ /web_url works only in # General.'));
     return;
   }

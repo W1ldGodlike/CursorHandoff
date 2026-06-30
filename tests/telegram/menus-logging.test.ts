@@ -48,9 +48,13 @@ describe('menus', () => {
     delete process.env.CURSOR_HANDOFF_DATA_DIR;
   });
 
-  it('isGeneralChat is true without message_thread_id in a forum supergroup', () => {
+  it('isGeneralChat treats forum General as general when thread is not bridged', () => {
+    const topicManager = {
+      resolveThread: (threadId: number) => (threadId === 42 ? { threadId: 42 } : undefined),
+    };
     assert.equal(isGeneralChat({ chat: { is_forum: true } }), true);
-    assert.equal(isGeneralChat({ message: { message_thread_id: 42 }, chat: { is_forum: true } }), false);
+    assert.equal(isGeneralChat({ message: { message_thread_id: 99 }, chat: { is_forum: true } }, topicManager), true);
+    assert.equal(isGeneralChat({ message: { message_thread_id: 42 }, chat: { is_forum: true } }, topicManager), false);
   });
 
   it('setupGeneralMenuButton sets native commands menu', async () => {

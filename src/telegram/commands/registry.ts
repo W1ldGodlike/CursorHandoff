@@ -21,7 +21,7 @@ export const BOT_COMMANDS = [
   { command: 'pause', description: 'Pause CursorWake' },
   { command: 'resume', description: 'Resume CursorWake' },
   { command: 'open_project', description: 'Open project by name' },
-  { command: 'projects', description: 'List projects for /open_project' },
+  { command: 'projects', description: 'Pick project to open' },
   { command: 'web_url', description: 'HTTPS link to web client' },
   { command: 'setup_tg_send', description: 'Enable photo/file relay in this project' },
   { command: 'thread_status', description: 'Thread status: poll, agent, queue, pending approves' },

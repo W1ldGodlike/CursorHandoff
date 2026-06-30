@@ -6,8 +6,23 @@ function menuCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
   return { scope: 'telegram', op, ...extra };
 }
 
-export function isGeneralChat(ctx: { message?: { message_thread_id?: number }; chat?: { is_forum?: boolean } }): boolean {
-  if (ctx.message?.message_thread_id != null) return false;
+export type GeneralChatProbe = {
+  resolveThread(threadId: number): unknown | undefined;
+};
+
+export function isBridgedProjectThread(
+  threadId: number | undefined,
+  topicManager?: GeneralChatProbe,
+): boolean {
+  return threadId != null && !!topicManager?.resolveThread(threadId);
+}
+
+/** # General or non-forum chat — not a Handoff-bridged project topic. */
+export function isGeneralChat(
+  ctx: { message?: { message_thread_id?: number }; chat?: { is_forum?: boolean } },
+  topicManager?: GeneralChatProbe,
+): boolean {
+  if (isBridgedProjectThread(ctx.message?.message_thread_id, topicManager)) return false;
   return ctx.chat?.is_forum !== false;
 }
 

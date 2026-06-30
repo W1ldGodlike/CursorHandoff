@@ -1,12 +1,13 @@
 import { spawn } from 'child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { basename, join } from 'path';
 import type { CDPBridge } from '../ide/cdp-session.js';
 import type { CursorWindow } from '../core/types.js';
 import { getDataDir } from '../core/paths.js';
 import { logInfo, logWarn, normalizeError, sanitizePathForUi } from '../core/log-event.js';
 import type { LogContext } from '../core/log-event.js';
 import { normalizeWindowTitle, type TopicMapping } from '../telegram/topics/manager.js';
+import { collectKnownWorkspacePaths } from './cursor-workspaces.js';
 
 function launchCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
   return { scope: 'bridge', op, ...extra };
@@ -36,28 +37,24 @@ export function autoOpenProjectsEnabled(): boolean {
   return process.env.AUTO_OPEN_PROJECTS !== 'false';
 }
 
-/** Resolves project folder path from mapping title. */
+/** Resolves project folder path from mapping or Cursor-known workspaces. */
 export function resolveProjectPath(mapping: TopicMapping): string | null {
   if (mapping.workspacePath && existsSync(mapping.workspacePath)) {
     return mapping.workspacePath;
   }
 
-  const folderName = normalizeWindowTitle(mapping.windowTitle);
+  const folderName = normalizeWindowTitle(mapping.windowTitle).toLowerCase();
+  if (!folderName) return null;
 
-  const roots: string[] = [];
-  if (process.env.PROJECTS_ROOT) roots.push(process.env.PROJECTS_ROOT);
-  if (process.env.CURSOR_HANDOFF_PROJECTS_ROOT) roots.push(process.env.CURSOR_HANDOFF_PROJECTS_ROOT);
+  const known = collectKnownWorkspacePaths();
 
-  const home = process.env.USERPROFILE || process.env.HOME;
-  if (home) {
-    for (const sub of ['Projects', 'projects', 'dev', 'code', 'src']) {
-      roots.push(join(home, sub));
-    }
+  for (const path of known) {
+    if (basename(path).toLowerCase() === folderName) return path;
   }
 
-  for (const root of roots) {
-    const candidate = join(root, folderName);
-    if (existsSync(candidate)) return candidate;
+  for (const path of known) {
+    const name = basename(path).toLowerCase();
+    if (name.includes(folderName) || folderName.includes(name)) return path;
   }
 
   return null;

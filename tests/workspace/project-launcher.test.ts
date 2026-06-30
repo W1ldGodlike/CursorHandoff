@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
-import { existsSync, mkdirSync, rmSync, readFileSync } from 'fs';
+import { describe, it, beforeEach, afterEach } from 'node:test';
+import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { requestOpenViaExtension, resolveProjectPath } from '../../src/workspace/launcher.js';
 import type { TopicMapping } from '../../src/telegram/topics/manager.js';
 import { uriPathToNative, workspaceBasename } from '../../src/state/workspace-uri.js';
+import { workspacePathsToStorageJson } from '../../src/workspace/cursor-workspaces.js';
+
+const STORAGE_ENV = 'CURSOR_HANDOFF_CURSOR_STORAGE';
 
 describe('workspace-uri', () => {
   it('converts Windows vscode uri paths', () => {
@@ -18,8 +21,26 @@ describe('workspace-uri', () => {
 });
 
 describe('resolveProjectPath', () => {
+  let storagePath = '';
+  let prevStorage: string | undefined;
+
+  beforeEach(() => {
+    const dir = join(tmpdir(), `handoff-project-launcher-${Date.now()}-${Math.random()}`);
+    mkdirSync(dir, { recursive: true });
+    storagePath = join(dir, 'storage.json');
+    prevStorage = process.env[STORAGE_ENV];
+    process.env[STORAGE_ENV] = storagePath;
+    writeFileSync(storagePath, '{}', 'utf-8');
+  });
+
+  afterEach(() => {
+    if (prevStorage === undefined) delete process.env[STORAGE_ENV];
+    else process.env[STORAGE_ENV] = prevStorage;
+    if (storagePath) rmSync(join(storagePath, '..'), { recursive: true, force: true });
+  });
+
   it('uses stored workspacePath when present', () => {
-    const dir = join(tmpdir(), `handoff-project-launcher-${Date.now()}`);
+    const dir = join(tmpdir(), `handoff-project-launcher-ws-${Date.now()}`);
     mkdirSync(dir, { recursive: true });
     try {
       const mapping: TopicMapping = {
@@ -36,22 +57,21 @@ describe('resolveProjectPath', () => {
     }
   });
 
-  it('guesses ~/Projects/<title> when folder exists', () => {
-    const home = process.env.USERPROFILE || process.env.HOME;
-    if (!home) return;
-    const projects = join(home, 'Projects');
-    if (!existsSync(projects)) return;
-
-    const mapping: TopicMapping = {
-      threadId: 2,
-      windowId: 'w2',
-      windowTitle: 'test-layout',
-      tabTitle: 'Chat',
-      lastActive: 0,
-    };
-    const resolved = resolveProjectPath(mapping);
-    if (existsSync(join(projects, 'test-layout'))) {
-      assert.equal(resolved, join(projects, 'test-layout'));
+  it('matches title against Cursor-known workspaces', () => {
+    const projectDir = join(tmpdir(), `handoff-project-launcher-cursor-${Date.now()}`);
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(storagePath, workspacePathsToStorageJson([projectDir]), 'utf-8');
+    try {
+      const mapping: TopicMapping = {
+        threadId: 2,
+        windowId: 'w2',
+        windowTitle: projectDir.split(/[/\\]/).pop()!,
+        tabTitle: 'Chat',
+        lastActive: 0,
+      };
+      assert.equal(resolveProjectPath(mapping), projectDir);
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
     }
   });
 

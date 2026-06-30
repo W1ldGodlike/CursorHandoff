@@ -11,7 +11,7 @@ import {
   clearQuestionnaireFreeformPending,
   setQuestionnaireFreeformPending,
 } from '../inbound/questionnaire-freeform.js';
-import { isGeneralChat } from '../ui/menus.js';
+import { isBridgedProjectThread } from '../ui/menus.js';
 import type { BotContext } from '../types.js';
 import { t } from '../../i18n/t.js';
 import { logError, logInfo, logWarn, normalizeError, sanitizeErrorForUser } from '../../core/log-event.js';
@@ -191,7 +191,7 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
       const pick = pendingProjectPicks.get(token);
       if (!pick || !Number.isFinite(idx) || idx < 0 || idx >= pick.candidates.length) {
         logWarn('TG_CALLBACK_PICK_EXPIRED', `open_project pick expired token=${token}`, callbackCtx(ctx, 'callback', { hint: 'opr' }));
-        await ctx.answerCallbackQuery({ text: t('tg.msg.callback.pickExpired', 'Pick expired, run /open_project again.') });
+        await ctx.answerCallbackQuery({ text: t('tg.msg.callback.pickExpired', 'Pick expired, run /projects or /open_project again.') });
         return;
       }
       if ((deps.chatId ?? ctx.chat?.id) !== pick.chatId) {
@@ -424,21 +424,17 @@ function buildOutboxWatcherDeps(deps: CommandDeps): OutboxWatcherDeps {
 }
 
 export async function handleSetupTgSend(ctx: BotContext, deps: CommandDeps): Promise<void> {
-  if (isGeneralChat(ctx)) {
+  const threadId = ctx.message?.message_thread_id;
+  if (!threadId) return;
+
+  if (!isBridgedProjectThread(threadId, deps.topicManager)) {
     logWarn('TG_SETUP_TG_REJECT_GENERAL', '/setup_tg_send in General chat', callbackCtx(ctx, 'setup_tg_send'));
     await ctx.reply(t('tg.msg.setupTg.generalOnly', '⚠️ Send photos in a project thread, not General.'));
     return;
   }
 
-  const threadId = ctx.message?.message_thread_id;
-  if (!threadId) return;
-
   const mapping = deps.topicManager.resolveThread(threadId);
-  if (!mapping) {
-    logWarn('TG_SETUP_TG_NOT_MAPPED', '/setup_tg_send: thread not linked', callbackCtx(ctx, 'setup_tg_send', { threadId }));
-    await ctx.reply(t('tg.msg.setupTg.notMappedBridge', '⚠️ Thread not linked. Run /bridge or write from an active Cursor tab.'));
-    return;
-  }
+  if (!mapping) return;
 
   let workspacePath =
     mapping.workspacePath

@@ -176,9 +176,8 @@ export class RawTelegramTransport extends BaseTelegramTransport {
       const msg = update.message;
       const userId = msg.from?.id;
       if (!userId || !this.registeredUsers.has(userId)) return;
-      if (msg.message_thread_id == null) return;
 
-      if (!msg.text) {
+      if (!msg.text && msg.message_thread_id != null) {
         const ctx = this.makeContext(update);
         const botMsg = ctx.message;
         if (!botMsg) return;
@@ -219,7 +218,7 @@ export class RawTelegramTransport extends BaseTelegramTransport {
         if (!userId || !this.registeredUsers.has(userId)) return;
         const ctx = this.makeContext(update);
         // General → plain-text handler; topic → agent text / files / queue.
-        if (isGeneralChat(ctx)) {
+        if (isGeneralChat(ctx, this.deps.topicManager)) {
           await handleGeneralMessage(ctx, this.deps);
         } else if (ctx.message?.message_thread_id != null) {
           await handleTopicMessage(ctx, this.deps);

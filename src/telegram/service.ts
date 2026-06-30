@@ -397,7 +397,7 @@ export class TelegramTransport extends BaseTelegramTransport {
     this.bot.on('message:text', (ctx) => {
       if (ctx.message.text?.startsWith('/')) return;
       const botCtx = grammyCtxToBotCtx(ctx, api);
-      if (isGeneralChat(botCtx)) {
+      if (isGeneralChat(botCtx, deps.topicManager)) {
         return handleGeneralMessage(botCtx, deps);
       }
       if (botCtx.message?.message_thread_id != null) {

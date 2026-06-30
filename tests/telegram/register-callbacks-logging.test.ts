@@ -648,25 +648,14 @@ describe('register-callbacks logging', () => {
   it('logs TG_SETUP_TG_REJECT_GENERAL in General chat', async () => {
     const lines = await captureAll(async () => {
       await handleSetupTgSend(
-        {
+        makeMessageCtx({
           chat: { id: CHAT_ID, type: 'supergroup', is_forum: true },
-          message: { message_id: 1 },
-          reply: async () => ({ message_id: 2 }),
-        },
+          message: { message_id: 1, message_thread_id: 9999 },
+        }),
         connectedDeps(),
       );
     });
     assertRegisterLog(lines, 'TG_SETUP_TG_REJECT_GENERAL', { op: 'setup_tg_send' });
-  });
-
-  it('logs TG_SETUP_TG_NOT_MAPPED when thread has no mapping', async () => {
-    const lines = await captureAll(async () => {
-      await handleSetupTgSend(
-        makeMessageCtx({ message: { message_id: 1, message_thread_id: 9999 } }),
-        connectedDeps(),
-      );
-    });
-    assertRegisterLog(lines, 'TG_SETUP_TG_NOT_MAPPED', { threadId: 9999, op: 'setup_tg_send' });
   });
 
   it('logs TG_SETUP_TG_NO_PATH when mapping has no resolvable workspace', async () => {
@@ -807,7 +796,6 @@ const REGISTER_CALLBACK_LOG_CODES = [
   'TG_CALLBACK_ACTION_FAIL',
   'TG_CALLBACK_FAIL',
   'TG_SETUP_TG_REJECT_GENERAL',
-  'TG_SETUP_TG_NOT_MAPPED',
   'TG_SETUP_TG_NO_PATH',
   'TG_SETUP_TG_WRITE_FAIL',
 ] as const;
@@ -831,7 +819,7 @@ describe('register-callbacks logging coverage', () => {
         || src.includes(`assertRegisterLog(lines, '${code}'`);
       assert.ok(covered, `missing assertion for ${code}`);
     }
-    assert.equal(REGISTER_CALLBACK_LOG_CODES.length, 22);
+    assert.equal(REGISTER_CALLBACK_LOG_CODES.length, 21);
   });
 
   it('register-callbacks.ts declares exactly the covered codes', () => {
@@ -867,11 +855,11 @@ describe('register-callbacks logging coverage', () => {
     }
     const windowFailCalls = src.match(/^\s+logCallbackWindowFail\(ctx,/gm)?.length ?? 0;
     assert.equal(windowFailCalls, 6);
-    assert.equal(directCodes.length, 20);
+    assert.equal(directCodes.length, 19);
     assert.ok(src.includes('TG_CALLBACK_APPROVAL_FAIL') && src.includes('TG_CALLBACK_ACTION_FAIL'));
     assert.ok(src.includes('logCallbackWindowFail('));
     assert.ok(src.includes('logWarn(code,'), 'missing dynamic approval/action log site');
-    assert.equal(windowFailCalls + directCodes.length + 1, 27, 'expected 27 log emission sites');
+    assert.equal(windowFailCalls + directCodes.length + 1, 26, 'expected 26 log emission sites');
     assert.equal(new Set(directCodes).size, REGISTER_CALLBACK_LOG_CODES.length - 3);
     assert.ok(!src.match(/log(?:Info|Warn|Error)\([^)]*\{ scope: 'telegram'/));
   });
