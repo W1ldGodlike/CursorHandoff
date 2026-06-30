@@ -177,7 +177,7 @@ The sidebar **Status** tree is read-mostly (server, CDP, agent, clients, windows
 | `command:open_project` | client → server | `{ commandId, projectPath }` | `command:result` — opens folder or switches if already open |
 | `command:close_project` | client → server | `{ commandId, projectPath }` | `command:result` — CDP `closeTarget` for that window |
 
-Implementation: `src/workspace/project-web.ts`, wired in `src/web/http-routes.ts`. Telegram `/projects` and `/open_project` use the same open path.
+Implementation: `src/workspace/project-web.ts`, wired in `src/web/http-routes.ts`. Telegram `/projects` and `/open_project` use the same open path. After **close**, snapshots for that CDP target are removed and the live window list is refreshed so `isOpen` in the picker stays accurate.
 
 ---
 

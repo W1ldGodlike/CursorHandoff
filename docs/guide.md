@@ -127,6 +127,10 @@ The web password is generated on first install. Copy it from the panel or from S
 
 The header **Project** control (always visible) and **⋮ → Open project** show the same folder list as Telegram **`/projects`**. Tap a row to open or switch. Rows marked **open** include **Close** — same as **`/close_project`** in TG (window only; forum mapping stays).
 
+**Open behavior:** launching a **closed** project waits ~10 s for Cursor to restore chat tabs, then reconciles with Telegram: existing tab + alive forum topic → no extra chat; tab without TG topic → new topic only; empty window → new chat + topic. Dead topic rows in `telegram-topics.json` are probed and dropped.
+
+**Close behavior:** after close, the server refreshes the live CDP window list and clears stale monitor snapshots so the picker does not keep showing **open**. Closing an already-closed project succeeds (idempotent).
+
 ### Telegram
 
 Left nav: **Telegram**. Five numbered steps in the panel:

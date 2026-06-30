@@ -1218,6 +1218,10 @@ export abstract class BaseTelegramTransport implements Transport {
         return self.api.createForumTopic(self.groupId, name);
       },
       noteForumTopicLabel: (threadId, label) => self.noteForumTopicLabel(threadId, label),
+      isTopicReachable: async (threadId) => {
+        if (!self.groupId) return false;
+        return isTopicReachable(self.api, self.groupId, threadId);
+      },
     };
   }
 

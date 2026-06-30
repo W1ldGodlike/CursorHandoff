@@ -202,7 +202,7 @@ Run these in **# General**, not in a bridged project thread.
 
 | Command | What it does |
 |---------|----------------|
-| `/projects` | Inline buttons — tap to open a project, create a forum topic, and start the first chat |
+| `/projects` | Inline buttons — open a project (smart tab/topic reconcile; see below) |
 | `/open_project <fragment>` | Open by folder name match; several hits → pick buttons |
 | `/open_project <full path>` | Open an absolute path when it exists on disk |
 
@@ -213,6 +213,10 @@ Run these in **# General**, not in a bridged project thread.
 **Requires a running Handoff server** (at least one open Cursor window with the extension). CursorWake is **not** required when Cursor is already open. See [Who opens what from Telegram](guide.md#opening-projects-from-telegram) for Wake vs server vs extension.
 
 **Already open:** if the project window is already running, Handoff **switches** to it instead of spawning another folder open. Same logic from the [web project picker](guide.md#projects-from-the-web-client) (`command:open_project`).
+
+**Smart open (closed window):** after launch, ~10 s settle, then: Cursor tab + **alive** TG topic (probed, not JSON-only) → reuse both; tab but dead/missing topic → **new topic** on that tab; no tabs → `newChat` + new topic. Writing in an **existing project thread** still reopens via `resolveTargetWindow` without duplicating chats.
+
+**Close from web or TG:** `close_project` clears the window-monitor snapshot and refreshes CDP targets so the list does not show stale **open** rows.
 
 ### Web client (same project list)
 

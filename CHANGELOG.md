@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Smart open project (Cursor + TG)** — After launching a closed project, 10 s settle then reconcile: existing Cursor tabs + alive forum topic → no `newChat`; restored tab with dead TG mapping → new topic only; empty window → `newChat` + topic. Dead `telegram-topics.json` rows probed via `isTopicReachable` and removed. TG `/projects`, `/open_project`, and web project picker share `openProjectByPath`.
 - **Web project picker** — Header project switcher (always visible) and **⋮ → Open project** open a sheet listing Cursor-known projects (same sources as TG `/projects`). Tap opens or switches via `open-project.json`; **Close** on open rows uses CDP `closeTarget` (mapping unchanged). Socket: `command:list_projects`, `command:open_project`, `command:close_project`.
 - **Telegram `/close_project`** — From a **linked project thread** (not # General): close only that project's Cursor window via CDP `json/close`. Forum topic and `telegram-topics.json` mapping stay; write in the thread later to reopen via Wake/server routing.
 - **Docs: who opens projects from Telegram** — [guide § opening-projects-from-telegram](docs/guide.md#opening-projects-from-telegram): Wake starts the IDE when Cursor is off; Handoff server + extension open the folder (`open-project.json`). Cheat sheet for Wake on/off and Cursor open/closed.
@@ -21,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Web project list after close** — `close_project` drops the window-monitor snapshot, refreshes CDP window list, and treats already-closed projects as success. `findOpenWindowForPath` uses live CDP targets only (stale snapshots purged) so the picker no longer shows «open» after close or switch-opens the wrong window.
 - **Telegram disconnect notice on `/close_project`** — Closing the active CDP target no longer posts `⚠️ Disconnected from Cursor IDE` to # General; `isClosingTarget` mirrors the existing `isSwitchingWindow` guard while the server reconnects to another window.
 - **CDP model Auto toggle** — Detect Auto-on when the model list is hidden (empty menu + Auto row); retry toggle and longer settle so `/auto_off` / `/auto_on` from Telegram and web match Cursor 3.9.x.
 

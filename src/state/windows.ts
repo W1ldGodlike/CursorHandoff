@@ -212,6 +212,11 @@ export class WindowMonitor extends EventEmitter {
     return this.snapshots.get(windowId);
   }
 
+  removeSnapshot(windowId: string): void {
+    this.snapshots.delete(windowId);
+    this.windowFirstSeenAt.delete(windowId);
+  }
+
   getAllSnapshots(): Map<string, WindowSnapshot> {
     return this.snapshots;
   }
