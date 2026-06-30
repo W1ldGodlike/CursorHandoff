@@ -49,9 +49,12 @@ export function updateVsixInstallDocs(version: string): void {
 
   if (existsSync(REFERENCE_PATH)) {
     const before = readFileSync(REFERENCE_PATH, 'utf-8');
-    const after = before.replace(
-      /Lookup for CursorHandoff \*\*\d+\.\d+\.\d+\*\*/,
-      `Lookup for CursorHandoff **${version}**`,
+    const after = applyVersionStrings(
+      before.replace(
+        /Lookup for CursorHandoff \*\*\d+\.\d+\.\d+\*\*/,
+        `Lookup for CursorHandoff **${version}**`,
+      ),
+      version,
     );
     if (after !== before) {
       writeFileSync(REFERENCE_PATH, after, 'utf-8');

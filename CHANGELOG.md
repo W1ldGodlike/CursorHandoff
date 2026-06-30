@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-06-30
+
 ### Removed
 
 - **Telegram `/thread_rename`** — Use Telegram’s native “Edit topic” on the forum thread; the bot still renames topics when Cursor tab titles change (`syncForumTopicLabel`).

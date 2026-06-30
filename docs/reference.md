@@ -1,6 +1,6 @@
 # Reference
 
-Lookup for CursorHandoff **1.2.0**: extension commands, settings, security defaults, runtime files, and the health API.
+Lookup for CursorHandoff **1.3.0**: extension commands, settings, security defaults, runtime files, and the health API.
 
 User guides: [Getting started guide](guide.md), [Telegram bridge guide](telegram.md).
 
@@ -68,7 +68,7 @@ When `cursorHandoff.dataDir` / `DATA_DIR` is empty, `extension/src/paths-setting
 | VSIX installed, any other workspace | `<IDE-extensions>/cursor-handoff.cursor-handoff-<version>/data/` |
 | Fallback | Global storage (below) |
 
-**Installed VSIX (Windows, Cursor):** `%USERPROFILE%\.cursor\extensions\cursor-handoff.cursor-handoff-1.2.0\data\`
+**Installed VSIX (Windows, Cursor):** `%USERPROFILE%\.cursor\extensions\cursor-handoff.cursor-handoff-1.3.0\data\`
 
 **Global storage fallback** (`cursor-handoff.cursor-handoff`):
 

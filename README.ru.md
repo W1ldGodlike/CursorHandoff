@@ -8,7 +8,7 @@
 
 # CursorHandoff
 
-[![Version](https://img.shields.io/badge/version-1.2.0-blue)](https://github.com/W1ldGodlike/CursorHandoff/releases)
+[![Version](https://img.shields.io/badge/version-1.3.0-blue)](https://github.com/W1ldGodlike/CursorHandoff/releases)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-orange)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#требования)
 [![Cursor](https://img.shields.io/badge/Cursor-CDP%20%3A9222-000?style=flat&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSIjZmZmIj48cGF0aCBkPSJNMTIgMkM2LjQ4IDIgMiA2LjQ4IDIgMTJzNC40OCAxMCAxMCAxMCAxMC00LjQ4IDEwLTEwUzE3LjUyIDIgMTIgMnoiLz48L3N2Zz4=)](#требования)
@@ -119,8 +119,8 @@ flowchart LR
 
 | Пакет | Файл | Размер | Кому подходит |
 |-------|------|--------|----------------|
-| **Standard** | `cursor-handoff-1.2.0.vsix` | ~2 MB | Меньше вес; Wake и cloudflared — кнопка **Скачать и установить** в Handoff settings (GitHub / CDN Cloudflare) |
-| **Complete** | `cursor-handoff-1.2.0-complete.vsix` | ~43 MB | **Дополнения в пакете** — `CursorWake.exe` + `cloudflared.exe` (Windows) уже в VSIX; установка из Handoff settings **без отдельной докачки** |
+| **Standard** | `cursor-handoff-1.3.0.vsix` | ~2 MB | Меньше вес; Wake и cloudflared — кнопка **Скачать и установить** в Handoff settings (GitHub / CDN Cloudflare) |
+| **Complete** | `cursor-handoff-1.3.0-complete.vsix` | ~43 MB | **Дополнения в пакете** — `CursorWake.exe` + `cloudflared.exe` (Windows) уже в VSIX; установка из Handoff settings **без отдельной докачки** |
 
 Complete — не «работает без интернета»: Telegram, туннели и Cursor по-прежнему требуют сеть. Отличие только в том, что exe дополнений уже внутри VSIX, и Handoff settings не качает их с GitHub или CDN Cloudflare.
 
@@ -133,9 +133,9 @@ Complete — не «работает без интернета»: Telegram, ту
 **CLI:**
 
 ```bash
-cursor --install-extension cursor-handoff-1.2.0.vsix
+cursor --install-extension cursor-handoff-1.3.0.vsix
 # или Complete:
-cursor --install-extension cursor-handoff-1.2.0-complete.vsix
+cursor --install-extension cursor-handoff-1.3.0-complete.vsix
 ```
 
 В VS Code вместо `cursor` можно `code`.
@@ -232,8 +232,8 @@ cursor --install-extension cursor-handoff-1.2.0-complete.vsix
 | Установка CursorWake (Windows) | `%LOCALAPPDATA%\CursorWake\` |
 | cloudflared (пользовательская) | Windows: `%LOCALAPPDATA%\cloudflared\` · macOS/Linux: `~/.local/bin/cloudflared` (или Homebrew / system path) |
 
-**Пример VSIX (Windows, Cursor):** `%USERPROFILE%\.cursor\extensions\cursor-handoff.cursor-handoff-1.2.0\data\`  
-VS Code: `~/.vscode/extensions/cursor-handoff.cursor-handoff-1.2.0/data/`
+**Пример VSIX (Windows, Cursor):** `%USERPROFILE%\.cursor\extensions\cursor-handoff.cursor-handoff-1.3.0\data\`  
+VS Code: `~/.vscode/extensions/cursor-handoff.cursor-handoff-1.3.0/data/`
 
 **Global storage fallback** (только если корень `cursor-handoff` не найден):
 
