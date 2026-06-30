@@ -27,6 +27,7 @@ import { isTelegramPollActive } from './poll-status.js';
 import { getLocale, t } from '../i18n/t.js';
 import { logError, logInfo, logWarn, sanitizeErrorForUser, sanitizePathForUi } from '../core/log-event.js';
 import type { LogContext } from '../core/log-event.js';
+import { searchWorkspaceFiles } from '../workspace/file-index.js';
 
 function relayCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
   return { scope: 'relay', op, ...extra };
@@ -330,7 +331,19 @@ export class Relay {
 
   private resolveActiveWorkspacePath(): string | undefined {
     const state = this.stateManager.getCurrentState();
-    return this.windowMonitor?.getSnapshot(state.activeWindowId)?.workspacePath;
+    const activeId = state.activeWindowId;
+    const fromSnap = activeId
+      ? this.windowMonitor?.getSnapshot(activeId)?.workspacePath
+      : undefined;
+    if (fromSnap) return fromSnap;
+
+    const fromBridge = this.cdpBridge.activeWorkspacePath ?? undefined;
+    if (fromBridge) return fromBridge;
+
+    for (const snap of this.windowMonitor?.getAllSnapshots().values() ?? []) {
+      if (snap.workspacePath) return snap.workspacePath;
+    }
+    return undefined;
   }
 
   constructor(
@@ -1199,6 +1212,30 @@ export class Relay {
           emitCommandResult(socket, { commandId: payload.commandId, ok: false, error: msg });
         }
       });
+
+      socket.on(
+        'workspace:file_search',
+        (payload: { query?: string; limit?: number }, ack?: (res: { paths?: string[]; error?: string }) => void) => {
+          const respond = (res: { paths?: string[]; error?: string }) => {
+            if (typeof ack === 'function') ack(res);
+          };
+          const workspacePath = this.resolveActiveWorkspacePath();
+          if (!workspacePath) {
+            respond({ error: t('web.toast.projectNotReady', 'Project not ready') });
+            return;
+          }
+          const query = typeof payload?.query === 'string' ? payload.query : '';
+          const limit = typeof payload?.limit === 'number' ? payload.limit : 50;
+          try {
+            const paths = searchWorkspaceFiles(workspacePath, query, limit);
+            respond({ paths });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            logError('RELAY_FILE_SEARCH_FAIL', msg, relayCtx('file_search'));
+            respond({ error: sanitizeErrorForUser(msg) });
+          }
+        },
+      );
 
       socket.on('disconnect', (reason) => {
         logInfo('RELAY_SOCKET_DISCONNECT', `${socket.id} (${reason})`, relayCtx('socket', { hint: reason }));

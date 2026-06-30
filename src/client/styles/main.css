@@ -2898,6 +2898,7 @@ html[data-theme="light"] .markdown-body .md-diagram-wrap svg .cluster rect {
 }
 
 .input-wrapper {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 8px;
@@ -2906,6 +2907,62 @@ html[data-theme="light"] .markdown-body .md-diagram-wrap svg .cluster rect {
   padding: 4px 4px 4px 12px;
   border: 1px solid var(--border-color);
   transition: border-color 0.2s;
+}
+
+.file-mention-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 30;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  max-height: min(220px, 40vh);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-mention-panel.hidden { display: none; }
+
+.file-mention-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.file-mention-list {
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.file-mention-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.35;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.file-mention-item:active,
+.file-mention-item.active {
+  background: var(--bg-hover);
+}
+
+.file-mention-empty {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 
 .input-wrapper:focus-within { border-color: rgba(228, 228, 228, 0.16); }

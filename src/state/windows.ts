@@ -263,6 +263,9 @@ export class WindowMonitor extends EventEmitter {
 
     this.markWindowSeen(windowId);
 
+    const prev = this.snapshots.get(windowId);
+    const workspacePath = this.cdpBridge.activeWorkspacePath ?? prev?.workspacePath;
+
     const snapshot: WindowSnapshot = {
       windowId,
       windowTitle: win.title,
@@ -279,9 +282,9 @@ export class WindowMonitor extends EventEmitter {
       lastUpdated: Date.now(),
       activeComposerId: state.activeComposerId ?? '',
       questionnaire: state.questionnaire ?? null,
+      ...(workspacePath ? { workspacePath } : {}),
     };
 
-    const prev = this.snapshots.get(windowId);
     const queueSig = JSON.stringify(snapshot.composerQueue);
     const prevQueueSig = prev ? JSON.stringify(prev.composerQueue) : '';
     const approvalSig = approvalsFingerprint(snapshot.pendingApprovals);

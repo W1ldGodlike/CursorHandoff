@@ -703,6 +703,9 @@
   "web.input.attachFile": "Attach file",
   "web.input.modeSelect": "Select mode",
   "web.input.modelSelect": "Select model",
+  "web.fileSearch.title": "Project files",
+  "web.fileSearch.empty": "No matching files",
+  "web.fileSearch.searching": "Searching…",
   "web.newBelow": "New below",
   "web.repeatLast": "Repeat last",
   "web.sheet.windowTitle": "Cursor window",
@@ -714,6 +717,7 @@
   "web.header.allChatsMenu": "All chats",
   "web.tab.defaultTitle": "Chat",
 
+  "web.toast.projectNotReady": "Project not ready",
   "web.toast.pathCopied": "Path copied",
   "web.toast.copyFailed": "Copy failed",
   "web.toast.photosTypeOnly": "JPEG, PNG, or WebP only",

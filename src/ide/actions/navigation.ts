@@ -15,6 +15,11 @@ const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 500;
 const FOCUS_DELAY_MS = 100;
 
+/** Plain `@path` in insertText opens Cursor mention UI; Enter submits menu, not chat. */
+export function textMayOpenMentionTypeahead(text: string): boolean {
+  return /(?:^|\s)@[\w./-]+/.test(text);
+}
+
 // Finds open model picker menu across Cursor versions.
 // Old builds: `[data-testid="model-picker-menu"]`; new (~3.5.17)
 // dropped testid and render picker as generic `[role="menu"]` via
@@ -567,7 +572,7 @@ export class CommandExecutor {
       logCommandOk(`inserted ${text.length} chars`, commandCtx(commandId));
       await sleep(150);
 
-      await this.pressSubmit(client, submit);
+      await this.submitComposer(client, commandId, text, submit);
     });
   }
 
@@ -680,8 +685,55 @@ export class CommandExecutor {
         await client.typeText(opts.text);
         await sleep(150);
       }
-      await this.pressSubmit(client, submit);
+      await this.submitComposer(client, commandId, opts.text, submit);
     });
+  }
+
+  private async submitComposer(
+    client: CdpClient,
+    commandId: string,
+    text: string,
+    submit: 'enter' | 'ctrlEnter',
+  ): Promise<void> {
+    if (textMayOpenMentionTypeahead(text)) {
+      await sleep(250);
+      if (await this.clickComposerSendButton(client, commandId)) return;
+      await client.pressKey('Escape', 'Escape', 27);
+      await sleep(80);
+      await this.pressSubmit(client, 'ctrlEnter');
+      return;
+    }
+    await this.pressSubmit(client, submit);
+  }
+
+  private async clickComposerSendButton(client: CdpClient, commandId: string): Promise<boolean> {
+    const result = await client.evaluate(`
+      (() => {
+        const root = document.querySelector('.composer-bar')
+          || document.querySelector('#workbench\\\\.parts\\\\.auxiliarybar');
+        if (!root) return { ok: false, error: 'Composer not found' };
+        const pick = () => {
+          const icons = root.querySelectorAll('.codicon-arrow-up-two, .codicon-arrow-up');
+          for (const icon of Array.from(icons)) {
+            const btn = icon.closest('button, [role="button"], .anysphere-icon-button');
+            if (btn) return btn;
+          }
+          const labeled = root.querySelector('[aria-label*="Send" i], [aria-label*="Отправ" i]');
+          if (labeled) return labeled.closest('button, [role="button"]') || labeled;
+          return null;
+        };
+        const btn = pick();
+        if (!btn) return { ok: false, error: 'Composer send button not found' };
+        const disabled = btn.disabled || btn.getAttribute('aria-disabled') === 'true';
+        if (disabled) return { ok: false, error: 'Composer send button disabled' };
+        btn.scrollIntoView({ block: 'center', behavior: 'instant' });
+        btn.click();
+        return { ok: true };
+      })()
+    `) as { ok: boolean; error?: string } | null;
+    if (!result?.ok) return false;
+    logCommandOk('composer send click', commandCtx(commandId));
+    return true;
   }
 
   private async pressSubmit(client: CdpClient, submit: 'enter' | 'ctrlEnter'): Promise<void> {

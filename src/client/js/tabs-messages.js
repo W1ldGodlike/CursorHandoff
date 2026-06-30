@@ -3,6 +3,7 @@ import * as auth from './auth-settings.js';
 import * as socketState from './socket-state.js';
 import * as planUi from './plan-widget.js';
 import * as approve from './approve-ui.js';
+import * as fileMention from './file-mention.js';
 export const MAX_ATTACHMENTS = 10;
 export const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
 
@@ -482,6 +483,7 @@ export async function sendMessage() {
 
   ctx.$input.value = '';
   ctx.$input.style.height = 'auto';
+  fileMention.dismiss();
   clearPendingPhotos();
   if (parsed.text) pushPromptHistory(parsed.text);
 
@@ -2807,5 +2809,6 @@ if (ctx.$btnAttach && ctx.$photoFileInput) {
   });
 }
 
+fileMention.init();
 }
 

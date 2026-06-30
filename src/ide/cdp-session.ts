@@ -135,6 +135,7 @@ export class CDPBridge extends EventEmitter {
   private _activeTargetId = '';
   private _windows: CursorWindow[] = [];
   private _activeWorkspaceName: string | null = null;
+  private _activeWorkspacePath: string | null = null;
   private reconnectRid: string | null = null;
 
   constructor(config: ServerConfig) {
@@ -148,6 +149,10 @@ export class CDPBridge extends EventEmitter {
 
   get windows(): CursorWindow[] {
     return this._windows;
+  }
+
+  get activeWorkspacePath(): string | null {
+    return this._activeWorkspacePath;
   }
 
   /** true during switchWindow — do not treat as lost Cursor connection. */
@@ -196,6 +201,7 @@ export class CDPBridge extends EventEmitter {
       await this.client.connect(target.webSocketDebuggerUrl);
       this._activeTargetId = target.id;
 
+      this._activeWorkspacePath = await extractWorkspacePath(this.client);
       this._activeWorkspaceName = await extractWorkspaceName(this.client, this.config.windowTitleQualifier);
       if (this._activeWorkspaceName) {
         const win = this._windows.find(w => w.id === target!.id);
@@ -238,6 +244,8 @@ export class CDPBridge extends EventEmitter {
         this.client.disconnect();
         this.client = null;
       }
+      this._activeWorkspacePath = null;
+      this._activeWorkspaceName = null;
       this._activeTargetId = '';
       this.emit('disconnected');
 
@@ -294,6 +302,8 @@ export class CDPBridge extends EventEmitter {
       this.client.disconnect();
       this.client = null;
     }
+    this._activeWorkspacePath = null;
+    this._activeWorkspaceName = null;
   }
 
   getClient(): CdpClient | null {

@@ -1326,7 +1326,7 @@ describe('web Relay http-routes logging', () => {
     const classSrc = readFileSync(new URL('../../src/web/http-routes.ts', import.meta.url), 'utf-8');
     const zone = classSrc.slice(classSrc.indexOf('export class Relay'));
     const logSites = (zone.match(/log(Info|Warn|Error)\(/g) ?? []).length + (zone.match(/logRelayCmd\(/g) ?? []).length;
-    assert.equal(logSites, 36, `expected 36 log sites, got ${logSites}`);
+    assert.equal(logSites, 37, `expected 37 log sites, got ${logSites}`);
     assert.match(relayZoneSrc(), /function relayCtx\(op: string/);
     assert.match(relayZoneSrc(), /scope: 'relay'/);
   });

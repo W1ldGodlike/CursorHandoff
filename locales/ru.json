@@ -703,6 +703,9 @@
   "web.input.attachFile": "Прикрепить файл",
   "web.input.modeSelect": "Выбор режима",
   "web.input.modelSelect": "Выбор модели",
+  "web.fileSearch.title": "Файлы проекта",
+  "web.fileSearch.empty": "Нет подходящих файлов",
+  "web.fileSearch.searching": "Ищу…",
   "web.newBelow": "Новые ниже",
   "web.repeatLast": "Повторить последний",
   "web.sheet.windowTitle": "Окно Cursor",
@@ -714,6 +717,7 @@
   "web.header.allChatsMenu": "Все чаты",
   "web.tab.defaultTitle": "Чат",
 
+  "web.toast.projectNotReady": "Проект ещё не готов",
   "web.toast.pathCopied": "Путь скопирован",
   "web.toast.copyFailed": "Не удалось скопировать",
   "web.toast.photosTypeOnly": "Только JPEG, PNG или WebP",
