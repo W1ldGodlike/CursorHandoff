@@ -123,6 +123,10 @@ Set the **password** before LAN or Custom. Localhost does not need it.
 
 The web password is generated on first install. Copy it from the panel or from Settings (`cursorHandoff.webappPassword`). On another device, open `http://<host>:3000` where `<host>` is your LAN or Tailscale address — not `127.0.0.1`.
 
+### Projects from the web client
+
+The header **Project** control (always visible) and **⋮ → Open project** show the same folder list as Telegram **`/projects`**. Tap a row to open or switch. Rows marked **open** include **Close** — same as **`/close_project`** in TG (window only; forum mapping stays).
+
 ### Telegram
 
 Left nav: **Telegram**. Five numbered steps in the panel:

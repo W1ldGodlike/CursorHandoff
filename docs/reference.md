@@ -146,7 +146,7 @@ The sidebar **Status** tree is read-mostly (server, CDP, agent, clients, windows
 | `cloudflared-quick.pid` / `.log` | cloudflared process metadata |
 | `webapp-sessions.json` | Web sessions (30-day TTL) |
 | `web-settings.json` | Synced web UI preferences |
-| `open-project.json` | One-shot folder open from Telegram |
+| `open-project.json` | One-shot folder open from Telegram or web (`command:open_project`) |
 | `file-relay/` | File relay bootstrap metadata |
 | `cursor-wake.log` | CursorWake tray log (`code=WAKE_*` event tails) |
 | `cursor-host.json` | Running Cursor version (`cursor.version`); extension writes before spawn |
@@ -168,6 +168,16 @@ The sidebar **Status** tree is read-mostly (server, CDP, agent, clients, windows
 **File relay limits:** same on Telegram and web — up to **10** attachments per message, **20 MB** per file (Telegram Bot API). Details: [Telegram bridge § File relay](telegram.md#file-relay).
 
 `ensureProjectDirs()` creates these; `/setup_tg_send` adds `.cursor-handoff/` to the workspace `.gitignore`.
+
+### Web socket.io — project picker
+
+| Event | Direction | Payload | Result |
+|-------|-----------|---------|--------|
+| `command:list_projects` | client → server | `{ commandId }` | ack `{ ok, projects?: [{ path, name, isOpen, isActive, windowId? }] }` |
+| `command:open_project` | client → server | `{ commandId, projectPath }` | `command:result` — opens folder or switches if already open |
+| `command:close_project` | client → server | `{ commandId, projectPath }` | `command:result` — CDP `closeTarget` for that window |
+
+Implementation: `src/workspace/project-web.ts`, wired in `src/web/http-routes.ts`. Telegram `/projects` and `/open_project` use the same open path.
 
 ---
 

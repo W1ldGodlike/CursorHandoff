@@ -28,6 +28,13 @@ import { getLocale, t } from '../i18n/t.js';
 import { logError, logInfo, logWarn, sanitizeErrorForUser, sanitizePathForUi } from '../core/log-event.js';
 import type { LogContext } from '../core/log-event.js';
 import { searchWorkspaceFiles } from '../workspace/file-index.js';
+import {
+  closeProjectByPath,
+  listKnownProjects,
+  openProjectByPath,
+  type ProjectActionDeps,
+  type ProjectBridge,
+} from '../workspace/project-web.js';
 
 function relayCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
   return { scope: 'relay', op, ...extra };
@@ -306,6 +313,7 @@ export class Relay {
   };
   private telegramTopicLink?: () => string | null;
   private windowMonitor?: WindowMonitor;
+  private projectBridge?: ProjectBridge;
 
   /** Max-Age for session cookie (30 days), typical "stay signed in". */
   private static readonly SESSION_COOKIE_MAX_AGE_SEC = 30 * 24 * 60 * 60;
@@ -327,6 +335,21 @@ export class Relay {
 
   setWindowMonitor(monitor: WindowMonitor): void {
     this.windowMonitor = monitor;
+  }
+
+  setProjectBridge(bridge: ProjectBridge | undefined): void {
+    this.projectBridge = bridge;
+  }
+
+  private projectActionDeps(): ProjectActionDeps | null {
+    if (!this.windowMonitor) return null;
+    return {
+      cdpBridge: this.cdpBridge,
+      stateManager: this.stateManager,
+      windowMonitor: this.windowMonitor,
+      commandExecutor: this.commandExecutor,
+      bridge: this.projectBridge,
+    };
   }
 
   private resolveActiveWorkspacePath(): string | undefined {
@@ -1236,6 +1259,90 @@ export class Relay {
           }
         },
       );
+
+      socket.on(
+        'command:list_projects',
+        (_payload: { commandId?: string }, ack?: (res: { ok: boolean; projects?: unknown[]; error?: string }) => void) => {
+          const respond = (res: { ok: boolean; projects?: unknown[]; error?: string }) => {
+            if (typeof ack === 'function') ack(res);
+          };
+          const deps = this.projectActionDeps();
+          if (!deps) {
+            respond({ ok: false, error: t('web.project.notReady', 'Project list not ready') });
+            return;
+          }
+          try {
+            respond({ ok: true, projects: listKnownProjects(deps) });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            logError('RELAY_LIST_PROJECTS_FAIL', msg, relayCtx('list_projects'));
+            respond({ ok: false, error: sanitizeErrorForUser(msg) });
+          }
+        },
+      );
+
+      socket.on('command:open_project', async (payload: CommandPayload) => {
+        if (!payload.commandId || !payload.projectPath) {
+          emitCommandResult(socket, {
+            commandId: payload.commandId ?? 'unknown',
+            ok: false,
+            error: 'Missing commandId or projectPath',
+          } satisfies CommandResult);
+          return;
+        }
+        const deps = this.projectActionDeps();
+        if (!deps) {
+          emitCommandResult(socket, {
+            commandId: payload.commandId,
+            ok: false,
+            error: t('web.project.notReady', 'Project list not ready'),
+          } satisfies CommandResult);
+          return;
+        }
+        logRelayCmd('open_project', sanitizePathForUi(payload.projectPath), {
+          itemId: payload.commandId,
+          hint: socket.id,
+        });
+        const result = await openProjectByPath(deps, payload.projectPath);
+        emitCommandResult(socket, {
+          commandId: payload.commandId,
+          ok: result.ok,
+          error: result.error,
+          data: result.ok
+            ? { action: result.action, projectName: result.projectName }
+            : undefined,
+        });
+      });
+
+      socket.on('command:close_project', async (payload: CommandPayload) => {
+        if (!payload.commandId || !payload.projectPath) {
+          emitCommandResult(socket, {
+            commandId: payload.commandId ?? 'unknown',
+            ok: false,
+            error: 'Missing commandId or projectPath',
+          } satisfies CommandResult);
+          return;
+        }
+        const deps = this.projectActionDeps();
+        if (!deps) {
+          emitCommandResult(socket, {
+            commandId: payload.commandId,
+            ok: false,
+            error: t('web.project.notReady', 'Project list not ready'),
+          } satisfies CommandResult);
+          return;
+        }
+        logRelayCmd('close_project', sanitizePathForUi(payload.projectPath), {
+          itemId: payload.commandId,
+          hint: socket.id,
+        });
+        const result = await closeProjectByPath(deps, payload.projectPath);
+        emitCommandResult(socket, {
+          commandId: payload.commandId,
+          ok: result.ok,
+          error: result.error,
+        });
+      });
 
       socket.on('disconnect', (reason) => {
         logInfo('RELAY_SOCKET_DISCONNECT', `${socket.id} (${reason})`, relayCtx('socket', { hint: reason }));

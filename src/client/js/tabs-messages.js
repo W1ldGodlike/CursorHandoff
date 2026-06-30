@@ -1962,6 +1962,7 @@ export function initHeaderMenu() {
   [
     { id: 'refresh', label: t('web.menu.refreshState', 'Refresh state') },
     { id: 'reload-page', label: t('web.menu.reloadPage', 'Reload page') },
+    { id: 'open-project', label: t('web.menu.openProject', 'Open project') },
     { id: 'copy-composer', label: t('web.menu.copyComposer', 'Copy composerId') },
     { id: 'health', label: t('web.menu.openHealth', 'Open /health') },
   ].forEach((item) => {
@@ -2017,6 +2018,11 @@ export function initHeaderMenu() {
       return;
     }
 
+    if (action === 'open-project') {
+      openSheet('project');
+      return;
+    }
+
     if (action === 'copy-composer') {
       const id = getActiveComposerId();
       if (!id) {
@@ -2042,49 +2048,126 @@ export function initHeaderMenu() {
 export function renderWindows() {
   if (!ctx.$windowSelectBtn || !ctx.$windowSelectLabel) return;
 
-  const windows = ctx.state.windows || [];
-  if (windows.length <= 1) {
-    ctx.$windowSelectWrap?.classList.add('hidden');
-    ctx.$windowSelectLabel.textContent = 'Cursor';
-    return;
-  }
   ctx.$windowSelectWrap?.classList.remove('hidden');
 
+  const windows = ctx.state.windows || [];
   const active = windows.find((w) => w.id === ctx.state.activeWindowId) || windows[0];
-  ctx.$windowSelectLabel.textContent = active?.title || 'Cursor';
+  ctx.$windowSelectLabel.textContent = active?.title || t('web.project.switcherLabel', 'Project');
 
   if (!ctx.$windowSelectBtn.dataset.bound) {
     ctx.$windowSelectBtn.dataset.bound = '1';
-    ctx.$windowSelectBtn.addEventListener('click', () => openSheet('window'));
+    ctx.$windowSelectBtn.addEventListener('click', () => openSheet('project'));
   }
 }
 
-export function renderWindowSheet() {
+export function fetchProjectList() {
+  return new Promise((resolve) => {
+    if (!ctx.socket?.connected) {
+      resolve({ ok: false, error: t('web.project.notReady', 'Project list not ready') });
+      return;
+    }
+    ctx.socket.emit(
+      'command:list_projects',
+      { commandId: socketState.newCommandId() },
+      (res) => resolve(res ?? { ok: false }),
+    );
+  });
+}
+
+function renderProjectSheetLoading() {
+  if (!ctx.$sheetWindowList) return;
+  ctx.$sheetWindowList.innerHTML =
+    `<div class="sheet-loading">${escapeHtml(t('web.project.loading', 'Loading projects…'))}</div>`;
+}
+
+export function renderProjectSheet(projects) {
   if (!ctx.$sheetWindowList) return;
   ctx.$sheetWindowList.innerHTML = '';
-  const windows = ctx.state.windows || [];
-  const activeId = ctx.state.activeWindowId;
-  windows.forEach((win) => {
+
+  if (!projects?.length) {
+    ctx.$sheetWindowList.innerHTML =
+      `<div class="sheet-empty">${escapeHtml(t('web.project.none', 'No projects found. Open a folder in Cursor first.'))}</div>`;
+    return;
+  }
+
+  projects.forEach((project) => {
+    const row = document.createElement('div');
+    row.className = 'sheet-project-row';
+
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'sheet-item' + (win.id === activeId ? ' selected' : '');
+    btn.className = 'sheet-item sheet-project-main' + (project.isActive ? ' selected' : '');
+    const openBadge = project.isOpen
+      ? `<span class="sheet-project-badge">${escapeHtml(t('web.project.openBadge', 'open'))}</span>`
+      : '';
     btn.innerHTML =
-      `<span>${escapeHtml(win.title || 'Cursor')}</span>` +
-      (win.id === activeId ? '<span class="sheet-item-check">\u2713</span>' : '');
+      `<span class="sheet-item-label"><span class="sheet-project-name">${escapeHtml(project.name)}</span>${openBadge}</span>` +
+      (project.isActive ? '<span class="sheet-item-check">✓</span>' : '');
     btn.addEventListener('click', () => {
-      if (win.id === ctx.state.activeWindowId) {
-        closeSheet();
-        return;
-      }
-      ctx.socket.emit('command:switch_window', {
-        commandId: socketState.newCommandId(),
-        windowId: win.id,
-      });
-      closeSheet();
-      socketState.showToast(t('web.toast.switchingWindow', 'Switching window…'), 'success');
+      void openProjectFromSheet(project);
     });
-    ctx.$sheetWindowList.appendChild(btn);
+
+    row.appendChild(btn);
+
+    if (project.isOpen) {
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'sheet-project-close';
+      closeBtn.textContent = t('web.project.close', 'Close');
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        void closeProjectFromSheet(project);
+      });
+      row.appendChild(closeBtn);
+    }
+
+    ctx.$sheetWindowList.appendChild(row);
   });
+}
+
+async function openProjectFromSheet(project) {
+  if (!project?.path) return;
+  closeSheet();
+  const toastKey = project.isOpen ? 'web.toast.switchingProject' : 'web.toast.openingProject';
+  socketState.showToast(t(toastKey, project.isOpen ? 'Switching project…' : 'Opening project…'), 'success');
+  const result = await socketState.sendCommandAwaitResult('command:open_project', {
+    commandId: socketState.newCommandId(),
+    projectPath: project.path,
+  });
+  if (!result.ok) {
+    socketState.showToast(result.error || t('web.project.openFailed', 'Could not open project'), 'error');
+    return;
+  }
+  const doneKey = result.data?.action === 'switched'
+    ? 'web.toast.projectSwitched'
+    : 'web.toast.projectOpened';
+  socketState.showToast(
+    t(doneKey, result.data?.action === 'switched' ? 'Project switched' : 'Project opened'),
+    'success',
+  );
+}
+
+async function closeProjectFromSheet(project) {
+  if (!project?.path) return;
+  if (!window.confirm(tp('web.project.closeConfirm', 'Close project «{name}» in Cursor?', { name: project.name }))) {
+    return;
+  }
+  closeSheet();
+  socketState.showToast(t('web.toast.closingProject', 'Closing project…'), 'success');
+  const result = await socketState.sendCommandAwaitResult('command:close_project', {
+    commandId: socketState.newCommandId(),
+    projectPath: project.path,
+  });
+  if (!result.ok) {
+    socketState.showToast(result.error || t('web.project.closeFailed', 'Could not close project'), 'error');
+    return;
+  }
+  socketState.showToast(t('web.toast.projectClosed', 'Project closed'), 'success');
+}
+
+/** @deprecated use renderProjectSheet — kept for tests referencing renderWindowSheet */
+export function renderWindowSheet() {
+  renderProjectSheet([]);
 }
 
 // --- Tab rendering ---
@@ -2355,10 +2438,20 @@ export function openSheet(type) {
   } else if (type === 'plan-model') {
     ctx.$sheetPlanModel.classList.remove('hidden');
     planUi.renderPlanModelSheet();
-  } else if (type === 'window') {
+  } else if (type === 'project' || type === 'window') {
+    ctx.activeSheet = 'project';
     ctx.$sheetWindow?.classList.remove('hidden');
     ctx.$windowSelectBtn?.setAttribute('aria-expanded', 'true');
-    renderWindowSheet();
+    renderProjectSheetLoading();
+    fetchProjectList().then((res) => {
+      if (ctx.activeSheet !== 'project' && ctx.activeSheet !== 'window') return;
+      if (res?.ok && Array.isArray(res.projects)) {
+        renderProjectSheet(res.projects);
+      } else {
+        renderProjectSheet([]);
+        if (res?.error) socketState.showToast(res.error, 'error');
+      }
+    });
   }
 }
 

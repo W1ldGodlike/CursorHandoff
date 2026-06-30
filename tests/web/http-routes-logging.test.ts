@@ -1326,7 +1326,7 @@ describe('web Relay http-routes logging', () => {
     const classSrc = readFileSync(new URL('../../src/web/http-routes.ts', import.meta.url), 'utf-8');
     const zone = classSrc.slice(classSrc.indexOf('export class Relay'));
     const logSites = (zone.match(/log(Info|Warn|Error)\(/g) ?? []).length + (zone.match(/logRelayCmd\(/g) ?? []).length;
-    assert.equal(logSites, 37, `expected 37 log sites, got ${logSites}`);
+    assert.equal(logSites, 40, `expected 40 log sites, got ${logSites}`);
     assert.match(relayZoneSrc(), /function relayCtx\(op: string/);
     assert.match(relayZoneSrc(), /scope: 'relay'/);
   });
@@ -1337,11 +1337,11 @@ describe('web Relay http-routes logging', () => {
     assert.match(zone, /logInfo\('RELAY_CMD_OK'/);
   });
 
-  it('logRelayCmd call count is twenty-three in Relay class source', () => {
+  it('logRelayCmd call count is twenty-five in Relay class source', () => {
     const classSrc = readFileSync(new URL('../../src/web/http-routes.ts', import.meta.url), 'utf-8');
     const zone = classSrc.slice(classSrc.indexOf('export class Relay'));
     const hits = zone.match(/logRelayCmd\(/g) ?? [];
-    assert.equal(hits.length, 23);
+    assert.equal(hits.length, 25);
   });
 
   it('logInfo logWarn logError imported from log-event in source', () => {

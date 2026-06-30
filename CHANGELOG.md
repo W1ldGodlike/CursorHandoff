@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Web project picker** — Header project switcher (always visible) and **⋮ → Open project** open a sheet listing Cursor-known projects (same sources as TG `/projects`). Tap opens or switches via `open-project.json`; **Close** on open rows uses CDP `closeTarget` (mapping unchanged). Socket: `command:list_projects`, `command:open_project`, `command:close_project`.
 - **Telegram `/close_project`** — From a **linked project thread** (not # General): close only that project's Cursor window via CDP `json/close`. Forum topic and `telegram-topics.json` mapping stay; write in the thread later to reopen via Wake/server routing.
 - **Docs: who opens projects from Telegram** — [guide § opening-projects-from-telegram](docs/guide.md#opening-projects-from-telegram): Wake starts the IDE when Cursor is off; Handoff server + extension open the folder (`open-project.json`). Cheat sheet for Wake on/off and Cursor open/closed.
 - **Web send progress on attachments** — While a message with photos or files is uploading and the server is pasting into Cursor, the Send button shows a spinner, disables Send and attach, and uses localized “Sending…” label until `command:result` returns.

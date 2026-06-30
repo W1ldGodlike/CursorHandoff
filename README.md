@@ -58,7 +58,7 @@ You approve tool runs, send follow-ups, attach files (photos and documents), and
 
 | Area | What you get |
 |------|----------------|
-| **Web client** | Live chat feed, tool approval cards (optional approve sound), plan widgets (View Plan / Build), code & diff blocks, file attachments (images paste; other files via path; send spinner while uploading), queue & `$` force-send |
+| **Web client** | Live chat feed, tool approval cards (optional approve sound), plan widgets (View Plan / Build), code & diff blocks, file attachments (images paste; other files via path; send spinner while uploading), queue & `$` force-send, **project picker** (header + ⋮ menu: open/switch/close projects) |
 | **Telegram** | Forum topic per tab, slash commands, inbound files (images, video, voice, documents), outbound [file relay](docs/telegram.md) from `.cursor-handoff/outbox/` |
 | **Handoff settings** | One panel: network bind, web password, Telegram setup, add-ons — UI in **English** or **Russian** |
 | **Sidebar diagnostics** | **Test CDP** / **Test Telegram bot** (no server required), **Restart server** (owner), version and tunnel status |

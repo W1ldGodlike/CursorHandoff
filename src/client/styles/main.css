@@ -569,7 +569,7 @@ header {
   cursor: not-allowed;
 }
 
-.header-toolbar:has(#header-menu:empty):not(:has(.header-window-select-wrap:not(.hidden))) {
+.header-toolbar:has(#header-menu:empty):not(:has(.header-window-select-wrap)) {
   display: none;
 }
 
@@ -3491,6 +3491,56 @@ html[data-theme="light"] .markdown-body .md-diagram-wrap svg .cluster rect {
   gap: 6px;
   margin-left: auto;
   flex-shrink: 0;
+}
+
+.sheet-project-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sheet-project-row:last-child {
+  border-bottom: none;
+}
+
+.sheet-project-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.sheet-project-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-project-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--accent-green, #3dd68c);
+  opacity: 0.9;
+}
+
+.sheet-project-close {
+  flex-shrink: 0;
+  align-self: center;
+  margin-right: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  color: var(--text-secondary);
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.sheet-project-close:active {
+  background: var(--bg-hover);
 }
 
 .sheet-loading, .sheet-empty {

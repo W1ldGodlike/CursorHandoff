@@ -3,7 +3,10 @@ import { basename, resolve } from 'path';
 import { sanitizeErrorForUser } from '../../core/log-event.js';
 import { escapeHtml } from '../format/html.js';
 import { formatForumTopicLabel } from '../topics/guards.js';
-import { launchCursorProject, waitForProjectWindow } from '../../workspace/launcher.js';
+import {
+  openProjectByPath,
+  type ProjectActionDeps,
+} from '../../workspace/project-web.js';
 import {
   collectKnownWorkspacePaths,
   projectScore,
@@ -16,9 +19,6 @@ import { isBridgedProjectThread } from '../ui/menus.js';
 import { t } from '../../i18n/t.js';
 import {
   type CommandDeps,
-  genId,
-  sleep,
-  TOPIC_CREATE_DELAY_MS,
   PROJECT_PICK_MAX,
   PROJECT_LIST_MAX,
   pendingProjectPicks,
@@ -26,7 +26,26 @@ import {
   makeProjectPickToken,
   type ProjectCandidate,
 } from './shared.js';
-import { waitForActiveTabAfterNewChat } from './chat-threads.js';
+
+function toProjectDeps(deps: CommandDeps): ProjectActionDeps {
+  return {
+    cdpBridge: deps.cdpBridge,
+    stateManager: deps.stateManager,
+    windowMonitor: deps.windowMonitor,
+    commandExecutor: deps.commandExecutor,
+    bridge: {
+      topicManager: deps.topicManager,
+      getSyncEnabled: () => deps.getSyncEnabled(),
+      getChatId: () => deps.chatId,
+      createForumTopic: async (name) => {
+        const chatId = deps.chatId;
+        if (!chatId) throw new Error('no chat');
+        return deps.api.createForumTopic(chatId, name);
+      },
+      noteForumTopicLabel: deps.noteForumTopicLabel,
+    },
+  };
+}
 
 function workspaceSources(deps: CommandDeps) {
   return { windowMonitor: deps.windowMonitor, topicManager: deps.topicManager };
@@ -112,60 +131,38 @@ export async function bootstrapProjectFromPath(
   const projectName = basename(projectPath);
   await ctx.reply(t('tg.msg.project.opening', '🚀 Opening project <b>{name}</b>…', { name: escapeHtml(projectName) }), { parse_mode: 'HTML' });
 
-  launchCursorProject(projectPath);
-  const opened = await waitForProjectWindow(deps.cdpBridge, projectName, 90_000, 2000);
-  if (!opened) {
-    await ctx.reply(t('tg.msg.project.windowTimeout', '⚠️ Timed out waiting for project window <b>{name}</b>.', { name: escapeHtml(projectName) }), { parse_mode: 'HTML' });
+  const result = await openProjectByPath(toProjectDeps(deps), projectPath);
+  if (!result.ok) {
+    await ctx.reply(`⚠️ ${sanitizeErrorForUser(result.error ?? 'unknown')}`);
     return;
   }
 
-  deps.stateManager.updateWindows(deps.cdpBridge.windows, deps.cdpBridge.activeTargetId);
-  try {
-    await deps.cdpBridge.switchWindow(opened.id);
-    deps.windowMonitor.setHomeWindow(opened.id);
-    await sleep(1500);
-  } catch (err) {
-    await ctx.reply(t('tg.msg.project.switchFailed', '⚠️ Window opened but could not switch: {error}', { error: escapeHtml(sanitizeErrorForUser(err instanceof Error ? err.message : String(err))) }), { parse_mode: 'HTML' });
+  if (result.action === 'switched') {
+    await ctx.reply(
+      t('tg.msg.project.switched', '✅ Switched to project <b>{name}</b>.', { name: escapeHtml(projectName) }),
+      { parse_mode: 'HTML' },
+    );
     return;
   }
 
-  await ctx.reply(t('tg.msg.project.creatingChat', '💬 Creating first chat in project…'));
-  const createResult = await deps.commandExecutor.newChat(genId());
-  if (!createResult.ok) {
-    await ctx.reply(t('tg.msg.project.createChatFailed', '⚠️ Could not create chat: {error}', { error: sanitizeErrorForUser(createResult.error ?? 'unknown') }));
+  const mapping = deps.topicManager.getAllMappings().find(
+    (m) => m.workspacePath && resolve(m.workspacePath).toLowerCase() === resolve(projectPath).toLowerCase(),
+  );
+  if (mapping && deps.getSyncEnabled()) {
+    const topicName = formatForumTopicLabel(mapping.windowTitle, mapping.tabTitle);
+    await ctx.reply(
+      t('tg.msg.project.done', '✅ Done.\nProject: <b>{name}</b>\nThread: <code>#{threadId}</code>\nTitle: <b>{topicName}</b>', {
+        name: escapeHtml(projectName),
+        threadId: mapping.threadId,
+        topicName: escapeHtml(topicName),
+      }),
+      { parse_mode: 'HTML' },
+    );
     return;
   }
-
-  const active = await waitForActiveTabAfterNewChat(deps);
-  const topicName = formatForumTopicLabel(opened.title, active.tabTitle);
-
-  let threadId: number;
-  try {
-    await sleep(TOPIC_CREATE_DELAY_MS);
-    const created = await deps.api.createForumTopic(chatId, topicName);
-    threadId = created.message_thread_id;
-  } catch (err) {
-    await ctx.reply(t('tg.msg.project.threadFailed', '⚠️ Chat created but Telegram thread failed: {error}', { error: escapeHtml(sanitizeErrorForUser(err instanceof Error ? err.message : String(err))) }), { parse_mode: 'HTML' });
-    return;
-  }
-
-  deps.topicManager.registerMapping({
-    threadId,
-    windowId: opened.id,
-    windowTitle: opened.title,
-    tabTitle: active.tabTitle,
-    lastActive: Date.now(),
-    workspacePath: projectPath,
-    ...(active.composerId ? { composerId: active.composerId } : {}),
-  });
-  deps.noteForumTopicLabel?.(threadId, topicName);
 
   await ctx.reply(
-    t('tg.msg.project.done', '✅ Done.\nProject: <b>{name}</b>\nThread: <code>#{threadId}</code>\nTitle: <b>{topicName}</b>', {
-      name: escapeHtml(projectName),
-      threadId,
-      topicName: escapeHtml(topicName),
-    }),
+    t('tg.msg.project.opened', '✅ Project <b>{name}</b> is open in Cursor.', { name: escapeHtml(projectName) }),
     { parse_mode: 'HTML' },
   );
 }

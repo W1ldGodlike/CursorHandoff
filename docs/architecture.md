@@ -229,7 +229,7 @@ src/
 ├── web/            routes, socket hub, tunnel, plans
 ├── telegram/       service, transport, commands, topics, format
 ├── media/          outbox watcher, lifecycle, inbound attachments
-├── workspace/      offline queue, project dirs, launcher
+├── workspace/      offline queue, project dirs, launcher, project-web (TG + web)
 ├── client/         web UI
 ├── discovery/      DOM selector tool
 └── i18n/           t.ts + locales/

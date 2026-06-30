@@ -146,6 +146,7 @@ interface AuthState {
 }
 
 import { t } from '../../i18n/t.js';
+import type { ProjectBridge } from '../../workspace/project-web.js';
 export { BOT_COMMANDS, registerBotCommands } from '../commands/registry.js';
 
 export abstract class BaseTelegramTransport implements Transport {
@@ -1203,6 +1204,21 @@ export abstract class BaseTelegramTransport implements Transport {
 
   protected noteForumTopicLabel(threadId: number, label: string): void {
     this.lastSyncedForumLabels.set(threadId, label);
+  }
+
+  /** Bridge for web open_project (forum topic + mapping when sync is on). */
+  createProjectBridge(): ProjectBridge {
+    const self = this;
+    return {
+      topicManager: this.topicManager,
+      getSyncEnabled: () => this.syncEnabled,
+      getChatId: () => this.groupId,
+      createForumTopic: async (name) => {
+        if (!self.groupId) throw new Error('Telegram chat not configured');
+        return self.api.createForumTopic(self.groupId, name);
+      },
+      noteForumTopicLabel: (threadId, label) => self.noteForumTopicLabel(threadId, label),
+    };
   }
 
   private async doProcessWindow(windowId: string, snapshot: WindowSnapshot): Promise<void> {

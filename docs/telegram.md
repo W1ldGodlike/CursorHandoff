@@ -212,6 +212,20 @@ Run these in **# General**, not in a bridged project thread.
 
 **Requires a running Handoff server** (at least one open Cursor window with the extension). CursorWake is **not** required when Cursor is already open. See [Who opens what from Telegram](guide.md#opening-projects-from-telegram) for Wake vs server vs extension.
 
+**Already open:** if the project window is already running, Handoff **switches** to it instead of spawning another folder open. Same logic from the [web project picker](guide.md#projects-from-the-web-client) (`command:open_project`).
+
+### Web client (same project list)
+
+The mobile web UI uses the same folder list and `src/workspace/project-web.ts` helpers:
+
+| UI | Socket event |
+|----|----------------|
+| Header **Project** or **⋮ → Open project** | `command:list_projects` (ack with `projects[]`) |
+| Tap a row | `command:open_project` + `projectPath` |
+| **Close** on an open row | `command:close_project` + `projectPath` |
+
+See [Projects from the web client](guide.md#projects-from-the-web-client).
+
 ---
 
 ## How routing works
@@ -225,6 +239,17 @@ Each mapping ties a forum `message_thread_id` to a Cursor window/tab key: `windo
 Use **`/whereami`** and **`/thread_status`** in a thread when debugging.
 
 Wrong thread? Try `/unbridge` then `/bridge`, or `/flush` for a clean slate.
+
+### Multi-window warnings (`GHOST_SKIP`, `ROUTE_MISS`)
+
+When **several Cursor project windows** are open, logs may show:
+
+| Code | Meaning |
+|------|---------|
+| `TG_OUTBOUND_ROUTE_MISS` | This window/tab has no forum thread mapping yet (or the tab title changed). |
+| `TG_OUTBOUND_GHOST_SKIP` | This tab’s `composerId` is **already owned** by another window’s mapping — outbound to Telegram is skipped so thread A does not get thread B’s replies. |
+
+This is **not** a crash. Typical after opening/switching projects from web or `/open_project`: CursorHandoff still works in the active window; a Velorix reply will not mirror into a CursorHandoff thread until mappings match the active tab (`/whereami`, `/bridge`, or write in the correct project thread).
 
 ---
 

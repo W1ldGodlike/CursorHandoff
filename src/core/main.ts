@@ -233,6 +233,9 @@ async function main(): Promise<void> {
       }
       return null;
     });
+    if (telegram instanceof BaseTelegramTransport) {
+      relay.setProjectBridge(telegram.createProjectBridge());
+    }
 
     queueKick = setInterval(() => {
       if (!hasPendingItems(config.dataDir)) return;

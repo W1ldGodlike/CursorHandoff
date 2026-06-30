@@ -366,6 +366,8 @@ export interface CommandPayload {
   images?: { mime: string; data: string }[];
   /** Base64 non-image or mixed uploads — saved to disk, paths in message text. */
   files?: { mime: string; data: string; name?: string }[];
+  /** Open / close project from web project sheet */
+  projectPath?: string;
   approvalId?: string;
   actionType?: string;
   selectorPath?: string;
