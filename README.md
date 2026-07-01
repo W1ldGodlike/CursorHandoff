@@ -25,6 +25,7 @@ Everything runs **on your machine**. No cloud agent runtime. No model hosting.
 ## Table of contents
 
 - [What is CursorHandoff?](#what-is-cursorhandoff)
+- [Cursor mobile vs Handoff](#cursor-mobile-vs-handoff)
 - [Features](#features)
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
@@ -51,6 +52,56 @@ CursorHandoff is a **Cursor / VS Code extension** plus a **local Node server** t
 3. Optionally mirrors chats into **Telegram forum topics** (one thread per chat tab)
 
 You approve tool runs, send follow-ups, attach files (photos and documents), and watch the agent work — from a browser or Telegram — while models and agents still run **inside Cursor on your PC**.
+
+---
+
+## Cursor mobile vs Handoff
+
+Cursor ships **[Cursor for iOS](https://cursor.com/docs/cloud-agent/mobile)** (public beta, June 2026) and **[cursor.com/agents](https://cursor.com/agents)** (web + PWA on Android). **CursorHandoff** is a separate open-source extension: it mirrors your **local** Cursor session over CDP — not Cursor’s cloud-agent inbox.
+
+Use this section to pick the right tool (or both).
+
+**CursorHandoff runs on any phone** where a normal web browser or Telegram works — iPhone, Android, or anything else. No native app required.
+
+### Two approaches
+
+| | **Cursor mobile** (iOS app, web, Remote Control) | **CursorHandoff** |
+|---|---|---|
+| **What it controls** | **Cloud Agents** in Cursor’s cloud (+ optional **Remote Control** of a local session) | The **same local agent chat** you already have in the IDE |
+| **Where the agent runs** | Agent loop in **Cursor cloud**; tools on a **VM**, **your machine** (My Machines / Remote Control), or both | Entirely **inside Cursor on your PC** — Handoff is a remote UI |
+| **Repo / git** | Cloud agents clone from GitHub/GitLab/…; Remote Control needs a **git remote** | Any workspace folder; git optional |
+| **Privacy** | Cloud Agents need **Privacy Mode** with cloud storage (Legacy mode blocks mobile) | Code stays on your machine; optional Telegram bridge |
+| **Billing** | Paid Cursor plan + Cloud Agent usage ([API pricing](https://cursor.com/docs/cloud-agent)) | Your existing Cursor subscription; Handoff itself is free (AGPL) |
+| **PC while away** | Cloud agents keep working if the laptop sleeps; **Remote Control** needs the PC **awake and online** | CDP to local Cursor — PC must run Cursor (or [CursorWake](docs/guide.md#cursor-wake) on Windows to boot it) |
+
+Official docs: [Cloud Agents](https://cursor.com/docs/cloud-agent) · [Cursor for iOS](https://cursor.com/docs/cloud-agent/mobile) · [Remote Control](https://cursor.com/docs/cloud-agent/mobile#remote-control).
+
+### Feature comparison
+
+| Feature | Cursor iOS / web / Remote Control | CursorHandoff |
+|---------|-----------------------------------|---------------|
+| **Native iOS app** | ✅ Public beta | ✅ Any browser or Telegram on any platform |
+| **Native Android app** | ❌ PWA only ([cursor.com/agents](https://cursor.com/agents)) | ✅ Any browser or Telegram on any platform |
+| **Telegram bridge** | ❌ | ✅ Forum topic per tab, slash commands — [guide](docs/telegram.md) |
+| **Live local agent chat** | Remote Control only (narrow path) | ✅ Main use case — same tabs and composer as the IDE |
+| **Run / Skip tool approvals** | Cloud agents auto-run terminal; different model for RC | ✅ Same approval cards as the IDE |
+| **AskQuestion / surveys** | In the mobile agent chat | ✅ **Web:** full functionality like the IDE. **Telegram:** inline A/B/C + Reply — [guide](docs/telegram.md#askquestion--questionnaires) |
+| **Plan widget (View Plan / Build)** | ❌ | ✅ Web + Telegram |
+| **File relay → Telegram** | Cloud artifacts / PR attachments | ✅ Ask the agent in chat to send you a file in Telegram ([outbox](docs/telegram.md#cursor--telegram) + `cursor-handoff-telegram-send` skill) |
+| **Attach files from phone** | In-app attach / Design Mode | ✅ Web paste + TG inbound — images to composer; other types as paths |
+| **Mode / model from phone** | Mobile UI + slash commands | ✅ Web header pills + `/set_mode`, `/pick_model` in TG |
+| **Open / close projects from phone** | Pick **repo + branch** (git) | ✅ `/projects`, web project picker — [guide](docs/guide.md#projects-from-the-web-client) |
+| **Cursor fully closed** | Cloud agents still run | Windows: [CursorWake](docs/guide.md#cursor-wake) queues TG and boots Cursor; without Wake, nothing until you open Cursor |
+| **Merge PR from phone** | ✅ PR review UI in the app | ✅ Ask in chat — the agent runs git/gh for you; no PR screen, git through conversation |
+| **Push / Live Activities** | ✅ iOS push + lock-screen Live Activities | ✅ Ask in chat (e.g. notify when done, merge when CI passes); Telegram mirrors activity — not iOS Live Activities |
+| **Voice input** | ✅ iOS app | ✅ Built into most phone keyboards — dictate into the message field, edit if needed, then send |
+| **Design Mode (draw on screenshots)** | ✅ Built into the iOS app | ✅ Built into any phone: screenshot → markup in the OS → attach in web or TG with your prompt |
+| **Localization** | English only (iOS beta) | ✅ **en** + **ru** shipped; add any language in [`locales/`](locales/) |
+| **Reach phone without VPN** | Cursor cloud (your account) | LAN, [Tailscale](docs/guide.md#tailscale), or [Cloudflare quick tunnel](docs/guide.md#cloudflare) to your `:3000` |
+| **Privacy Mode (Legacy)** | ❌ Blocks Cloud Agents / mobile | ✅ Handoff does not require cloud agents |
+| **Multi-window Cursor** | Not applicable | ✅ One server; owner / observer windows |
+
+**Rule of thumb:** choose **Cursor mobile** for cloud agents, PR review UI, and work while the laptop is off. Choose **Handoff** for **Telegram**, **1:1 local IDE mirror**, **approvals**, **plan Build from TG**, and **no cloud-agent dependency**. **Remote Control** and Handoff overlap for “nudge the agent on your PC from the phone” — different plumbing (cloud handoff vs CDP).
 
 ---
 
@@ -301,6 +352,7 @@ Install from `releases/`. Build and release: [Development guide](docs/developmen
 | Document | For |
 |----------|-----|
 | [Getting started guide](docs/guide.md) | CDP, Handoff settings, network, Wake, [who opens projects from TG](docs/guide.md#opening-projects-from-telegram), tunnels, [diagnostics & logs](docs/guide.md#diagnostics-and-logs) |
+| [README — Cursor mobile vs Handoff](README.md#cursor-mobile-vs-handoff) | Compare Handoff to Cursor for iOS, web agents, and Remote Control |
 | [Telegram bridge guide](docs/telegram.md) | Bot, commands, file relay, fixes |
 | [Settings reference](docs/reference.md) | Every `cursorHandoff.*` key, `/health`, files on disk |
 | [Architecture overview](docs/architecture.md) | Contributors — CDP, state, Telegram transport |

@@ -25,6 +25,7 @@
 ## Содержание
 
 - [Что такое CursorHandoff?](#что-такое-cursorhandoff)
+- [Cursor mobile vs Handoff](#cursor-mobile-vs-handoff)
 - [Возможности](#возможности)
 - [Как это устроено](#как-это-устроено)
 - [Требования](#требования)
@@ -51,6 +52,56 @@
 3. По желанию зеркалит чаты в **топики форума Telegram** (один тред на вкладку чата)
 
 Вы подтверждаете запуск инструментов, дописываете задачи, прикрепляете файлы (фото и документы) и следите за агентом — из браузера или Telegram — пока модели и агенты крутятся **внутри Cursor на вашем ПК**.
+
+---
+
+## Cursor mobile vs Handoff
+
+У Cursor есть **[приложение для iOS](https://cursor.com/docs/cloud-agent/mobile)** (публичная бета, июнь 2026) и **[cursor.com/agents](https://cursor.com/agents)** (веб + PWA на Android). **CursorHandoff** — отдельное open-source расширение: зеркало **локальной** сессии Cursor через CDP, а не облачный inbox агентов Cursor.
+
+Ниже — чтобы выбрать инструмент (или оба).
+
+**CursorHandoff работает на любом телефоне**, где есть обычный браузер или Telegram — iPhone, Android или что угодно ещё. Нативное приложение не нужно.
+
+### Два подхода
+
+| | **Cursor mobile** (iOS, веб, Remote Control) | **CursorHandoff** |
+|---|---|---|
+| **Что управляется** | **Cloud Agents** в облаке Cursor (+ опционально **Remote Control** локальной сессии) | **Тот же локальный чат агента**, что в IDE |
+| **Где крутится агент** | Loop в **облаке Cursor**; tools на **VM**, **вашем ПК** (My Machines / RC) или оба | Целиком **в Cursor на вашем ПК** — Handoff только удалённый UI |
+| **Репо / git** | Cloud agents клонируют из GitHub/GitLab/…; Remote Control нужен **git remote** | Любая папка; git не обязателен |
+| **Приватность** | Cloud Agents требуют **Privacy Mode** с облачным хранением (Legacy блокирует mobile) | Код на вашей машине; Telegram по желанию |
+| **Оплата** | Paid Cursor + usage Cloud Agents ([API pricing](https://cursor.com/docs/cloud-agent)) | Ваша подписка Cursor; Handoff бесплатен (AGPL) |
+| **ПК в отъезде** | Cloud agents работают, если ноут спит; **Remote Control** — ПК **онлайн и не спит** | CDP к локальному Cursor — нужен запущенный Cursor (или [CursorWake](docs/guide.md#cursor-wake) на Windows) |
+
+Доки Cursor: [Cloud Agents](https://cursor.com/docs/cloud-agent) · [iOS](https://cursor.com/docs/cloud-agent/mobile) · [Remote Control](https://cursor.com/docs/cloud-agent/mobile#remote-control).
+
+### Сравнение возможностей
+
+| Возможность | Cursor iOS / веб / Remote Control | CursorHandoff |
+|-------------|-----------------------------------|---------------|
+| **Нативное iOS** | ✅ Публичная бета | ✅ Любой браузер или Telegram на любой платформе |
+| **Нативный Android** | ❌ Только PWA | ✅ Любой браузер или Telegram на любой платформе |
+| **Мост Telegram** | ❌ | ✅ Топик на вкладку, слэш-команды — [гайд](docs/telegram.md) |
+| **Живой локальный чат** | Только Remote Control (узкий путь) | ✅ Основной сценарий — те же вкладки и composer, что в IDE |
+| **Run / Skip approvals** | Cloud agents сами жмут терминал; у RC другая модель | ✅ Те же карточки, что в IDE |
+| **AskQuestion / опросники** | В мобильном чате агента | ✅ **Веб:** полный функционал как в IDE. **TG:** кнопки A/B/C + Reply — [гайд](docs/telegram.md#askquestion--questionnaires) |
+| **Виджет плана (View Plan / Build)** | ❌ | ✅ Веб + Telegram |
+| **File relay → Telegram** | Артефакты cloud / вложения к PR | ✅ Попросите агента в чате прислать файл в Telegram ([outbox](docs/telegram.md#cursor--telegram) + skill `cursor-handoff-telegram-send`) |
+| **Файлы с телефона** | Вложения в приложении / Design Mode | ✅ Веб paste + входящие в TG — картинки в composer, остальное путями |
+| **Mode / model с телефона** | UI приложения + slash | ✅ Пилюли в веб-шапке + `/set_mode`, `/pick_model` в TG |
+| **Открыть / закрыть проект** | **Repo + branch** (git) | ✅ `/projects`, веб-пикер — [гайд](docs/guide.md#projects-from-the-web-client) |
+| **Cursor полностью выключен** | Cloud agents работают | Windows: [CursorWake](docs/guide.md#cursor-wake) копит TG и поднимает Cursor; без Wake — тишина |
+| **Merge PR с телефона** | ✅ UI ревью PR в приложении | ✅ Промптом в чате — агент сам жмёт git/gh; без экрана PR, git через разговор с агентом |
+| **Push / Live Activities** | ✅ Push iOS + Live Activities на локскрине | ✅ Промптом в чате (напиши когда готово, смержи после CI и т.д.); в TG идёт активность — не Live Activities iOS |
+| **Голосовой ввод** | ✅ iOS | ✅ Встроен в почти любую клавиатуру — надиктовываете в поле ввода, при необходимости правите и отправляете |
+| **Design Mode (рисовать на скринах)** | ✅ Встроено в iOS | ✅ На любом телефоне: скрин → разметка в ОС → вложить в веб или TG с промптом |
+| **Локализация** | Пока только английский (iOS beta) | ✅ **en** + **ru** в комплекте; любой язык — допишите в [`locales/`](locales/) |
+| **Доступ без VPN** | Облако Cursor (ваш аккаунт) | LAN, [Tailscale](docs/guide.md#tailscale) или [туннель Cloudflare](docs/guide.md#cloudflare) на ваш `:3000` |
+| **Privacy Mode (Legacy)** | ❌ Блокирует Cloud Agents / mobile | ✅ Handoff cloud agents не требует |
+| **Несколько окон Cursor** | Не про это | ✅ Один сервер; владелец / наблюдатели |
+
+**Коротко:** **Cursor mobile** — cloud agents, ревью PR в UI, работа пока ноут спит. **Handoff** — **Telegram**, **зеркало локального IDE**, **approvals**, **Build плана из TG**, без зависимости от cloud agents. **Remote Control** и Handoff пересекаются в «допинать агента на ПК с телефона» — разная механика (облачный handoff vs CDP).
 
 ---
 
@@ -301,6 +352,7 @@ npm run package:complete
 | Документ | Для кого |
 |----------|----------|
 | [Getting started guide](docs/guide.md) | CDP, Handoff settings, сеть, Wake, [кто открывает проект из TG](docs/guide.md#opening-projects-from-telegram), туннели, [диагностика и логи](docs/guide.md#diagnostics-and-logs) |
+| [README — Cursor mobile vs Handoff](README.ru.md#cursor-mobile-vs-handoff) | Сравнение с Cursor для iOS, веб-агентами и Remote Control |
 | [Telegram bridge guide](docs/telegram.md) | Бот, команды, file relay |
 | [Settings reference](docs/reference.md) | Все ключи `cursorHandoff.*`, `/health`, файлы |
 | [Architecture overview](docs/architecture.md) | Устройство системы (контрибьюторы) |
