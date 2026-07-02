@@ -57,9 +57,7 @@ export class StatusSidebarView implements vscode.WebviewViewProvider {
           void vscode.commands.executeCommand('cursorHandoff.showLogs');
           break;
         case 'restartServer':
-          if (this.serverManager.isOwner) {
-            void vscode.commands.executeCommand('cursorHandoff.restart');
-          }
+          void vscode.commands.executeCommand('cursorHandoff.restart');
           break;
         case 'testCdp': {
           const cfg = vscode.workspace.getConfiguration('cursorHandoff');

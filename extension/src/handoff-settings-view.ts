@@ -205,7 +205,7 @@ export function renderHandoffSettingsHtml(
 
   const sections = [
     card('lang', t('ext.handoffSettings.language.label', 'Language'),
-      `<p class="lead">${escapeHtml(t('ext.handoffSettings.language.hint', 'Applies to Handoff settings, the sidebar, status bar, phone web UI, and Telegram replies.'))}</p>
+      `<p class="lead">${escapeHtml(t('ext.handoffSettings.language.hint', 'Tap English or Русский — the server restarts automatically. Applies to Handoff settings, sidebar, web UI, and Telegram.'))}</p>
        <div class="puck" data-locale-puck>
          <span class="puck-bg" style="transform:translateX(${state.locale === 'ru' ? '100%' : '0'})"></span>
          <label class="puck-side${state.locale === 'en' ? ' on' : ''}"><input type="radio" name="locale" value="en" ${state.locale === 'en' ? 'checked' : ''} />English</label>

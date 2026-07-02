@@ -12,9 +12,12 @@ describe('sidebar HTML template', () => {
     assert.ok(logsIdx >= 0 && cdpIdx > logsIdx && tgIdx > cdpIdx);
   });
 
-  it('shows restart server for owner when server is running', () => {
-    assert.match(src, /actionRow\('restartServer'/);
-    assert.match(src, /state\.isOwner && state\.serverState !== 'stopped'/);
+  it('shows restart server when server is running', () => {
+    const restartBlock = src.match(
+      /const restartAction = [\s\S]*?actionRow\('restartServer'/,
+    )?.[0] ?? '';
+    assert.match(restartBlock, /state\.serverState !== 'stopped'/);
+    assert.doesNotMatch(restartBlock, /isOwner/);
   });
 
   it('caches acquireVsCodeApi across sidebar refreshes', () => {

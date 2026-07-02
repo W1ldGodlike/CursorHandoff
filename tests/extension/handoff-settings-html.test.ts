@@ -35,6 +35,7 @@ describe('handoff-settings HTML template', () => {
     )?.[0] ?? '';
     assert.ok(emptyCustom.length > 0);
     assert.ok(!emptyCustom.includes('restartServer'));
+    assert.doesNotMatch(src, /applyLocale/);
     assert.match(src, /case 'saveToken':[\s\S]*?saveTelegramToken', token \}\)/);
   });
 

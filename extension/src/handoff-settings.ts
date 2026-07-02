@@ -194,7 +194,10 @@ export class HandoffSettings {
         break;
       }
       case 'restartServer': {
-        vscode.commands.executeCommand('cursorHandoff.restart');
+        vscode.window.showInformationMessage(
+          tr(this.dict, 'ext.handoffSettings.msg.serverRestarting', 'Restarting Handoff server…'),
+        );
+        await vscode.commands.executeCommand('cursorHandoff.restart');
         break;
       }
       case 'installWake': {
@@ -329,10 +332,47 @@ export class HandoffSettings {
       case 'setLocale': {
         const locale = normalizeLocale(msg.locale as string);
         await config.update('locale', locale, vscode.ConfigurationTarget.Global);
-        vscode.commands.executeCommand('cursorHandoff.restart');
+        const localeLabel = locale === 'ru'
+          ? tr(this.dict, 'ext.handoffSettings.language.russian', 'Русский')
+          : tr(this.dict, 'ext.handoffSettings.language.english', 'English');
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: tr(this.dict, 'ext.handoffSettings.msg.localeRestarting', 'Language set to {locale}. Restarting server…')
+              .replace('{locale}', localeLabel),
+            cancellable: false,
+          },
+          async () => {
+            await vscode.commands.executeCommand('cursorHandoff.restart');
+            await this.waitForServerLocale(locale);
+          },
+        );
         void this.updateWebview();
         break;
       }
+    }
+  }
+
+  private async waitForServerLocale(locale: 'en' | 'ru', attempts = 24): Promise<void> {
+    const config = vscode.workspace.getConfiguration('cursorHandoff');
+    const port = config.get<number>('serverPort', 3000);
+    const host = config.get<string>('serverHost', '127.0.0.1');
+    for (let i = 0; i < attempts; i++) {
+      const live = await this.probeServerLocale(port, host);
+      if (live === locale) return;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+
+  private async probeServerLocale(port: number, host: string): Promise<'en' | 'ru' | null> {
+    const probeHost = host === '0.0.0.0' ? '127.0.0.1' : host;
+    try {
+      const resp = await fetch(`http://${probeHost}:${port}/health`, { signal: AbortSignal.timeout(2000) });
+      if (!resp.ok) return null;
+      const data = await resp.json() as { locale?: string };
+      return data.locale === 'ru' ? 'ru' : 'en';
+    } catch {
+      return null;
     }
   }
 
@@ -359,12 +399,13 @@ export class HandoffSettings {
     const wakeStatus = isWindows ? await getCursorWakeStatus(dataDir) : null;
     const tunnelStatus = await getTunnelAddonStatus(dataDir);
     const serverPort = config.get<number>('serverPort', 3000);
+    const serverHost = config.get<string>('serverHost', '127.0.0.1');
     const state: HandoffSettingsViewState = {
       locale,
       isWindows,
       dataDir,
       dataDirSource: dataDirInfo.source,
-      serverHost: config.get<string>('serverHost', '127.0.0.1'),
+      serverHost,
       serverPort,
       webappPassword: config.get<string>('webappPassword', ''),
       telegramEnabled: config.get<boolean>('telegram.enabled', false),

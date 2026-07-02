@@ -1155,3 +1155,14 @@ describe('server-process-logging matrix audit', () => {
     assert.equal(SERVER_PROCESS_PATH_MATRIX.length, 121);
   });
 });
+
+describe('server restart replaces orphan', () => {
+  const src = readFileSync(new URL('../../extension/src/server-process.ts', import.meta.url), 'utf8');
+
+  it('restart kills stale bundle when health still responds after stop', () => {
+    const block = src.match(/async restart\(\): Promise<void> \{[\s\S]*?\n  \}/)?.[0] ?? '';
+    assert.match(block, /killHandoffServerOnPort/);
+    assert.match(block, /killStaleBundleServers/);
+    assert.match(block, /_reactingToFlag = true/);
+  });
+});

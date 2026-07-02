@@ -232,7 +232,7 @@ export function renderSidebarHtml(
     ? actionRow('start', '▶', t('ext.sidebar.startServer', 'Start server'))
     : actionRow('stop', '■', t('ext.sidebar.stopServer', 'Stop server'));
 
-  const restartAction = state.isOwner && state.serverState !== 'stopped'
+  const restartAction = state.serverState !== 'stopped'
     ? actionRow('restartServer', '↻', t('ext.sidebar.restartServer', 'Restart server'))
     : '';
 

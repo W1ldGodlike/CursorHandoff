@@ -5,7 +5,7 @@ import { mkdirSync, existsSync, writeFileSync, unlinkSync, readFileSync, watch, 
 import { EventEmitter } from 'events';
 import { buildEnvFromConfig } from './config-bridge.js';
 import { DATA_DIR_NOT_WRITABLE, resolveDataDir, verifyDataDirWritable } from './paths-settings.js';
-import { killStaleBundleServers } from './spawn-hygiene.js';
+import { killHandoffServerOnPort, killStaleBundleServers } from './spawn-hygiene.js';
 import {
   claimServerOwner,
   clearServerStarting,
@@ -482,8 +482,23 @@ export class ServerManager extends EventEmitter {
   }
 
   async restart(): Promise<void> {
-    await this.stop(true);
-    await this.start();
+    this._reactingToFlag = true;
+    try {
+      const { port } = this.getHealthUrl();
+      await this.stop(true);
+      if (await this.probeExistingServer()) {
+        this.outputChannel.info(`[${this.windowName}] Restart: killing server on :${port}.`);
+        await killHandoffServerOnPort(Number(port), (msg) => this.outputChannel.info(`[${this.windowName}] ${msg}`));
+        await killStaleBundleServers((msg) => this.outputChannel.info(`[${this.windowName}] ${msg}`));
+        for (let i = 0; i < 12; i++) {
+          if (!(await this.probeExistingServer())) break;
+          await new Promise((r) => setTimeout(r, 250));
+        }
+      }
+      await this.start();
+    } finally {
+      this._reactingToFlag = false;
+    }
   }
 
   async openWebClient(): Promise<void> {
