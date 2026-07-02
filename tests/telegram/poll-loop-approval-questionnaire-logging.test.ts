@@ -23,8 +23,6 @@ const APPROVAL_QUESTIONNAIRE_LOG_CODES = [
   'TG_QUESTIONNAIRE_FAIL',
   'TG_APPROVAL_ROUTED',
   'TG_APPROVAL_NO_THREAD',
-  'TG_APPROVAL_OK',
-  'TG_APPROVAL_SEND_FAIL',
   'TG_QUESTIONNAIRE_SEND_FAIL',
 ] as const;
 
@@ -38,8 +36,6 @@ type ApprovalQuestPrivates = {
   processQuestionnaireForThread(threadId: number, questionnaire: Questionnaire | null): Promise<void>;
   onStatePatch(patch: Partial<CursorState>): void;
   started: boolean;
-  approvalInflight: Set<string>;
-  approvalPendingDeletion: Map<string, number>;
 };
 
 async function captureAll(run: () => void | Promise<void>): Promise<string[]> {
@@ -432,67 +428,16 @@ describe('poll-loop approval/questionnaire logging', () => {
       threadId: THREAD_ID,
       chatId: CHAT_ID,
     });
-    assertApprovalQuestLog(lines, 'TG_APPROVAL_OK', {
-      op: 'send_approval',
-      threadId: THREAD_ID,
-      chatId: CHAT_ID,
-      itemId: APPROVAL_ID,
-    });
   });
 
-  it('logs TG_APPROVAL_OK on send_approval with itemId', async () => {
+  it('processApprovalsForThread with actionable approvals does not send approval logs', async () => {
     const probe = makeProbe(dataDir);
     registerThread(probe);
-    probe.wireHarness({
-      sendMessage: async () => ({ message_id: 601 }),
-      editMessageText: async () => {},
-      deleteMessage: async () => {},
-    } as unknown as TelegramApiClient);
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-    });
-
-    assertApprovalQuestLog(lines, 'TG_APPROVAL_OK', {
-      op: 'send_approval',
-      threadId: THREAD_ID,
-      chatId: CHAT_ID,
-      itemId: APPROVAL_ID,
-    });
-  });
-
-  it('logs TG_APPROVAL_OK on edit_approval when tracked content changes', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    probe.wireHarness({
-      sendMessage: async () => ({ message_id: 602 }),
-      editMessageText: async () => {},
-      deleteMessage: async () => {},
-    } as unknown as TelegramApiClient);
-
-    await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-
-    const changed = sampleApproval();
-    changed.description = 'Run npm test again';
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [changed]);
-    });
-
-    assertApprovalQuestLog(lines, 'TG_APPROVAL_OK', {
-      op: 'edit_approval',
-      threadId: THREAD_ID,
-      chatId: CHAT_ID,
-      itemId: APPROVAL_ID,
-    });
-  });
-
-  it('logs TG_APPROVAL_SEND_FAIL on sendMessage failure with pollLoopCtx', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
+    let sendCalls = 0;
     probe.wireHarness({
       sendMessage: async () => {
-        throw new Error('send approval failed');
+        sendCalls += 1;
+        return { message_id: 601 };
       },
       editMessageText: async () => {},
       deleteMessage: async () => {},
@@ -502,42 +447,8 @@ describe('poll-loop approval/questionnaire logging', () => {
       await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
     });
 
-    assertApprovalQuestLog(lines, 'TG_APPROVAL_SEND_FAIL', {
-      op: 'send_approval',
-      threadId: THREAD_ID,
-      chatId: CHAT_ID,
-      itemId: APPROVAL_ID,
-      text: 'send approval failed',
-    });
-  });
-
-  it('logs TG_APPROVAL_SEND_FAIL on editMessageText failure', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    probe.wireHarness({
-      sendMessage: async () => ({ message_id: 603 }),
-      editMessageText: async () => {
-        throw new Error('edit approval failed');
-      },
-      deleteMessage: async () => {},
-    } as unknown as TelegramApiClient);
-
-    await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-
-    const changed = sampleApproval();
-    changed.description = 'Changed desc';
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [changed]);
-    });
-
-    assertApprovalQuestLog(lines, 'TG_APPROVAL_SEND_FAIL', {
-      op: 'send_approval',
-      threadId: THREAD_ID,
-      chatId: CHAT_ID,
-      itemId: APPROVAL_ID,
-      text: 'edit approval failed',
-    });
+    assertNoApprovalQuestLogs(lines);
+    assert.equal(sendCalls, 0, 'approval UI is run_command in feed, not approval banners');
   });
 
   it('logs TG_QUESTIONNAIRE_SEND_FAIL on sendMessage failure with threadId', async () => {
@@ -591,50 +502,25 @@ describe('poll-loop approval/questionnaire logging', () => {
     });
   });
 
-  it('approval message is not modified stays silent without TG_APPROVAL_SEND_FAIL', async () => {
+  it('legacy approval banner deleteMessage failure stays silent without approval logs', async () => {
     const probe = makeProbe(dataDir);
     registerThread(probe);
     probe.wireHarness({
-      sendMessage: async () => ({ message_id: 604 }),
-      editMessageText: async () => {
-        throw new Error('message is not modified');
+      sendMessage: async () => ({ message_id: 606 }),
+      editMessageText: async () => {},
+      deleteMessage: async () => {
+        throw new Error('delete failed');
       },
-      deleteMessage: async () => {},
     } as unknown as TelegramApiClient);
 
-    await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-
-    const changed = sampleApproval();
-    changed.description = 'Different description';
+    probe.messageTracker.track(THREAD_ID, `approval:${APPROVAL_ID}`, [606], 'legacy-hash', 'approval');
 
     const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [changed]);
+      await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
     });
 
     assertNoApprovalQuestLogs(lines);
-  });
-
-  it('approval message not found stays silent without TG_APPROVAL_SEND_FAIL', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    probe.wireHarness({
-      sendMessage: async () => ({ message_id: 605 }),
-      editMessageText: async () => {
-        throw new Error('message not found');
-      },
-      deleteMessage: async () => {},
-    } as unknown as TelegramApiClient);
-
-    await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-
-    const changed = sampleApproval();
-    changed.description = 'New text';
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [changed]);
-    });
-
-    assertNoApprovalQuestLogs(lines);
+    assert.equal(probe.messageTracker.getTracked(THREAD_ID, `approval:${APPROVAL_ID}`), undefined);
   });
 
   it('questionnaire message is not modified stays silent without TG_QUESTIONNAIRE_SEND_FAIL', async () => {
@@ -706,7 +592,7 @@ describe('poll-loop approval/questionnaire logging', () => {
     assertNoApprovalQuestLogs(lines);
   });
 
-  it('junk approval filtered stays silent without TG_APPROVAL_OK', async () => {
+  it('junk approval filtered stays silent without approval logs', async () => {
     const probe = makeProbe(dataDir);
     registerThread(probe);
     probe.wireHarness();
@@ -718,7 +604,7 @@ describe('poll-loop approval/questionnaire logging', () => {
     assertNoApprovalQuestLogs(lines);
   });
 
-  it('unchanged approval content stays silent without TG_APPROVAL_OK', async () => {
+  it('unchanged approval content stays silent without approval logs', async () => {
     const probe = makeProbe(dataDir);
     registerThread(probe);
     probe.wireHarness();
@@ -777,85 +663,6 @@ describe('poll-loop approval/questionnaire logging', () => {
     assertNoApprovalQuestLogs(lines);
   });
 
-  it('approval deleteMessage failure stays silent without TG_APPROVAL_SEND_FAIL', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    probe.wireHarness({
-      sendMessage: async () => ({ message_id: 606 }),
-      editMessageText: async () => {},
-      deleteMessage: async () => {
-        throw new Error('delete failed');
-      },
-    } as unknown as TelegramApiClient);
-
-    await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-    priv(probe).approvalPendingDeletion.set(
-      `${THREAD_ID}:approval:${APPROVAL_ID}`,
-      Date.now() - 1,
-    );
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, []);
-    });
-
-    assertNoApprovalQuestLogs(lines);
-  });
-
-  it('approvalInflight duplicate skips second send silently without TG_APPROVAL_OK', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    priv(probe).approvalInflight.add(`${THREAD_ID}:approval:${APPROVAL_ID}`);
-    probe.wireHarness();
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-    });
-
-    assertNoApprovalQuestLogs(lines);
-  });
-
-  it('logs exactly one TG_APPROVAL_SEND_FAIL per approval send failure', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    probe.wireHarness({
-      sendMessage: async () => {
-        throw new Error('once only');
-      },
-      editMessageText: async () => {},
-      deleteMessage: async () => {},
-    } as unknown as TelegramApiClient);
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-    });
-
-    const hits = lines.filter((l) => l.includes('code=TG_APPROVAL_SEND_FAIL'));
-    assert.equal(hits.length, 1);
-  });
-
-  it('logs TG_APPROVAL_SEND_FAIL when send throws non-Error value', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    probe.wireHarness({
-      sendMessage: async () => {
-        throw 'plain string fail';
-      },
-      editMessageText: async () => {},
-      deleteMessage: async () => {},
-    } as unknown as TelegramApiClient);
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-    });
-
-    assertApprovalQuestLog(lines, 'TG_APPROVAL_SEND_FAIL', {
-      op: 'send_approval',
-      threadId: THREAD_ID,
-      itemId: APPROVAL_ID,
-      text: 'plain string fail',
-    });
-  });
-
   it('logs TG_APPROVAL_FAIL with non-Error rejection message via onStatePatch', async () => {
     const probe = makeProbe(dataDir);
     registerThread(probe);
@@ -876,26 +683,6 @@ describe('poll-loop approval/questionnaire logging', () => {
       text: 'reject string',
     });
     mock.restoreAll();
-  });
-
-  it('TG_APPROVAL_SEND_FAIL does not emit TG_EDIT_FAIL or TG_SEND_FAIL', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    probe.wireHarness({
-      sendMessage: async () => {
-        throw new Error('approval only');
-      },
-      editMessageText: async () => {},
-      deleteMessage: async () => {},
-    } as unknown as TelegramApiClient);
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-    });
-
-    assertApprovalQuestLog(lines, 'TG_APPROVAL_SEND_FAIL', { op: 'send_approval' });
-    assert.ok(!lines.some((l) => l.includes('code=TG_EDIT_FAIL')));
-    assert.ok(!lines.some((l) => l.includes('code=TG_SEND_FAIL')));
   });
 
   it('successful questionnaire send stays silent without TG_QUESTIONNAIRE_SEND_FAIL', async () => {
@@ -1107,26 +894,30 @@ describe('poll-loop approval/questionnaire logging', () => {
     p.processQuestionnaireForThread = orig;
   });
 
-  it('approval grace first poll without approval schedules deletion silently', async () => {
+  it('approval: prefixed legacy banner cleanup deletes tracked message silently', async () => {
     const probe = makeProbe(dataDir);
     registerThread(probe);
-    probe.wireHarness();
+    let deleteCalls = 0;
+    probe.wireHarness({
+      sendMessage: async () => ({ message_id: 609 }),
+      editMessageText: async () => {},
+      deleteMessage: async () => {
+        deleteCalls += 1;
+      },
+    } as unknown as TelegramApiClient);
 
-    await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
+    probe.messageTracker.track(THREAD_ID, `approval:${APPROVAL_ID}`, [609], 'banner-hash', 'approval');
 
     const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, []);
+      await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
     });
 
     assertNoApprovalQuestLogs(lines);
-    assert.ok(
-      priv(probe).approvalPendingDeletion.has(`${THREAD_ID}:approval:${APPROVAL_ID}`),
-      'grace deletion should be scheduled',
-    );
-    assert.ok(probe.messageTracker.getTracked(THREAD_ID, `approval:${APPROVAL_ID}`));
+    assert.equal(deleteCalls, 1);
+    assert.equal(probe.messageTracker.getTracked(THREAD_ID, `approval:${APPROVAL_ID}`), undefined);
   });
 
-  it('legacy approval tracker key cleanup stays silent without TG_APPROVAL_SEND_FAIL', async () => {
+  it('legacy approval tracker key cleanup stays silent without approval logs', async () => {
     const probe = makeProbe(dataDir);
     registerThread(probe);
     let deleteCalls = 0;
@@ -1149,24 +940,27 @@ describe('poll-loop approval/questionnaire logging', () => {
     assert.equal(probe.messageTracker.getTracked(THREAD_ID, 'approval'), undefined);
   });
 
-  it('approval reappears in grace window cancels pending deletion silently', async () => {
+  it('legacy approval-prefix tracker key cleanup stays silent without approval logs', async () => {
     const probe = makeProbe(dataDir);
     registerThread(probe);
-    probe.wireHarness();
+    let deleteCalls = 0;
+    probe.wireHarness({
+      sendMessage: async () => ({ message_id: 608 }),
+      editMessageText: async () => {},
+      deleteMessage: async () => {
+        deleteCalls += 1;
+      },
+    } as unknown as TelegramApiClient);
 
-    await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-    await probe.runProcessApprovalsForThread(THREAD_ID, []);
-
-    const pendKey = `${THREAD_ID}:approval:${APPROVAL_ID}`;
-    assert.ok(priv(probe).approvalPendingDeletion.has(pendKey));
+    probe.messageTracker.track(THREAD_ID, 'approval-approval-999', [889], 'legacy2-hash', 'approval');
 
     const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
+      await probe.runProcessApprovalsForThread(THREAD_ID, []);
     });
 
     assertNoApprovalQuestLogs(lines);
-    assert.ok(!priv(probe).approvalPendingDeletion.has(pendKey));
-    assert.ok(probe.messageTracker.getTracked(THREAD_ID, `approval:${APPROVAL_ID}`));
+    assert.equal(deleteCalls, 1);
+    assert.equal(probe.messageTracker.getTracked(THREAD_ID, 'approval-approval-999'), undefined);
   });
 
   it('questionnaire deleteMessage failure on clear stays silent without TG_QUESTIONNAIRE_SEND_FAIL', async () => {
@@ -1231,20 +1025,6 @@ describe('poll-loop approval/questionnaire logging', () => {
     assertNoApprovalQuestLogs(lines);
   });
 
-  it('logs exactly one TG_APPROVAL_OK on first send_approval', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    probe.wireHarness();
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-    });
-
-    const hits = lines.filter((l) => l.includes('code=TG_APPROVAL_OK'));
-    assert.equal(hits.length, 1);
-    assert.ok(hits[0]!.includes('op=send_approval'));
-  });
-
   it('onStatePatch skips questionnaire when started false stays silent', async () => {
     const probe = makeProbe(dataDir);
     registerThread(probe);
@@ -1307,93 +1087,6 @@ describe('poll-loop approval/questionnaire logging', () => {
     mock.restoreAll();
   });
 
-  it('legacy approval-prefix tracker key cleanup stays silent without TG_APPROVAL_SEND_FAIL', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    let deleteCalls = 0;
-    probe.wireHarness({
-      sendMessage: async () => ({ message_id: 608 }),
-      editMessageText: async () => {},
-      deleteMessage: async () => {
-        deleteCalls += 1;
-      },
-    } as unknown as TelegramApiClient);
-
-    probe.messageTracker.track(THREAD_ID, 'approval-approval-999', [889], 'legacy2-hash', 'approval');
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, []);
-    });
-
-    assertNoApprovalQuestLogs(lines);
-    assert.equal(deleteCalls, 1);
-    assert.equal(probe.messageTracker.getTracked(THREAD_ID, 'approval-approval-999'), undefined);
-  });
-
-  it('approval grace expired second poll deletes tracked banner silently', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    let deleteCalls = 0;
-    probe.wireHarness({
-      sendMessage: async () => ({ message_id: 609 }),
-      editMessageText: async () => {},
-      deleteMessage: async () => {
-        deleteCalls += 1;
-      },
-    } as unknown as TelegramApiClient);
-
-    await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-    await probe.runProcessApprovalsForThread(THREAD_ID, []);
-    priv(probe).approvalPendingDeletion.set(
-      `${THREAD_ID}:approval:${APPROVAL_ID}`,
-      Date.now() - 1,
-    );
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, []);
-    });
-
-    assertNoApprovalQuestLogs(lines);
-    assert.equal(deleteCalls, 1);
-    assert.equal(probe.messageTracker.getTracked(THREAD_ID, `approval:${APPROVAL_ID}`), undefined);
-  });
-
-  it('logs two TG_APPROVAL_OK lines when two actionable approvals send', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    probe.wireHarness({
-      sendMessage: async () => ({ message_id: 610 }),
-      editMessageText: async () => {},
-      deleteMessage: async () => {},
-    } as unknown as TelegramApiClient);
-
-    const second = sampleApproval('tool:second-approval');
-    second.description = 'Run npm run build';
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval(), second]);
-    });
-
-    const hits = lines.filter((l) => l.includes('code=TG_APPROVAL_OK') && l.includes('op=send_approval'));
-    assert.equal(hits.length, 2);
-    assert.ok(hits.some((l) => l.includes(`itemId=${APPROVAL_ID}`)));
-    assert.ok(hits.some((l) => l.includes('itemId=tool:second-approval')));
-  });
-
-  it('mixed junk and valid approval logs only one TG_APPROVAL_OK for valid id', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    probe.wireHarness();
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [junkApproval(), sampleApproval()]);
-    });
-
-    const hits = lines.filter((l) => l.includes('code=TG_APPROVAL_OK'));
-    assert.equal(hits.length, 1);
-    assert.ok(hits[0]!.includes(`itemId=${APPROVAL_ID}`));
-  });
-
   it('processApprovalsForThread without chatId stays silent without approval logs', async () => {
     const probe = makeProbe(dataDir);
     registerThread(probe);
@@ -1425,25 +1118,6 @@ describe('poll-loop approval/questionnaire logging', () => {
     assert.ok(!lines.some((l) => l.includes('code=TG_EDIT_FAIL')));
   });
 
-  it('logs exactly one TG_APPROVAL_OK on edit_approval after content change', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    probe.wireHarness();
-
-    await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-
-    const changed = sampleApproval();
-    changed.description = 'Updated approval text';
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [changed]);
-    });
-
-    const hits = lines.filter((l) => l.includes('code=TG_APPROVAL_OK'));
-    assert.equal(hits.length, 1);
-    assert.ok(hits[0]!.includes('op=edit_approval'));
-  });
-
   it('logs exactly one TG_APPROVAL_NO_THREAD when multiple approvals unresolved', async () => {
     const probe = makeProbe(dataDir, {
       windows: [{ id: 'win-1', title: 'Lonely' }],
@@ -1460,38 +1134,16 @@ describe('poll-loop approval/questionnaire logging', () => {
     assert.equal(hits.length, 1);
   });
 
-  it('approvalInflight cleared after TG_APPROVAL_SEND_FAIL allows subsequent send', async () => {
+  it('onStatePatch empty pendingApprovals array still runs processApprovals silently when thread resolved', async () => {
     const probe = makeProbe(dataDir);
     registerThread(probe);
-    let sendCalls = 0;
     probe.wireHarness({
-      sendMessage: async () => {
-        sendCalls += 1;
-        if (sendCalls === 1) throw new Error('first send fail');
-        return { message_id: 611 };
-      },
+      sendMessage: async () => ({ message_id: 620 }),
       editMessageText: async () => {},
       deleteMessage: async () => {},
     } as unknown as TelegramApiClient);
 
-    await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-    });
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-    });
-
-    assertApprovalQuestLog(lines, 'TG_APPROVAL_OK', { op: 'send_approval' });
-    assert.equal(sendCalls, 2);
-  });
-
-  it('onStatePatch empty pendingApprovals array still runs processApprovals silently when thread resolved', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    probe.wireHarness();
-
-    await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
+    probe.messageTracker.track(THREAD_ID, `approval:${APPROVAL_ID}`, [620], 'banner-hash', 'approval');
 
     const lines = await captureAll(async () => {
       probe.triggerPatch({ pendingApprovals: [] });
@@ -1499,10 +1151,7 @@ describe('poll-loop approval/questionnaire logging', () => {
     });
 
     assertNoApprovalQuestLogs(lines);
-    assert.ok(
-      priv(probe).approvalPendingDeletion.has(`${THREAD_ID}:approval:${APPROVAL_ID}`),
-      'empty patch should schedule grace deletion',
-    );
+    assert.equal(probe.messageTracker.getTracked(THREAD_ID, `approval:${APPROVAL_ID}`), undefined);
   });
 
   it('questionnaire clear with no tracked entry stays silent without TG_QUESTIONNAIRE_SEND_FAIL', async () => {
@@ -1598,7 +1247,7 @@ describe('poll-loop approval/questionnaire logging', () => {
     });
 
     assert.ok(!lines.some((l) => l.includes('code=TG_APPROVAL_ROUTED')));
-    assertApprovalQuestLog(lines, 'TG_APPROVAL_OK', { op: 'send_approval' });
+    assertNoApprovalQuestLogs(lines);
   });
 
   it('TG_APPROVAL_ROUTED fallback path does not emit TG_APPROVAL_NO_THREAD', async () => {
@@ -1703,46 +1352,6 @@ describe('poll-loop approval/questionnaire logging', () => {
     assert.equal(probe.messageTracker.getTracked(THREAD_ID, 'approval'), undefined);
   });
 
-  it('logs TG_APPROVAL_OK for approve_all action approval', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    probe.wireHarness();
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [acceptAllApproval()]);
-    });
-
-    assertApprovalQuestLog(lines, 'TG_APPROVAL_OK', {
-      op: 'send_approval',
-      itemId: 'tool:accept-all-cmd',
-      threadId: THREAD_ID,
-      chatId: CHAT_ID,
-    });
-  });
-
-  it('logs TG_APPROVAL_SEND_FAIL with chatId on send failure', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    probe.wireHarness({
-      sendMessage: async () => {
-        throw new Error('needs chatId');
-      },
-      editMessageText: async () => {},
-      deleteMessage: async () => {},
-    } as unknown as TelegramApiClient);
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-    });
-
-    assertApprovalQuestLog(lines, 'TG_APPROVAL_SEND_FAIL', {
-      op: 'send_approval',
-      chatId: CHAT_ID,
-      threadId: THREAD_ID,
-      itemId: APPROVAL_ID,
-    });
-  });
-
   it('logs TG_QUESTIONNAIRE_SEND_FAIL with chatId on send failure', async () => {
     const probe = makeProbe(dataDir);
     registerThread(probe);
@@ -1784,60 +1393,44 @@ describe('poll-loop approval/questionnaire logging', () => {
     assert.ok(!lines.some((l) => l.includes('code=TG_QUESTIONNAIRE_SEND_FAIL')));
     p.processQuestionnaireForThread = orig;
   });
-
-  it('TG_APPROVAL_OK send path does not emit TG_APPROVAL_SEND_FAIL', async () => {
-    const probe = makeProbe(dataDir);
-    registerThread(probe);
-    probe.wireHarness();
-
-    const lines = await captureAll(async () => {
-      await probe.runProcessApprovalsForThread(THREAD_ID, [sampleApproval()]);
-    });
-
-    assertApprovalQuestLog(lines, 'TG_APPROVAL_OK', { op: 'send_approval' });
-    assert.ok(!lines.some((l) => l.includes('code=TG_APPROVAL_SEND_FAIL')));
-  });
 });
 
 const SILENT_PATH_MARKERS = [
-  'message is not modified stays silent without TG_APPROVAL_SEND_FAIL',
-  'approval message not found stays silent',
+  'processApprovalsForThread with actionable approvals does not send approval logs',
+  'legacy approval banner deleteMessage failure stays silent without approval logs',
   'questionnaire message is not modified stays silent',
-  'questionnaire edit message is not modified stays silent',
   'questionnaire message not found stays silent',
   'empty approvals without thread stays silent without TG_APPROVAL_NO_THREAD',
-  'without chatId stays silent',
-  'processQuestionnaire without chatId stays silent',
-  'junk approval filtered stays silent',
-  'unchanged approval content stays silent',
+  'processApprovals without chatId stays silent without approval logs',
+  'junk approval filtered stays silent without approval logs',
+  'unchanged approval content stays silent without approval logs',
   'questionnaire without thread stays silent',
   'empty questionnaire clears tracked message silently',
-  'questionnaire with empty questions clears silently',
   'unchanged questionnaire stays silent',
-  'deleteMessage failure stays silent',
-  'questionnaire deleteMessage failure on clear stays silent',
-  'approvalInflight duplicate skips second send silently',
   'successful questionnaire send stays silent',
-  'sync disabled stays silent',
+  'onStatePatch skips approval when sync disabled stays silent',
+  'tab-title fallback with empty approvals stays silent without TG_APPROVAL_ROUTED',
   'onStatePatch skips questionnaire when sync disabled stays silent',
   'onStatePatch skips approval when started false stays silent',
-  'tab-title fallback with empty approvals stays silent without TG_APPROVAL_ROUTED',
-  'approval grace first poll without approval schedules deletion silently',
-  'legacy approval tracker key cleanup stays silent',
-  'approval reappears in grace window cancels pending deletion silently',
+  'processQuestionnaire without chatId stays silent without questionnaire logs',
+  'approval: prefixed legacy banner cleanup deletes tracked message silently',
+  'legacy approval tracker key cleanup stays silent without approval logs',
+  'legacy approval-prefix tracker key cleanup stays silent without approval logs',
+  'questionnaire deleteMessage failure on clear stays silent',
+  'questionnaire with empty questions clears silently',
+  'questionnaire edit message is not modified stays silent',
   'onStatePatch skips questionnaire when started false stays silent',
   'onStatePatch skips approval when chatId missing stays silent',
   'onStatePatch questionnaire null clears tracked message silently',
-  'legacy approval-prefix tracker key cleanup stays silent',
-  'approval grace expired second poll deletes tracked banner silently',
-  'processApprovalsForThread without chatId stays silent',
-  'onStatePatch empty pendingApprovals array still runs processApprovals silently',
+  'processApprovalsForThread without chatId stays silent without approval logs',
+  'onStatePatch empty pendingApprovals array still runs processApprovals silently when thread resolved',
   'questionnaire clear with no tracked entry stays silent',
   'onStatePatch skips questionnaire when chatId missing stays silent',
   'processApprovals with direct thread mapping stays silent without TG_APPROVAL_ROUTED',
+  'questionnaire successful edit updates tracker silently',
+  'processQuestionnaireForThread without chatId stays silent without questionnaire logs',
   'approval cleanup skips non-approval element ids silently',
   'approval cleanup without telegramMsgId stays silent',
-  'questionnaire successful edit updates tracker silently',
 ] as const;
 
 const APPROVAL_QUESTIONNAIRE_PATH_MATRIX = [
@@ -1845,29 +1438,20 @@ const APPROVAL_QUESTIONNAIRE_PATH_MATRIX = [
   { kind: 'fail' as const, code: 'TG_QUESTIONNAIRE_FAIL', marker: 'processQuestionnaire rejection via onStatePatch' },
   { kind: 'fail' as const, code: 'TG_APPROVAL_NO_THREAD', marker: 'approvals present but thread unresolved without threadId' },
   { kind: 'info' as const, code: 'TG_APPROVAL_ROUTED', marker: 'tab-title fallback with pollLoopCtx threadId' },
-  { kind: 'info' as const, code: 'TG_APPROVAL_OK', marker: 'send_approval with itemId' },
-  { kind: 'info' as const, code: 'TG_APPROVAL_OK', marker: 'edit_approval when tracked content changes' },
-  { kind: 'fail' as const, code: 'TG_APPROVAL_SEND_FAIL', marker: 'sendMessage failure with pollLoopCtx' },
-  { kind: 'fail' as const, code: 'TG_APPROVAL_SEND_FAIL', marker: 'editMessageText failure' },
+  { kind: 'silent' as const, marker: 'processApprovalsForThread with actionable approvals does not send approval logs' },
   { kind: 'fail' as const, code: 'TG_QUESTIONNAIRE_SEND_FAIL', marker: 'sendMessage failure with threadId' },
   { kind: 'fail' as const, code: 'TG_QUESTIONNAIRE_SEND_FAIL', marker: 'editMessageText failure' },
-  { kind: 'silent' as const, marker: 'message is not modified stays silent without TG_APPROVAL_SEND_FAIL' },
-  { kind: 'silent' as const, marker: 'approval message not found stays silent without TG_APPROVAL_SEND_FAIL' },
+  { kind: 'silent' as const, marker: 'legacy approval banner deleteMessage failure stays silent without approval logs' },
   { kind: 'silent' as const, marker: 'questionnaire message is not modified stays silent without TG_QUESTIONNAIRE_SEND_FAIL' },
   { kind: 'silent' as const, marker: 'questionnaire message not found stays silent without TG_QUESTIONNAIRE_SEND_FAIL' },
   { kind: 'silent' as const, marker: 'empty approvals without thread stays silent without TG_APPROVAL_NO_THREAD' },
   { kind: 'silent' as const, marker: 'processApprovals without chatId stays silent without approval logs' },
-  { kind: 'silent' as const, marker: 'junk approval filtered stays silent without TG_APPROVAL_OK' },
-  { kind: 'silent' as const, marker: 'unchanged approval content stays silent without TG_APPROVAL_OK' },
+  { kind: 'silent' as const, marker: 'junk approval filtered stays silent without approval logs' },
+  { kind: 'silent' as const, marker: 'unchanged approval content stays silent without approval logs' },
   { kind: 'silent' as const, marker: 'questionnaire without thread stays silent without TG_QUESTIONNAIRE_SEND_FAIL' },
   { kind: 'silent' as const, marker: 'empty questionnaire clears tracked message silently without TG_QUESTIONNAIRE_SEND_FAIL' },
   { kind: 'silent' as const, marker: 'unchanged questionnaire stays silent without TG_QUESTIONNAIRE_SEND_FAIL' },
-  { kind: 'silent' as const, marker: 'approval deleteMessage failure stays silent without TG_APPROVAL_SEND_FAIL' },
-  { kind: 'silent' as const, marker: 'approvalInflight duplicate skips second send silently without TG_APPROVAL_OK' },
-  { kind: 'fail' as const, code: 'TG_APPROVAL_SEND_FAIL', marker: 'exactly one TG_APPROVAL_SEND_FAIL per approval send failure' },
-  { kind: 'fail' as const, code: 'TG_APPROVAL_SEND_FAIL', marker: 'send throws non-Error value' },
   { kind: 'fail' as const, code: 'TG_APPROVAL_FAIL', marker: 'non-Error rejection message via onStatePatch' },
-  { kind: 'fail' as const, code: 'TG_APPROVAL_SEND_FAIL', marker: 'does not emit TG_EDIT_FAIL or TG_SEND_FAIL' },
   { kind: 'silent' as const, marker: 'successful questionnaire send stays silent without TG_QUESTIONNAIRE_SEND_FAIL' },
   { kind: 'silent' as const, marker: 'onStatePatch skips approval when sync disabled stays silent' },
   { kind: 'fail' as const, code: 'TG_QUESTIONNAIRE_FAIL', marker: 'non-Error rejection message via onStatePatch' },
@@ -1879,26 +1463,19 @@ const APPROVAL_QUESTIONNAIRE_PATH_MATRIX = [
   { kind: 'fail' as const, code: 'TG_QUESTIONNAIRE_SEND_FAIL', marker: 'exactly one TG_QUESTIONNAIRE_SEND_FAIL per questionnaire send failure' },
   { kind: 'fail' as const, code: 'TG_QUESTIONNAIRE_SEND_FAIL', marker: 'send throws non-Error value' },
   { kind: 'fail' as const, code: 'TG_QUESTIONNAIRE_FAIL', marker: 'does not emit TG_APPROVAL_FAIL' },
-  { kind: 'silent' as const, marker: 'approval grace first poll without approval schedules deletion silently' },
-  { kind: 'silent' as const, marker: 'legacy approval tracker key cleanup stays silent without TG_APPROVAL_SEND_FAIL' },
-  { kind: 'silent' as const, marker: 'approval reappears in grace window cancels pending deletion silently' },
+  { kind: 'silent' as const, marker: 'approval: prefixed legacy banner cleanup deletes tracked message silently' },
+  { kind: 'silent' as const, marker: 'legacy approval tracker key cleanup stays silent without approval logs' },
+  { kind: 'silent' as const, marker: 'legacy approval-prefix tracker key cleanup stays silent without approval logs' },
   { kind: 'silent' as const, marker: 'questionnaire deleteMessage failure on clear stays silent without TG_QUESTIONNAIRE_SEND_FAIL' },
   { kind: 'silent' as const, marker: 'questionnaire with empty questions clears silently without TG_QUESTIONNAIRE_SEND_FAIL' },
   { kind: 'silent' as const, marker: 'questionnaire edit message is not modified stays silent without TG_QUESTIONNAIRE_SEND_FAIL' },
-  { kind: 'info' as const, code: 'TG_APPROVAL_OK', marker: 'exactly one TG_APPROVAL_OK on first send_approval' },
   { kind: 'silent' as const, marker: 'onStatePatch skips questionnaire when started false stays silent' },
   { kind: 'silent' as const, marker: 'onStatePatch skips approval when chatId missing stays silent' },
   { kind: 'silent' as const, marker: 'onStatePatch questionnaire null clears tracked message silently' },
   { kind: 'fail' as const, code: 'TG_APPROVAL_FAIL', marker: 'does not emit TG_QUESTIONNAIRE_FAIL' },
-  { kind: 'silent' as const, marker: 'legacy approval-prefix tracker key cleanup stays silent without TG_APPROVAL_SEND_FAIL' },
-  { kind: 'silent' as const, marker: 'approval grace expired second poll deletes tracked banner silently' },
-  { kind: 'info' as const, code: 'TG_APPROVAL_OK', marker: 'two TG_APPROVAL_OK lines when two actionable approvals send' },
-  { kind: 'info' as const, code: 'TG_APPROVAL_OK', marker: 'mixed junk and valid approval logs only one TG_APPROVAL_OK for valid id' },
   { kind: 'silent' as const, marker: 'processApprovalsForThread without chatId stays silent without approval logs' },
   { kind: 'fail' as const, code: 'TG_QUESTIONNAIRE_SEND_FAIL', marker: 'does not emit TG_SEND_FAIL or TG_EDIT_FAIL' },
-  { kind: 'info' as const, code: 'TG_APPROVAL_OK', marker: 'exactly one TG_APPROVAL_OK on edit_approval after content change' },
   { kind: 'fail' as const, code: 'TG_APPROVAL_NO_THREAD', marker: 'exactly one TG_APPROVAL_NO_THREAD when multiple approvals unresolved' },
-  { kind: 'fail' as const, code: 'TG_APPROVAL_SEND_FAIL', marker: 'approvalInflight cleared after TG_APPROVAL_SEND_FAIL allows subsequent send' },
   { kind: 'silent' as const, marker: 'onStatePatch empty pendingApprovals array still runs processApprovals silently when thread resolved' },
   { kind: 'silent' as const, marker: 'questionnaire clear with no tracked entry stays silent without TG_QUESTIONNAIRE_SEND_FAIL' },
   { kind: 'silent' as const, marker: 'onStatePatch skips questionnaire when chatId missing stays silent' },
@@ -1910,11 +1487,8 @@ const APPROVAL_QUESTIONNAIRE_PATH_MATRIX = [
   { kind: 'silent' as const, marker: 'processQuestionnaireForThread without chatId stays silent without questionnaire logs' },
   { kind: 'silent' as const, marker: 'approval cleanup skips non-approval element ids silently without TG_APPROVAL_SEND_FAIL' },
   { kind: 'silent' as const, marker: 'approval cleanup without telegramMsgId stays silent without TG_APPROVAL_SEND_FAIL' },
-  { kind: 'info' as const, code: 'TG_APPROVAL_OK', marker: 'approve_all action approval' },
-  { kind: 'fail' as const, code: 'TG_APPROVAL_SEND_FAIL', marker: 'with chatId on send failure' },
   { kind: 'fail' as const, code: 'TG_QUESTIONNAIRE_SEND_FAIL', marker: 'with chatId on send failure' },
   { kind: 'fail' as const, code: 'TG_QUESTIONNAIRE_FAIL', marker: 'does not emit TG_QUESTIONNAIRE_SEND_FAIL' },
-  { kind: 'info' as const, code: 'TG_APPROVAL_OK', marker: 'send path does not emit TG_APPROVAL_SEND_FAIL' },
   { kind: 'meta' as const, marker: 'poll-loop whole file no inline scope outside pollLoopCtx queueKickCtx bridgeAutoCtx helpers' },
 ] as const;
 
@@ -1930,10 +1504,10 @@ describe('poll-loop approval/questionnaire logging coverage', () => {
         `missing assertion for ${code}`,
       );
     }
-    assert.equal(APPROVAL_QUESTIONNAIRE_LOG_CODES.length, 7);
+    assert.equal(APPROVAL_QUESTIONNAIRE_LOG_CODES.length, 5);
   });
 
-  it('poll-loop.ts declares all seven codes in approval/questionnaire zone', () => {
+  it('poll-loop.ts declares all five codes in approval/questionnaire zone', () => {
     const zone = approvalQuestZoneSrc();
     for (const code of APPROVAL_QUESTIONNAIRE_LOG_CODES) {
       assert.ok(zone.includes(`'${code}'`), `zone missing ${code}`);
@@ -1961,17 +1535,20 @@ describe('poll-loop approval/questionnaire logging coverage', () => {
     assert.ok(noThreadBlock, 'NO_THREAD ctx must omit threadId');
   });
 
-  it('TG_APPROVAL_OK has send_approval and edit_approval ops in source', () => {
+  it('legacy approval banners retired — no send_approval or TG_APPROVAL_OK in zone source', () => {
     const zone = approvalQuestZoneSrc();
-    assert.match(zone, /pollLoopCtx\('send_approval', \{ threadId, chatId: this\.chatId, itemId: approval\.id \}\)/);
-    assert.match(zone, /pollLoopCtx\('edit_approval', \{ threadId, chatId: this\.chatId, itemId: approval\.id \}\)/);
+    assert.ok(!zone.includes('TG_APPROVAL_OK'));
+    assert.ok(!zone.includes('TG_APPROVAL_SEND_FAIL'));
+    assert.ok(!zone.includes("pollLoopCtx('send_approval'"));
+    assert.ok(!zone.includes('approvalInflight'));
+    assert.ok(!zone.includes('APPROVAL_DELETE_GRACE_MS'));
   });
 
-  it('send fail sites skip not-modified and not-found in source', () => {
+  it('send fail sites skip not-modified and not-found in questionnaire source', () => {
     const zone = approvalQuestZoneSrc();
     assert.match(zone, /!msg\.includes\('not found'\) && !msg\.includes\('not modified'\)/);
     const hits = zone.match(/!msg\.includes\('not found'\) && !msg\.includes\('not modified'\)/g) ?? [];
-    assert.equal(hits.length, 2, 'approval and questionnaire send catches must both skip benign errors');
+    assert.equal(hits.length, 1, 'questionnaire send catch must skip benign errors');
   });
 
   it('approval delete catch stays silent in source', () => {
@@ -2012,25 +1589,23 @@ describe('poll-loop approval/questionnaire logging coverage', () => {
     for (const row of APPROVAL_QUESTIONNAIRE_PATH_MATRIX) {
       assert.ok(src.includes(row.marker), `matrix row missing test: ${row.marker}`);
     }
-    assert.equal(APPROVAL_QUESTIONNAIRE_PATH_MATRIX.length, 75);
+    assert.equal(APPROVAL_QUESTIONNAIRE_PATH_MATRIX.length, 56);
   });
 
-  it('zone declares exactly eight log emission sites for covered codes', () => {
+  it('zone declares exactly five log emission sites for covered codes', () => {
     const zone = approvalQuestZoneSrc();
     assert.equal((zone.match(/logError\([\s\S]*?'TG_APPROVAL_FAIL'/g) ?? []).length, 1);
     assert.equal((zone.match(/logError\([\s\S]*?'TG_QUESTIONNAIRE_FAIL'/g) ?? []).length, 1);
     assert.equal((zone.match(/logInfo\([\s\S]*?'TG_APPROVAL_ROUTED'/g) ?? []).length, 1);
     assert.equal((zone.match(/logWarn\([\s\S]*?'TG_APPROVAL_NO_THREAD'/g) ?? []).length, 1);
-    assert.equal((zone.match(/logInfo\([\s\S]*?'TG_APPROVAL_OK'/g) ?? []).length, 2);
-    assert.equal((zone.match(/logWarn\([\s\S]*?'TG_APPROVAL_SEND_FAIL'/g) ?? []).length, 1);
     assert.equal((zone.match(/logWarn\([\s\S]*?'TG_QUESTIONNAIRE_SEND_FAIL'/g) ?? []).length, 1);
+    assert.ok(!zone.includes('TG_APPROVAL_OK'));
+    assert.ok(!zone.includes('TG_APPROVAL_SEND_FAIL'));
   });
 
-  it('TG_APPROVAL_SEND_FAIL and TG_QUESTIONNAIRE_SEND_FAIL use logWarn with pollLoopCtx in source', () => {
+  it('TG_QUESTIONNAIRE_SEND_FAIL uses logWarn with pollLoopCtx in source', () => {
     const zone = approvalQuestZoneSrc();
-    assert.match(zone, /logWarn\('TG_APPROVAL_SEND_FAIL'/);
     assert.match(zone, /logWarn\('TG_QUESTIONNAIRE_SEND_FAIL'/);
-    assert.match(zone, /pollLoopCtx\('send_approval',/);
     assert.match(zone, /pollLoopCtx\('send_questionnaire',/);
   });
 
@@ -2044,14 +1619,9 @@ describe('poll-loop approval/questionnaire logging coverage', () => {
     assert.match(zone, /if \(approvals\.length > 0\) \{[\s\S]*?TG_APPROVAL_NO_THREAD/);
   });
 
-  it('filterActionableApprovals applied before approval send loop in source', () => {
+  it('filterActionableApprovals applied in processApprovalsForThread source', () => {
     const zone = approvalQuestZoneSrc();
     assert.match(zone, /approvals = filterActionableApprovals\(approvals\)/);
-  });
-
-  it('approvalInflight guard in source prevents duplicate banners', () => {
-    const zone = approvalQuestZoneSrc();
-    assert.match(zone, /if \(this\.approvalInflight\.has\(inflightKey\)\) continue/);
   });
 
   it('questionnaire success path has no TG_QUESTIONNAIRE_OK code in zone source', () => {
@@ -2061,13 +1631,12 @@ describe('poll-loop approval/questionnaire logging coverage', () => {
 
   it('covered fail codes never use logError except process catch codes in source', () => {
     const zone = approvalQuestZoneSrc();
-    assert.ok(!zone.includes("logError('TG_APPROVAL_SEND_FAIL'"));
     assert.ok(!zone.includes("logError('TG_QUESTIONNAIRE_SEND_FAIL'"));
     assert.ok(!zone.includes("logError('TG_APPROVAL_NO_THREAD'"));
   });
 
   it('automated matrix: fail/info codes have behavioral assertApprovalQuestLog', () => {
-    const failCodes = APPROVAL_QUESTIONNAIRE_PATH_MATRIX.filter((r) => r.kind !== 'silent').map((r) =>
+    const failCodes = APPROVAL_QUESTIONNAIRE_PATH_MATRIX.filter((r) => r.kind !== 'silent' && r.kind !== 'meta').map((r) =>
       'code' in r ? r.code : '',
     );
     const unique = [...new Set(failCodes.filter(Boolean))];
@@ -2078,14 +1647,14 @@ describe('poll-loop approval/questionnaire logging coverage', () => {
     for (const code of unique) {
       assert.ok(src.includes(`assertApprovalQuestLog(lines, '${code}'`), `matrix code missing assert: ${code}`);
     }
-    assert.equal(unique.length, 7);
+    assert.equal(unique.length, 5);
   });
 
   it('outer catch handlers stringify non-Error err in source', () => {
     const zone = approvalQuestZoneSrc();
     assert.match(zone, /err instanceof Error \? err\.message : String\(err\)/);
     const hits = zone.match(/err instanceof Error \? err\.message : String\(err\)/g) ?? [];
-    assert.ok(hits.length >= 4, 'approval/questionnaire zone should stringify errors in multiple catches');
+    assert.ok(hits.length >= 3, 'approval/questionnaire zone should stringify errors in multiple catches');
   });
 
   it('onStatePatch guard requires started syncEnabled and chatId in source', () => {
@@ -2093,11 +1662,10 @@ describe('poll-loop approval/questionnaire logging coverage', () => {
     assert.match(zone, /if \(!this\.started \|\| !this\.syncEnabled \|\| !this\.chatId\) return;/);
   });
 
-  it('TG_APPROVAL_OK and TG_APPROVAL_ROUTED use logInfo in source', () => {
+  it('TG_APPROVAL_ROUTED uses logInfo in source', () => {
     const zone = approvalQuestZoneSrc();
     assert.match(zone, /logInfo\(\s*\n\s*'TG_APPROVAL_ROUTED'/);
-    assert.match(zone, /logInfo\(\s*\n\s*'TG_APPROVAL_OK'/);
-    assert.ok(!zone.includes("logWarn('TG_APPROVAL_OK'"));
+    assert.ok(!zone.includes('TG_APPROVAL_OK'));
   });
 
   it('questionnaire clear delete catch stays silent in source', () => {
@@ -2105,16 +1673,10 @@ describe('poll-loop approval/questionnaire logging coverage', () => {
     assert.match(zone, /catch \{ \/\* ok — may already be deleted \*\/ \}/);
   });
 
-  it('approval grace defer uses APPROVAL_DELETE_GRACE_MS before delete in source', () => {
+  it('legacy approval key cleanup in processApprovalsForThread source', () => {
     const zone = approvalQuestZoneSrc();
-    assert.match(zone, /approvalPendingDeletion\.set\(pendKey, now \+ BaseTelegramTransport\.APPROVAL_DELETE_GRACE_MS\)/);
-    assert.match(zone, /else if \(now >= deleteAt\) \{\s*\n\s*shouldDelete = true;/);
-  });
-
-  it('legacy approval key deletes immediately without grace in source', () => {
-    const zone = approvalQuestZoneSrc();
-    assert.match(zone, /let shouldDelete = isLegacyApprovalKey;/);
     assert.match(zone, /eid === 'approval'/);
+    assert.match(zone, /isCurrentFmtKey = eid\.startsWith\(APPROVAL_PREFIX\)/);
   });
 
   it('patch questionnaire uses in patch check not truthy questionnaire in source', () => {
@@ -2126,24 +1688,6 @@ describe('poll-loop approval/questionnaire logging coverage', () => {
     const zone = approvalQuestZoneSrc();
     assert.match(zone, /if \(patch\.pendingApprovals\)/);
     assert.ok(!zone.includes("if ('pendingApprovals' in patch)"));
-  });
-
-  it('approvalInflight deleted in finally after send catch in source', () => {
-    const zone = approvalQuestZoneSrc();
-    assert.match(zone, /finally \{\s*\n\s*this\.approvalInflight\.delete\(inflightKey\)/);
-  });
-
-  it('approval loop skips empty formatted html without log in source', () => {
-    const zone = approvalQuestZoneSrc();
-    assert.match(zone, /if \(!formatted\.html\) continue;/);
-  });
-
-  it('approval hasChanged skip avoids send without log in source', () => {
-    const zone = approvalQuestZoneSrc();
-    assert.match(
-      zone,
-      /if \(tracked && !this\.messageTracker\.hasChanged\(threadId, trackId, contentHash\)\) continue;/,
-    );
   });
 
   it('legacy approval-prefix keys recognized in cleanup loop source', () => {
@@ -2184,12 +1728,6 @@ describe('poll-loop approval/questionnaire logging coverage', () => {
   it('approval cleanup loop skips unrelated element ids in source', () => {
     const zone = approvalQuestZoneSrc();
     assert.match(zone, /if \(!isLegacyApprovalKey && !isCurrentFmtKey\) continue;/);
-  });
-
-  it('TG_APPROVAL_SEND_FAIL uses send_approval op for edit failures in source', () => {
-    const zone = approvalQuestZoneSrc();
-    const editCatch = zone.match(/editMessageText[\s\S]*?TG_APPROVAL_SEND_FAIL[\s\S]*?pollLoopCtx\('send_approval'/);
-    assert.ok(editCatch, 'edit failure must log TG_APPROVAL_SEND_FAIL with send_approval op');
   });
 
   it('poll-loop whole file no inline scope outside pollLoopCtx queueKickCtx bridgeAutoCtx helpers', () => {

@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import type { ChatElement, CursorState, CursorWindow } from '../core/types.js';
+import { applyApprovalActionsToMessages } from '../ide/parse/approval-merge.js';
 import { logWarn } from '../core/log-event.js';
 import type { LogContext } from '../core/log-event.js';
 import { AGENT_ACTIVITY_STALE_MS } from '../ide/activity-stale.js';
@@ -110,12 +111,15 @@ export class StateManager extends EventEmitter {
 
     const stateForApply = this.applyActivityStaleness(newState);
     const nextKey = composerKey(stateForApply);
-    stateForApply.messages = mergeChatMessages(
-      this.currentState.messages,
-      stateForApply.messages,
-      this.messagesComposerKey,
-      nextKey,
-    );
+    stateForApply.messages = applyApprovalActionsToMessages({
+      ...stateForApply,
+      messages: mergeChatMessages(
+        this.currentState.messages,
+        stateForApply.messages,
+        this.messagesComposerKey,
+        nextKey,
+      ),
+    });
     this.messagesComposerKey = nextKey;
 
     const patch = this.diff(this.currentState, stateForApply);

@@ -31,6 +31,33 @@ export interface FormattedMessage {
   keyboard?: TgKeyboard;
 }
 
+const SHELL_APPROVAL_SELECTORS: Record<string, string> = {
+  approve: 'button.ui-shell-tool-call__run-btn',
+  reject: 'button.ui-shell-tool-call__skip-btn',
+  approve_all: 'button.ui-shell-tool-call__allowlist-button',
+  run: 'button.ui-shell-tool-call__run-btn',
+  skip: 'button.ui-shell-tool-call__skip-btn',
+  allow: 'button.ui-shell-tool-call__allowlist-button',
+  toggle: '.ui-shell-tool-call__approval-row input[type="checkbox"], .ui-shell-tool-call__approval-row [role="checkbox"], .ui-shell-tool-call__approval-row [role="switch"]',
+};
+
+/** Snapshot CSS paths go stale; shell approvals use stable class selectors. */
+export function stableApprovalSelector(type: string, selectorPath: string): string {
+  const stable = SHELL_APPROVAL_SELECTORS[type];
+  if (!stable) return selectorPath;
+  if (!selectorPath || selectorPath.includes('#bubble') || selectorPath.includes('nth-of-type')) {
+    return stable;
+  }
+  if (
+    selectorPath.startsWith('button.ui-shell-tool-call__')
+    || selectorPath.includes('checkbox')
+    || selectorPath.includes('switch')
+  ) {
+    return selectorPath;
+  }
+  return stable;
+}
+
 export function formatElement(
   element: ChatElement,
   hashCallback: (selectorPath: string) => string
@@ -284,13 +311,22 @@ function formatRunCommand(
   let header = `<b>🖥 ${escapeHtml(msg.description)}</b>`;
   if (msg.candidates) header += `  <code>${escapeHtml(msg.candidates)}</code>`;
   lines.push(header);
-  lines.push(`<pre><code class="language-bash">$ ${escapeHtml(msg.command)}</code></pre>`);
+  if (msg.command?.trim()) {
+    lines.push(`<pre><code class="language-bash">$ ${escapeHtml(msg.command.trim())}</code></pre>`);
+  }
 
   let keyboard: TgKeyboard | undefined;
   if (msg.actions.length > 0) {
     const kb = tgKeyboard();
     for (const action of msg.actions) {
-      const hash = hashCallback(action.selectorPath);
+      const sel = stableApprovalSelector(action.type, action.selectorPath);
+      const hash = hashCallback(sel);
+      if (action.type === 'toggle') {
+        const mark = action.checked ? '☑' : '☐';
+        kb.text(`${mark} ${action.label}`, `tog:${msg.id.substring(0, 8)}:${hash}`);
+        kb.row();
+        continue;
+      }
       const prefix = action.type === 'run' ? 'run' : action.type === 'skip' ? 'skp' : 'alw';
       const label = action.type === 'run' ? t('tg.fmt.run', '▶ Run')
         : action.type === 'skip' ? t('tg.fmt.skip', '⏭ Skip')
@@ -437,11 +473,23 @@ export function formatApprovals(
   if (approvals.length === 0) return { html: '' };
 
   const approval = approvals[0];
-  const html = `${t('tg.fmt.approvalNeeded', '⚠️ Approval needed:')} ${escapeHtml(approval.description)}`;
+  const lines: string[] = [
+    `${t('tg.fmt.approvalNeeded', '⚠️ Approval needed:')} ${escapeHtml(approval.description)}`,
+  ];
+  if (approval.command?.trim()) {
+    lines.push(`<pre><code class="language-bash">$ ${escapeHtml(approval.command.trim())}</code></pre>`);
+  }
 
   const kb = tgKeyboard();
   for (const action of approval.actions) {
-    const hash = hashCallback(action.selectorPath);
+    const sel = stableApprovalSelector(action.type, action.selectorPath);
+    const hash = hashCallback(sel);
+    if (action.type === 'toggle') {
+      const mark = action.checked ? '☑' : '☐';
+      kb.text(`${mark} ${action.label}`, `tog:${approval.id.substring(0, 8)}:${hash}`);
+      kb.row();
+      continue;
+    }
     const prefix = action.type === 'approve' ? 'apr'
       : action.type === 'reject' ? 'rej'
       : 'all';
@@ -451,7 +499,7 @@ export function formatApprovals(
     kb.text(label, `${prefix}:${approval.id.substring(0, 8)}:${hash}`);
   }
 
-  return { html, keyboard: kb.build() };
+  return { html: lines.join('\n'), keyboard: kb.build() };
 }
 
 export function formatQuestionnaire(questionnaire: Questionnaire): FormattedMessage {

@@ -34,7 +34,6 @@ import { SendQueue } from '../pipeline/send-queue.js';
 import {
   formatElement,
   formatActivity,
-  formatApprovals,
   formatQuestionnaire,
   formatComposerQueue,
   splitMessage,
@@ -182,17 +181,10 @@ export abstract class BaseTelegramTransport implements Transport {
   private cursorUpgradeNotifySent = false;
   private cursorUpgradeRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private hadConnectedOnce = false;
-  /** Deferred approval banner deletion: key=`<threadId>:<elementId>`, value=deleteAt ms.
-   *  DOM transiently removes approval rows — grace period before delete. */
-  private approvalPendingDeletion = new Map<string, number>();
-  /** Grace > window-monitor cycle (10s), else approval flicker in TG. ~30s ≈ 3 cycles. */
-  private static readonly APPROVAL_DELETE_GRACE_MS = 30_000;
   private hangMonitor: WindowHangMonitor | null = null;
   private queueKickStarted = false;
   /** Rich Messages (Bot API 10.1) unavailable (method not found) — globally plain HTML. */
   private richDisabled = false;
-  /** Inflight guard for approval trackId — prevents duplicate banners (global + per-window paths). */
-  private approvalInflight = new Set<string>();
   private activityMsgIds = new Map<number, number>();
   private lastActivityText = new Map<number, string>();
   private activityTimestamps = new Map<number, number>();
@@ -1751,117 +1743,23 @@ export abstract class BaseTelegramTransport implements Transport {
     approvals = filterActionableApprovals(approvals);
 
     const APPROVAL_PREFIX = 'approval:';
-    const hashCallback = (sp: string) => this.messageTracker.hashSelector(sp);
-    const currentTrackIds = new Set(approvals.map((a) => `${APPROVAL_PREFIX}${a.id}`));
 
-    // Cleanup stale approval tracker entries. Two kinds:
-    //   - Legacy keys ('approval', 'approval-approval-<TS>' from old builds):
-    //     delete immediately — they do not match current approval ids, session junk.
-    //   - Current per-id keys ('approval:<id>') when approval is no longer pending:
-    //     defer deletion for APPROVAL_DELETE_GRACE_MS. Cursor DOM transiently
-    //     removes and re-draws approval rows on composer scroll, focus changes,
-    //     agent step boundaries; instant delete → re-send on next poll flickers.
-    //     Grace period absorbs that; banner stays ~4s longer — acceptable.
-    const now = Date.now();
+    // Retire legacy approval:* banners — UI is run_command in chat feed (same as web).
     for (const tracked of this.messageTracker.listInThread(threadId)) {
       const eid = tracked.elementId;
-      const isCurrent = eid.startsWith(APPROVAL_PREFIX) && currentTrackIds.has(eid);
-      if (isCurrent) {
-        // Reappeared in grace window — cancel pending deletion.
-        this.approvalPendingDeletion.delete(`${threadId}:${eid}`);
-        continue;
-      }
       const isLegacyApprovalKey =
         eid === 'approval' ||
         (eid.startsWith('approval-') && !eid.startsWith(APPROVAL_PREFIX));
       const isCurrentFmtKey = eid.startsWith(APPROVAL_PREFIX);
       if (!isLegacyApprovalKey && !isCurrentFmtKey) continue;
 
-      const pendKey = `${threadId}:${eid}`;
-      let shouldDelete = isLegacyApprovalKey;
-      if (isCurrentFmtKey) {
-        const deleteAt = this.approvalPendingDeletion.get(pendKey);
-        if (deleteAt === undefined) {
-          // First poll without this approval — schedule deletion, but
-          // do not act this cycle. If approval returns on next poll — cancel.
-          this.approvalPendingDeletion.set(pendKey, now + BaseTelegramTransport.APPROVAL_DELETE_GRACE_MS);
-        } else if (now >= deleteAt) {
-          shouldDelete = true;
-        }
-      }
-      if (!shouldDelete) continue;
-
+      // Retired: separate approval banners. UI = run_command in feed (same as web).
       if (tracked.telegramMsgIds[0]) {
         try {
           await this.api.deleteMessage(this.chatId!, tracked.telegramMsgIds[0]);
         } catch { /* may already be deleted */ }
       }
       this.messageTracker.untrack(threadId, eid);
-      this.approvalPendingDeletion.delete(pendKey);
-    }
-
-    // Send (or edit) banner for each current approval. Edit only if
-    // same approval id returned with changed content (rare —
-    // e.g. live button label updates).
-    for (const approval of approvals) {
-      const trackId = `${APPROVAL_PREFIX}${approval.id}`;
-      const formatted = formatApprovals([approval], hashCallback);
-      if (!formatted.html) continue;
-
-      const contentHash = MessageTracker.contentHash(formatted.html + JSON.stringify(formatted.keyboard));
-      const tracked = this.messageTracker.getTracked(threadId, trackId);
-
-      if (tracked && !this.messageTracker.hasChanged(threadId, trackId, contentHash)) continue;
-
-      // Race guard: parallel global+per-window calls must not each
-      // send a new banner (both saw empty tracker before track).
-      const inflightKey = `${threadId}:${trackId}`;
-      if (this.approvalInflight.has(inflightKey)) continue;
-      this.approvalInflight.add(inflightKey);
-
-      try {
-        if (tracked && tracked.telegramMsgIds[0]) {
-          await this.api.editMessageText(this.chatId!, tracked.telegramMsgIds[0], formatted.html, {
-              parse_mode: 'HTML',
-              reply_markup: formatted.keyboard,
-            });
-          this.messageTracker.track(
-            threadId, trackId, tracked.telegramMsgIds,
-            contentHash, 'approval'
-          );
-          logInfo(
-            'TG_APPROVAL_OK',
-            `edited id=${approval.id}`,
-            pollLoopCtx('edit_approval', { threadId, chatId: this.chatId, itemId: approval.id }),
-          );
-        } else {
-          const sent = await this.api.sendMessage(this.chatId!, formatted.html, {
-              message_thread_id: threadId,
-              parse_mode: 'HTML',
-              reply_markup: formatted.keyboard,
-            });
-          this.messageTracker.track(
-            threadId, trackId, [sent.message_id],
-            contentHash, 'approval'
-          );
-          logInfo(
-            'TG_APPROVAL_OK',
-            `sent id=${approval.id} msgId=${sent.message_id}`,
-            pollLoopCtx('send_approval', { threadId, chatId: this.chatId, itemId: approval.id }),
-          );
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (!msg.includes('not found') && !msg.includes('not modified')) {
-          logWarn('TG_APPROVAL_SEND_FAIL', msg, pollLoopCtx('send_approval', {
-            threadId,
-            chatId: this.chatId,
-            itemId: approval.id,
-          }));
-        }
-      } finally {
-        this.approvalInflight.delete(inflightKey);
-      }
     }
   }
 

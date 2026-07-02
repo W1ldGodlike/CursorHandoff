@@ -491,31 +491,259 @@ export function extractionFunction(
       return extractCodeBlockItem(block);
     }
 
+    const isMenuTrigger = (btn: Element): boolean => {
+      const popup = btn.getAttribute('aria-haspopup');
+      return popup === 'menu' || popup === 'true' || popup === 'listbox';
+    };
+    const cleanBtnLabel = (raw: string): string =>
+      raw.replace(/\s*(Shift\+)?⏎\s*/g, '').replace(/\s+/g, ' ').trim();
+
+    function isPlausibleShellCommand(cmd: string): boolean {
+      const s = cmd.replace(/\s+/g, ' ').trim();
+      if (!s || s.length > 8000) return false;
+      if (/Name\s+Length/i.test(s)) return false;
+      if (/----\s*-{2,}/.test(s)) return false;
+      if (/(\.[a-z0-9]{1,10}\s+\d+\s*){2,}/i.test(s)) return false;
+      if (/^\w{1,24},\s*\d+\+?\s*Name\s+Length/i.test(s)) return false;
+      if (/^\w{1,24},\s*\d+\+?\s*$/i.test(s)) return false;
+      return true;
+    }
+
+    function normalizeShellCommandText(raw: string): string {
+      const cmdLines = raw.replace(/^\$\s*/, '').split('\n');
+      const nonEmpty = cmdLines.filter((l) => l.trim().length > 0);
+      let minIndent = 0;
+      if (nonEmpty.length > 0) {
+        minIndent = Infinity;
+        for (const line of nonEmpty) {
+          const m = line.match(/^(\s*)/);
+          const len = m ? m[1].length : 0;
+          if (len < minIndent) minIndent = len;
+        }
+      }
+      let text = cmdLines
+        .map((l) => (l.length >= minIndent ? l.substring(minIndent) : l))
+        .join('\n')
+        .trim();
+      let prev = '';
+      while (text !== prev) {
+        prev = text;
+        text = text
+          .replace(/\s*(Shift\+)?⏎\s*$/g, '')
+          .replace(/(Skip|Enable Auto-review|Run)+$/gi, '')
+          .trimEnd();
+      }
+      return isPlausibleShellCommand(text) ? text : '';
+    }
+
+    function shellTextWithoutApprovalRow(shellCall: Element): string {
+      const clone = shellCall.cloneNode(true) as Element;
+      for (const sel of [
+        '.ui-shell-tool-call__approval-row',
+        'button.ui-shell-tool-call__skip-btn',
+        'button.ui-shell-tool-call__run-btn',
+        'button.ui-shell-tool-call__allowlist-button',
+      ]) {
+        clone.querySelectorAll(sel).forEach((el) => el.remove());
+      }
+      return clone.textContent || '';
+    }
+
+    function extractShellRunFields(
+      root: Element
+    ): { description: string; command: string; candidates: string } | null {
+      const shellCall =
+        root.querySelector('.ui-shell-tool-call') ||
+        (root.classList.contains('ui-shell-tool-call') ? root : null);
+      if (!shellCall) return null;
+
+      const descEl = shellCall.querySelector('.ui-shell-tool-call__description');
+      const cmdEl = shellCall.querySelector('.ui-shell-tool-call__command');
+      let description = (descEl?.textContent || '').trim();
+      let command = cmdEl ? normalizeShellCommandText(cmdEl.textContent || '') : '';
+      if (!command) {
+        const legacyCmd =
+          shellCall.querySelector('.composer-terminal-command-expanded-text') ||
+          shellCall.querySelector('.composer-terminal-command-editor') ||
+          root.querySelector('.composer-terminal-command-expanded-text') ||
+          root.querySelector('.composer-terminal-command-editor');
+        if (legacyCmd) command = normalizeShellCommandText(legacyCmd.textContent || '');
+      }
+
+      if (!command) {
+        const raw = shellTextWithoutApprovalRow(shellCall).replace(/\s+/g, ' ');
+        const dollar = raw.indexOf('$');
+        if (dollar >= 0) {
+          command = normalizeShellCommandText(raw.slice(dollar));
+        }
+      }
+      if (!description && command) {
+        const before = (root.textContent || '').split('$')[0] || '';
+        description = before.replace(/\s+/g, ' ').trim().substring(0, 200);
+      }
+      if (!description && !command) return null;
+      return { description: description || command.substring(0, 200), command, candidates: '' };
+    }
+
+    const SHELL_SKIP_SEL = 'button.ui-shell-tool-call__skip-btn';
+    const SHELL_RUN_SEL = 'button.ui-shell-tool-call__run-btn';
+    const SHELL_ALLOW_SEL = 'button.ui-shell-tool-call__allowlist-button';
+    const SHELL_TOGGLE_SEL = '.ui-shell-tool-call__approval-row input[type="checkbox"], .ui-shell-tool-call__approval-row [role="checkbox"], .ui-shell-tool-call__approval-row [role="switch"]';
+
+    function selectorForApprovalButton(btn: Element): string {
+      if (btn.matches(SHELL_SKIP_SEL)) return SHELL_SKIP_SEL;
+      if (btn.matches(SHELL_RUN_SEL)) return SHELL_RUN_SEL;
+      if (btn.matches(SHELL_ALLOW_SEL)) return SHELL_ALLOW_SEL;
+      return buildSelectorPath(btn);
+    }
+
+    function shellActionsToRunCommand(
+      toolRoot: Element,
+      flatIndex: number,
+      messageId: string,
+      toolCallId: string,
+      shellFields: { description: string; command: string; candidates: string },
+      actions: ReturnType<typeof extractToolActions>
+    ): { element: ChatElement; parsedAs: string } {
+      return {
+        element: {
+          type: 'run_command' as const,
+          id: messageId,
+          flatIndex,
+          toolCallId,
+          description: shellFields.description,
+          candidates: shellFields.candidates,
+          command: shellFields.command,
+          actions,
+        },
+        parsedAs: 'run_command:shell',
+      };
+    }
+
     function extractToolActions(
       container: Element
-    ): { label: string; type: 'run' | 'skip' | 'allow'; selectorPath: string }[] {
-      const actions: { label: string; type: 'run' | 'skip' | 'allow'; selectorPath: string }[] = [];
+    ): { label: string; type: 'run' | 'skip' | 'allow' | 'toggle'; selectorPath: string; checked?: boolean }[] {
+      const actions: { label: string; type: 'run' | 'skip' | 'allow' | 'toggle'; selectorPath: string; checked?: boolean }[] = [];
       const seenPaths = new Set<string>();
+
+      const pushAction = (action: { label: string; type: 'run' | 'skip' | 'allow' | 'toggle'; selectorPath: string; checked?: boolean }) => {
+        if (!action.selectorPath || seenPaths.has(action.selectorPath)) return;
+        seenPaths.add(action.selectorPath);
+        actions.push(action);
+      };
+
+      const readToggleChecked = (el: Element): boolean => {
+        const aria = el.getAttribute('aria-checked');
+        if (aria === 'true') return true;
+        if (aria === 'false') return false;
+        const input = el as HTMLInputElement;
+        return !!input.checked;
+      };
+
+      const readToggleLabel = (toggle: Element): string => {
+        const labeled = toggle.closest('label');
+        if (labeled) {
+          const fromLabel = cleanBtnLabel(labeled.textContent || '');
+          if (fromLabel) return fromLabel;
+        }
+        const aria = cleanBtnLabel(toggle.getAttribute('aria-label') || '');
+        if (aria) return aria;
+        const sibling = toggle.nextElementSibling;
+        if (sibling) {
+          const fromSibling = cleanBtnLabel(sibling.textContent || '');
+          if (fromSibling) return fromSibling;
+        }
+        return '';
+      };
+
+      const extractShellApprovalRow = (row: Element) => {
+        const skipBtn = row.querySelector(SHELL_SKIP_SEL);
+        if (skipBtn && !isMenuTrigger(skipBtn)) {
+          pushAction({
+            label: cleanBtnLabel(skipBtn.textContent || '') || 'Skip',
+            type: 'skip',
+            selectorPath: SHELL_SKIP_SEL,
+          });
+        }
+
+        const toggle = row.querySelector('input[type="checkbox"], [role="checkbox"], [role="switch"]');
+        if (toggle && !isMenuTrigger(toggle)) {
+          pushAction({
+            label: readToggleLabel(toggle) || 'Enable Auto-review',
+            type: 'toggle',
+            selectorPath: SHELL_TOGGLE_SEL,
+            checked: readToggleChecked(toggle),
+          });
+        }
+
+        const runBtn = row.querySelector(SHELL_RUN_SEL);
+        if (runBtn && !isMenuTrigger(runBtn)) {
+          pushAction({
+            label: cleanBtnLabel(runBtn.textContent || '') || 'Run',
+            type: 'run',
+            selectorPath: SHELL_RUN_SEL,
+          });
+        }
+
+        const allowlistBtn = row.querySelector(SHELL_ALLOW_SEL);
+        if (allowlistBtn && !isMenuTrigger(allowlistBtn)) {
+          const lblEl = allowlistBtn.querySelector('.ui-shell-tool-call__allowlist-button-label');
+          pushAction({
+            label: cleanBtnLabel(lblEl?.textContent || allowlistBtn.textContent || '') || 'Allowlist',
+            type: 'allow',
+            selectorPath: SHELL_ALLOW_SEL,
+          });
+        }
+
+        const skipLegacy = row.querySelector('.composer-skip-button');
+        if (skipLegacy && !isMenuTrigger(skipLegacy)) {
+          pushAction({
+            label: cleanBtnLabel(skipLegacy.textContent || '') || 'Skip',
+            type: 'skip',
+            selectorPath: buildSelectorPath(skipLegacy),
+          });
+        }
+
+        for (const btn of Array.from(row.querySelectorAll('button, [role="button"]'))) {
+          if (isMenuTrigger(btn)) continue;
+          const label = cleanBtnLabel(btn.textContent || btn.getAttribute('aria-label') || '');
+          if (!label) continue;
+          const lower = label.toLowerCase();
+          const path = buildSelectorPath(btn);
+          if (seenPaths.has(path)) continue;
+          if (lower === 'skip' || lower === 'cancel' || lower === 'reject' || lower === 'deny') {
+            pushAction({ label, type: 'skip', selectorPath: path });
+          } else if (lower === 'run' || lower === 'continue' || lower === 'accept' || lower === 'approve') {
+            pushAction({ label, type: 'run', selectorPath: path });
+          }
+        }
+      };
+
+      const approvalRow = container.querySelector('.ui-shell-tool-call__approval-row');
+      if (approvalRow) extractShellApprovalRow(approvalRow);
+
+      const statusRow = container.querySelector('.composer-tool-call-status-row');
+      if (statusRow && !approvalRow) extractShellApprovalRow(statusRow);
 
       const skipBtn = container.querySelector('.composer-skip-button');
       if (skipBtn) {
-        const path = buildSelectorPath(skipBtn);
-        seenPaths.add(path);
-        actions.push({ label: 'Skip', type: 'skip' as const, selectorPath: path });
+        pushAction({
+          label: 'Skip',
+          type: 'skip',
+          selectorPath: buildSelectorPath(skipBtn),
+        });
       }
 
       const runBtns = container.querySelectorAll('.composer-run-button, .anysphere-secondary-button');
       for (const btn of Array.from(runBtns)) {
         const path = buildSelectorPath(btn);
-        if (seenPaths.has(path)) continue;
-        seenPaths.add(path);
         const btnText = (btn.textContent || '').replace(/[⏎⌘⇧]/g, '').trim();
         const isAllow =
           btn.classList.contains('anysphere-secondary-button') || btnText.toLowerCase().includes('allow');
         if (isAllow) {
-          actions.push({ label: btnText, type: 'allow' as const, selectorPath: path });
+          pushAction({ label: btnText, type: 'allow', selectorPath: path });
         } else {
-          actions.push({ label: btnText || 'Run', type: 'run' as const, selectorPath: path });
+          pushAction({ label: btnText || 'Run', type: 'run', selectorPath: path });
         }
       }
 
@@ -644,6 +872,22 @@ export function extractionFunction(
       const runContainer =
         toolRoot.querySelector('.composer-terminal-tool-call-block-container') ||
         toolRoot.querySelector('.composer-tool-call-container.composer-terminal-compact-mode');
+      const shellFieldsEarly = extractShellRunFields(toolRoot);
+      const shellActionsEarly = extractToolActions(toolRoot);
+      if (
+        shellFieldsEarly &&
+        (shellActionsEarly.length > 0 || isPlausibleShellCommand(shellFieldsEarly.command))
+      ) {
+        return shellActionsToRunCommand(
+          toolRoot,
+          flatIndex,
+          messageId,
+          toolCallId,
+          shellFieldsEarly,
+          shellActionsEarly,
+        );
+      }
+
       if (runContainer) {
         const descEl = runContainer.querySelector('.composer-terminal-top-header-description');
         const candidatesEl = runContainer.querySelector('.composer-terminal-top-header-candidates');
@@ -814,7 +1058,41 @@ export function extractionFunction(
           }
         }
 
-        const compactActions = extractToolActions(compactEl);
+        const compactActions = extractToolActions(toolRoot);
+        const shellFields = extractShellRunFields(toolRoot);
+        if (shellFields && (compactActions.length > 0 || isPlausibleShellCommand(shellFields.command))) {
+          return shellActionsToRunCommand(
+            toolRoot,
+            flatIndex,
+            messageId,
+            toolCallId,
+            shellFields,
+            compactActions,
+          );
+        }
+
+        if (compactActions.length > 0) {
+          const fullText = (toolRoot.textContent || '').replace(/\s+/g, ' ');
+          const dollar = fullText.indexOf('$');
+          if (dollar >= 0) {
+            const command = normalizeShellCommandText(fullText.slice(dollar));
+            const description = (actionPart || descPart || fullText.slice(0, dollar).replace(/\s+/g, ' ').trim())
+              .substring(0, 200);
+            return shellActionsToRunCommand(
+              toolRoot,
+              flatIndex,
+              messageId,
+              toolCallId,
+              {
+                description: description || command.substring(0, 80),
+                command,
+                candidates: '',
+              },
+              compactActions,
+            );
+          }
+        }
+
         const summaryText = headerContent
           ? ''
           : (compactEl.textContent || '').trim();
@@ -873,6 +1151,17 @@ export function extractionFunction(
 
       const diffBlockLine = extractDiffBlockFromScope(toolRoot);
       const fallbackActions = extractToolActions(toolRoot);
+      const shellFieldsFallback = extractShellRunFields(toolRoot);
+      if (shellFieldsFallback && (fallbackActions.length > 0 || isPlausibleShellCommand(shellFieldsFallback.command))) {
+        return shellActionsToRunCommand(
+          toolRoot,
+          flatIndex,
+          messageId,
+          toolCallId,
+          shellFieldsFallback,
+          fallbackActions,
+        );
+      }
       return {
         element: {
           type: 'tool' as const,
@@ -1219,70 +1508,98 @@ export function extractionFunction(
     //     "Auto-Run …" matches generic "Run" textMatch — but opens settings menu,
     //     not approval action).
     const pendingApprovals: CursorState['pendingApprovals'] = [];
-    const isMenuTrigger = (btn: Element): boolean => {
-      const popup = btn.getAttribute('aria-haspopup');
-      return popup === 'menu' || popup === 'true' || popup === 'listbox';
-    };
-    const cleanBtnLabel = (raw: string): string =>
-      raw.replace(/\s*(Shift\+)?⏎\s*/g, '').replace(/\s+/g, ' ').trim();
 
     const seenCards = new Set<Element>();
-    const approvalRows = container.querySelectorAll('.ui-shell-tool-call__approval-row');
-    for (const row of Array.from(approvalRows)) {
+    function isShellApprovalRowActive(row: Element): boolean {
       const card = row.closest('.ui-tool-call-card') || row.closest('.ui-shell-tool-call');
-      if (!card || seenCards.has(card)) continue;
+      if (!card) return false;
+      const runBtn = row.querySelector('button.ui-shell-tool-call__run-btn') as HTMLButtonElement | null;
+      if (runBtn?.disabled) return false;
 
-      const actions: CursorState['pendingApprovals'][0]['actions'] = [];
-
-      const runBtn = row.querySelector('button.ui-shell-tool-call__run-btn');
-      if (runBtn && !isMenuTrigger(runBtn)) {
-        actions.push({
-          label: cleanBtnLabel(runBtn.textContent || '') || 'Run',
-          type: 'approve',
-          selectorPath: buildSelectorPath(runBtn),
-        });
-      }
-      const allowlistBtn = row.querySelector('button.ui-shell-tool-call__allowlist-button');
-      if (allowlistBtn && !isMenuTrigger(allowlistBtn)) {
-        const lblEl = allowlistBtn.querySelector('.ui-shell-tool-call__allowlist-button-label');
-        actions.push({
-          label: cleanBtnLabel(lblEl?.textContent || allowlistBtn.textContent || '') || 'Allowlist',
-          type: 'approve',
-          selectorPath: buildSelectorPath(allowlistBtn),
-        });
-      }
-      const skipBtn = row.querySelector('button.ui-shell-tool-call__skip-btn');
-      if (skipBtn && !isMenuTrigger(skipBtn)) {
-        actions.push({
-          label: cleanBtnLabel(skipBtn.textContent || '') || 'Skip',
-          type: 'reject',
-          selectorPath: buildSelectorPath(skipBtn),
-        });
-      }
-
-      if (!actions.some((a) => a.type === 'approve')) continue;
-      seenCards.add(card);
-
+      const descEl = card.querySelector('.ui-shell-tool-call__description');
+      const descText = (descEl?.textContent || '').trim().substring(0, 200);
       const cmdEl = card.querySelector('.ui-shell-tool-call__command');
       const cmdText = (cmdEl?.textContent || '')
         .trim()
         .replace(/^\$\s*/, '')
         .replace(/\s+/g, ' ')
+        .substring(0, 200);
+
+      const bubble = card.closest('[data-tool-call-id]');
+      const toolCallId = bubble?.getAttribute('data-tool-call-id') || '';
+      for (const m of elements) {
+        if (!('toolCallId' in m)) continue;
+        const actionText = m.type === 'tool'
+          ? `${m.action || ''} ${m.details || ''} ${'summaryText' in m ? (m.summaryText || '') : ''}`
+          : m.type === 'run_command'
+            ? `${m.description || ''} ${m.command || ''}`
+            : '';
+        const idMatch = !!toolCallId && m.toolCallId === toolCallId;
+        const descMatch = !!descText && (
+          actionText.includes(descText.slice(0, 40))
+          || descText.includes(actionText.trim().slice(0, 40))
+        );
+        const cmdMatch = !!cmdText && actionText.replace(/\s+/g, ' ').includes(cmdText.slice(0, 40));
+        if (m.type === 'tool' && (m.status === 'loading' || m.status === 'completed') && (idMatch || descMatch || cmdMatch)) {
+          return false;
+        }
+      }
+
+      const toolStatus = bubble?.getAttribute('data-tool-status')
+        || card.getAttribute('data-tool-status')
+        || card.closest('[data-tool-status]')?.getAttribute('data-tool-status');
+      if (toolStatus === 'completed') return false;
+      return true;
+    }
+
+    function pushShellApprovalFromRow(row: Element): void {
+      const card = row.closest('.ui-tool-call-card') || row.closest('.ui-shell-tool-call');
+      if (!card || seenCards.has(card)) return;
+
+      const shellActions = extractToolActions(row);
+      if (!shellActions.some((a) => a.type === 'run' || a.type === 'allow')) return;
+
+      const actions: CursorState['pendingApprovals'][0]['actions'] = shellActions.map((a) => ({
+        label: a.label,
+        type:
+          a.type === 'run' ? 'approve' as const
+          : a.type === 'skip' ? 'reject' as const
+          : a.type === 'allow' ? 'approve_all' as const
+          : 'toggle' as const,
+        selectorPath: a.selectorPath,
+        ...(a.checked !== undefined ? { checked: a.checked } : {}),
+      }));
+
+      seenCards.add(card);
+
+      const cmdEl = card.querySelector('.ui-shell-tool-call__command');
+      let cmdText = (cmdEl?.textContent || '')
+        .trim()
+        .replace(/^\$\s*/, '')
+        .replace(/\s+/g, ' ')
         .substring(0, 240);
+      if (!cmdText) {
+        const raw = shellTextWithoutApprovalRow(card).replace(/\s+/g, ' ');
+        const dollar = raw.indexOf('$');
+        if (dollar >= 0) cmdText = normalizeShellCommandText(raw.slice(dollar)).substring(0, 240);
+      }
       const descEl = card.querySelector('.ui-shell-tool-call__description');
       const descText = (descEl?.textContent || '').trim().substring(0, 200);
-      const description = cmdText || descText || 'Pending approval';
 
-      // Stable per-card id — Cursor tool-call id when present,
-      // else selector path. Record consistent across polls.
       const bubble = card.closest('[data-tool-call-id]');
       const toolCallId = bubble?.getAttribute('data-tool-call-id') || buildSelectorPath(card);
       pendingApprovals.push({
         id: `tool:${toolCallId}`,
-        description,
+        description: descText || cmdText || 'Pending approval',
+        ...(cmdText ? { command: cmdText } : {}),
         actions,
       });
     }
+
+    const approvalRows = Array.from(container.querySelectorAll('.ui-shell-tool-call__approval-row'))
+      .filter(isShellApprovalRowActive);
+    const activeRow = approvalRows.length > 0 ? approvalRows[approvalRows.length - 1] : null;
+    if (activeRow) pushShellApprovalFromRow(activeRow);
 
     if (pendingApprovals.length === 0) {
       // Legacy fallback — tool-call containers only. Never scan whole composer
@@ -1294,13 +1611,13 @@ export function extractionFunction(
         if (t === 'run in background' || t === 'cancel') return false;
         if (t.startsWith('{') && t.includes('"ok"')) return false;
         if (t === 'run' || t === 'accept' || t === 'approve' || t === 'allow') return true;
-        if (t === 'accept all') return true;
+        if (t === 'accept all' || t === 'continue') return true;
         if (t.startsWith('allowlist')) return true;
         return false;
       };
       const isKnownRejectLabel = (raw: string): boolean => {
         const t = cleanBtnLabel(raw).toLowerCase();
-        return t === 'skip' || t === 'reject' || t === 'deny';
+        return t === 'skip' || t === 'reject' || t === 'deny' || t === 'cancel';
       };
       const toolRootSelectors = [
         '.ui-tool-call-card',
@@ -1335,7 +1652,7 @@ export function extractionFunction(
               const label = cleanBtnLabel(btn.textContent || btn.getAttribute('aria-label') || '');
               if (label && isKnownApproveLabel(label)) {
                 seenApproveBtns.add(btn);
-                approveButtons.push({ label, selector: buildSelectorPath(btn), root });
+                approveButtons.push({ label, selector: selectorForApprovalButton(btn), root });
               }
             }
           } catch { /* skip */ }
@@ -1359,7 +1676,7 @@ export function extractionFunction(
               const label = cleanBtnLabel(btn.textContent || btn.getAttribute('aria-label') || '');
               if (label && isKnownRejectLabel(label)) {
                 seenRejectBtns.add(btn);
-                rejectButtons.push({ label, selector: buildSelectorPath(btn) });
+                rejectButtons.push({ label, selector: selectorForApprovalButton(btn) });
               }
             }
           } catch { /* skip */ }
@@ -1370,7 +1687,7 @@ export function extractionFunction(
             const label = cleanBtnLabel(btn.textContent || btn.getAttribute('aria-label') || '');
             if (label && isKnownRejectLabel(label)) {
               seenRejectBtns.add(btn);
-              rejectButtons.push({ label, selector: buildSelectorPath(btn) });
+              rejectButtons.push({ label, selector: selectorForApprovalButton(btn) });
             }
           }
         }
@@ -1394,30 +1711,43 @@ export function extractionFunction(
           primaryRoot.querySelector('.ui-shell-tool-call__command') ||
           primaryRoot.querySelector('.composer-terminal-command-expanded-text') ||
           primaryRoot.querySelector('.composer-terminal-command-editor');
-        const cmdText = (cmdEl?.textContent || '')
+        let cmdText = (cmdEl?.textContent || '')
           .trim()
           .replace(/^\$\s*/, '')
           .replace(/\s+/g, ' ')
           .substring(0, 240);
+        if (!cmdText) {
+          const raw = (primaryRoot.textContent || '').replace(/\s+/g, ' ');
+          const dollar = raw.indexOf('$');
+          if (dollar >= 0) cmdText = normalizeShellCommandText(raw.slice(dollar)).substring(0, 240);
+        }
         const descEl = primaryRoot.querySelector('.ui-shell-tool-call__description') ||
           primaryRoot.querySelector('.composer-terminal-top-header-description');
         const descText = (descEl?.textContent || '').trim().substring(0, 200);
-        const description = cmdText || descText || approveButtons[0].label || 'Pending approval';
+        const description = descText || cmdText || approveButtons[0].label || 'Pending approval';
 
         const bubble = primaryRoot.closest('[data-tool-call-id]') || primaryRoot;
         const toolCallId = bubble.getAttribute('data-tool-call-id') || buildSelectorPath(primaryRoot);
         pendingApprovals.push({
           id: `tool:${toolCallId}`,
           description,
+          ...(cmdText ? { command: cmdText } : {}),
           actions,
         });
       }
     }
 
     // --- Agent status ---
+    const hasLoadingToolEarly = container.querySelector('[data-tool-status="loading"]') !== null;
+
     const statusEl = findFirst(statusSelectors);
     let agentStatus: CursorState['agentStatus'] = 'idle';
-    if (statusEl) {
+    if (hasLoadingToolEarly) {
+      agentStatus = 'running_tool';
+      pendingApprovals.length = 0;
+    } else if (pendingApprovals.length > 0) {
+      agentStatus = 'waiting_approval';
+    } else if (statusEl) {
       const combined = `${(statusEl.textContent || '').toLowerCase()} ${statusEl.classList.toString().toLowerCase()}`;
       if (combined.includes('think')) agentStatus = 'thinking';
       else if (combined.includes('generat')) agentStatus = 'generating';
@@ -1425,7 +1755,6 @@ export function extractionFunction(
       else if (combined.includes('approv') || combined.includes('wait')) agentStatus = 'waiting_approval';
       else if (combined.includes('error') || combined.includes('fail')) agentStatus = 'error';
     }
-    if (pendingApprovals.length > 0) agentStatus = 'waiting_approval';
 
     // Element-based status detection removed: loading tool badges and
     // run_command elements stay in DOM long after completion.

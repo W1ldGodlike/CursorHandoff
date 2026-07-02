@@ -105,6 +105,11 @@ export const ACTION_SELECTORS: Record<string, string[]> = {
   run: ['button.ui-shell-tool-call__run-btn', '.composer-tool-call-status-row .anysphere-button.composer-run-button'],
   skp: ['button.ui-shell-tool-call__skip-btn', '.composer-skip-button'],
   alw: ['button.ui-shell-tool-call__allowlist-button', '.composer-tool-call-status-row .anysphere-secondary-button.composer-run-button'],
+  tog: [
+    '.ui-shell-tool-call__approval-row input[type="checkbox"]',
+    '.ui-shell-tool-call__approval-row [role="checkbox"]',
+    '.ui-shell-tool-call__approval-row [role="switch"]',
+  ],
   bld: ['.composer-create-plan-build-button'],
 };
 
@@ -367,7 +372,11 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
     // works with one visible approval card.
     const fromHash = deps.messageTracker.resolveHash(hash);
     const stableFallback = resolveStableActionSelector(action);
-    const selectorPath = fromHash ?? stableFallback;
+    const shellApproval = action === 'apr' || action === 'rej' || action === 'all'
+      || action === 'run' || action === 'skp' || action === 'alw' || action === 'tog';
+    const selectorPath = shellApproval
+      ? (stableFallback ?? fromHash)
+      : (fromHash ?? stableFallback);
 
     if (!selectorPath) {
       logWarn('TG_CALLBACK_STALE', `callback ${action}: hash/selector evicted`, callbackCtx(ctx, 'callback', { hint: action }));
@@ -382,7 +391,7 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
       case 'apr': case 'rej': case 'all':
         result = await deps.commandExecutor.clickApproval(commandId, selectorPath);
         break;
-      case 'run': case 'skp': case 'alw': case 'bld':
+      case 'run': case 'skp': case 'alw': case 'bld': case 'tog':
         result = await deps.commandExecutor.clickAction(commandId, selectorPath);
         break;
       default:
@@ -398,6 +407,7 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
       run: t('tg.msg.callback.run', 'Run'),
       skp: t('tg.msg.callback.qSkip', 'Skip'),
       alw: t('tg.msg.callback.allowlist', 'Allowlist'),
+      tog: 'OK',
       bld: t('tg.msg.callback.build', 'Build'),
     };
     await ctx.answerCallbackQuery({ text: result.ok ? names[action] ?? action : t('tg.msg.callback.modeErr', 'Error: {error}', { error: sanitizeErrorForUser(result.error ?? 'unknown') }) });

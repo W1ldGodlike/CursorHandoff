@@ -106,7 +106,11 @@ type StubOpts = {
 };
 
 function makeStubClient(opts: StubOpts = {}): CdpClient {
-  const evaluate = opts.evaluate ?? (async () => ({ ok: true, info: 'TEXTAREA.chat-input' }));
+  const defaultEvaluate = async (script?: string) => {
+    if (opts.clickThrows && String(script).includes('clickEl')) return false;
+    return { ok: true, info: 'TEXTAREA.chat-input' };
+  };
+  const evaluate = opts.evaluate ?? defaultEvaluate;
   return {
     isConnected: () => opts.connected ?? true,
     evaluate,
@@ -744,11 +748,15 @@ describe('navigation logging', () => {
   });
 
   it('clickAction retry success logs COMMAND_OK after COMMAND_WARN', async () => {
-    let clicks = 0;
+    let resolveAttempts = 0;
     const client = makeStubClient({
-      click: async () => {
-        clicks += 1;
-        if (clicks === 1) throw new Error('transient click');
+      evaluate: async (script) => {
+        if (String(script).includes('clickEl')) {
+          resolveAttempts += 1;
+          if (resolveAttempts === 1) return false;
+          return true;
+        }
+        return { ok: true, info: 'TEXTAREA.chat-input' };
       },
     });
     const ex = makeExecutor(client);

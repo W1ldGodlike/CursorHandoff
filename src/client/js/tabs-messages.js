@@ -1176,6 +1176,25 @@ export function updateAssistantEl(el, msg) {
 // --- Tool call ---
 
 export function createToolEl(msg) {
+  const hasApprovalActions = msg.actions?.some(function (a) {
+    return a.type === 'run' || a.type === 'skip' || a.type === 'allow' || a.type === 'toggle';
+  });
+  if (hasApprovalActions) {
+    const runMsg = {
+      type: 'run_command',
+      id: msg.id,
+      flatIndex: msg.flatIndex,
+      toolCallId: msg.toolCallId,
+      description: msg.action || '',
+      candidates: '',
+      command: msg.details || '',
+      actions: msg.actions,
+    };
+    const el = createRunCommandEl(runMsg);
+    el.classList.add('el-tool');
+    return el;
+  }
+
   const el = document.createElement('div');
   el.className = 'chat-el el-tool';
   el.dataset.id = msg.id;
@@ -1238,7 +1257,7 @@ export function createToolEl(msg) {
 
   if (msg.actions && msg.actions.length > 0) {
     const actionsRow = document.createElement('div');
-    actionsRow.className = 'tool-actions-row';
+    actionsRow.className = 'tool-actions-row run-actions-row';
     appendRunStyleActionButtons(actionsRow, msg.actions);
     el.appendChild(actionsRow);
   }
@@ -1406,22 +1425,85 @@ export function updateTodoListEl(el, msg) {
 
 // --- Run command / inline actions tool (Skip, Run, Allow) ---
 
+function sortRunActions(actions) {
+  const order = { skip: 0, toggle: 1, allow: 2, run: 3 };
+  return actions.slice().sort(function (a, b) {
+    return (order[a.type] ?? 9) - (order[b.type] ?? 9);
+  });
+}
+
+function resolveClickSelector(action) {
+  const stable = {
+    run: 'button.ui-shell-tool-call__run-btn',
+    skip: 'button.ui-shell-tool-call__skip-btn',
+    allow: 'button.ui-shell-tool-call__allowlist-button',
+    toggle: '.ui-shell-tool-call__approval-row input[type="checkbox"], .ui-shell-tool-call__approval-row [role="checkbox"], .ui-shell-tool-call__approval-row [role="switch"]',
+  };
+  const path = action.selectorPath || '';
+  if (stable[action.type] && (path.includes('#bubble') || path.includes('nth-of-type'))) {
+    return stable[action.type];
+  }
+  if (path.startsWith('button.ui-shell-tool-call__') || path.includes('checkbox') || path.includes('switch')) {
+    return path;
+  }
+  return stable[action.type] || path;
+}
+
+function emitApprovalClick(action) {
+  ctx.socket.emit('command:click_action', {
+    commandId: socketState.newCommandId(),
+    selectorPath: resolveClickSelector(action),
+  });
+}
+
 export function appendRunStyleActionButtons(container, actions) {
-  actions.forEach(function (action) {
+  const sorted = sortRunActions(actions);
+  const left = document.createElement('div');
+  left.className = 'run-actions-left';
+  const right = document.createElement('div');
+  right.className = 'run-actions-right';
+
+  sorted.forEach(function (action) {
+    if (action.type === 'toggle') {
+      const label = document.createElement('label');
+      label.className = 'run-toggle';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!action.checked;
+      cb.addEventListener('change', function () {
+        emitApprovalClick(action);
+      });
+      const text = document.createElement('span');
+      text.textContent = action.label;
+      label.appendChild(cb);
+      label.appendChild(text);
+      label.addEventListener('click', function (ev) {
+        if (ev.target === cb) return;
+        ev.preventDefault();
+        emitApprovalClick(action);
+      });
+      right.appendChild(label);
+      return;
+    }
+
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = action.type === 'run' ? 'run-btn run-btn-run'
       : action.type === 'allow' ? 'run-btn run-btn-allow'
       : 'run-btn run-btn-skip';
     btn.textContent = action.label;
+    if (action.type === 'run' && !/\u23CE|⏎/.test(btn.textContent)) {
+      btn.textContent = btn.textContent + ' \u23CE';
+    }
     btn.addEventListener('click', function () {
-      ctx.socket.emit('command:click_action', {
-        commandId: socketState.newCommandId(),
-        selectorPath: action.selectorPath,
-      });
+      emitApprovalClick(action);
     });
-    container.appendChild(btn);
+    if (action.type === 'skip') left.appendChild(btn);
+    else right.appendChild(btn);
   });
+
+  container.appendChild(left);
+  container.appendChild(right);
 }
 
 export function createRunCommandEl(msg) {
@@ -1436,7 +1518,7 @@ export function createRunCommandEl(msg) {
   header.className = 'run-header';
   const desc = document.createElement('span');
   desc.className = 'run-description';
-  desc.textContent = msg.description;
+  desc.textContent = msg.description ? ('> ' + msg.description) : '';
   header.appendChild(desc);
   if (msg.candidates) {
     const cand = document.createElement('span');
@@ -1446,17 +1528,19 @@ export function createRunCommandEl(msg) {
   }
   card.appendChild(header);
 
-  const cmdBlock = document.createElement('div');
-  cmdBlock.className = 'run-command-block';
-  const prompt = document.createElement('span');
-  prompt.className = 'run-prompt';
-  prompt.textContent = '$ ';
-  cmdBlock.appendChild(prompt);
-  const cmdText = document.createElement('span');
-  cmdText.className = 'run-command-text';
-  cmdText.textContent = msg.command;
-  cmdBlock.appendChild(cmdText);
-  card.appendChild(cmdBlock);
+  if (msg.command && msg.command.trim()) {
+    const cmdBlock = document.createElement('div');
+    cmdBlock.className = 'run-command-block';
+    const prompt = document.createElement('span');
+    prompt.className = 'run-prompt';
+    prompt.textContent = '$ ';
+    cmdBlock.appendChild(prompt);
+    const cmdText = document.createElement('span');
+    cmdText.className = 'run-command-text';
+    cmdText.textContent = msg.command;
+    cmdBlock.appendChild(cmdText);
+    card.appendChild(cmdBlock);
+  }
 
   if (msg.actions && msg.actions.length > 0) {
     const actionsRow = document.createElement('div');

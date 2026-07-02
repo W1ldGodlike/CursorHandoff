@@ -82,6 +82,103 @@ describe('approval-filter', () => {
     assert.equal(filtered.agentStatus, 'idle');
   });
 
+  it('applyApprovalFilter strips run_command actions when approval resolved', () => {
+    const pending = approval({
+      id: 'tool:tc1',
+      description: 'npm test',
+      command: 'npm test',
+      actions: [
+        { label: 'Run', type: 'approve', selectorPath: 'sp-run' },
+        { label: 'Skip', type: 'reject', selectorPath: 'sp-skip' },
+      ],
+    });
+    const runMsg = {
+      type: 'run_command' as const,
+      id: 'rc1',
+      flatIndex: 1,
+      toolCallId: 'tc1',
+      description: 'npm test',
+      candidates: '',
+      command: 'npm testSkipRun',
+      actions: [
+        { label: 'Skip', type: 'skip' as const, selectorPath: 'dom-skip' },
+        { label: 'Run', type: 'run' as const, selectorPath: 'dom-run' },
+      ],
+    };
+
+    const waiting = applyApprovalFilter({
+      agentStatus: 'waiting_approval',
+      pendingApprovals: [pending],
+      messages: [runMsg],
+    } as Parameters<typeof applyApprovalFilter>[0]);
+    assert.equal(waiting.agentStatus, 'waiting_approval');
+    const waitingRc = waiting.messages[0];
+    assert.equal(waitingRc.type, 'run_command');
+    if (waitingRc.type === 'run_command') {
+      assert.equal(waitingRc.actions.length, 2);
+      assert.equal(waitingRc.actions[0].type, 'run');
+    }
+
+    const resolved = applyApprovalFilter({
+      agentStatus: 'running_tool',
+      pendingApprovals: [],
+      messages: [runMsg],
+    } as Parameters<typeof applyApprovalFilter>[0]);
+    const resolvedRc = resolved.messages[0];
+    assert.equal(resolvedRc.type, 'run_command');
+    if (resolvedRc.type === 'run_command') {
+      assert.deepEqual(resolvedRc.actions, []);
+      assert.equal(resolvedRc.command, 'npm test');
+    }
+  });
+
+  it('applyApprovalFilter hides actions after pending clears', () => {
+    const filtered = applyApprovalFilter({
+      agentStatus: 'idle',
+      pendingApprovals: [],
+      messages: [{
+        type: 'run_command',
+        id: 'rc-old',
+        flatIndex: 1,
+        toolCallId: 'tc-old',
+        description: 'old command',
+        candidates: '',
+        command: 'npm test',
+        actions: [{ label: 'Run', type: 'run', selectorPath: 'dom' }],
+      }],
+    } as Parameters<typeof applyApprovalFilter>[0]);
+    assert.equal(filtered.pendingApprovals.length, 0);
+    const rc = filtered.messages[0];
+    assert.equal(rc.type, 'run_command');
+    if (rc.type === 'run_command') assert.deepEqual(rc.actions, []);
+  });
+
+  it('keeps approvals with Continue button', () => {
+    const ok = approval({
+      id: 'tool:web-search',
+      description: 'Confirm search Cursor settings',
+      actions: [
+        { label: 'Continue', type: 'approve', selectorPath: 'sp-cont' },
+        { label: 'Cancel', type: 'reject', selectorPath: 'sp-cancel' },
+      ],
+    });
+    assert.equal(isActionableApproval(ok), true);
+  });
+
+  it('keeps toggle checkbox actions', () => {
+    const ok = approval({
+      id: 'tool:shell-1',
+      description: 'List local dev folder contents',
+      command: 'Get-ChildItem local',
+      actions: [
+        { label: 'Skip', type: 'reject', selectorPath: 'sp-skip' },
+        { label: 'Enable Auto-review', type: 'toggle', selectorPath: 'sp-toggle', checked: false },
+        { label: 'Run', type: 'approve', selectorPath: 'sp-run' },
+      ],
+    });
+    assert.equal(isActionableApproval(ok), true);
+  });
+
   it('filterActionableApprovals keeps real mixed with junk', () => {
     const real = approval({
       id: 'tool:real',

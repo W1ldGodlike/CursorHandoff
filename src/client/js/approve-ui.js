@@ -70,22 +70,15 @@ export function renderApprovals() {
     if (ctx.webSettings.approveSound && count > lastPendingApprovalCount) {
       tabs.playApproveSound();
     }
-    ctx.$approvalBar.classList.remove('hidden');
     const approval = ctx.state.pendingApprovals[0];
-    ctx.$approvalDesc.textContent = approval.description || t('web.feed.approvalDefault', 'Action requires confirmation');
-
-    const approveAction = approval.actions.find(a => a.type === 'approve' || a.type === 'approve_all');
-    const rejectAction = approval.actions.find(a => a.type === 'reject');
-
-    ctx.$btnApprove.disabled = !approveAction;
-    ctx.$btnReject.disabled = !rejectAction;
-    if (approveAction) ctx.$btnApprove.textContent = approveAction.label || t('web.approve.accept', 'Accept');
-    if (rejectAction) ctx.$btnReject.textContent = rejectAction.label || t('web.approve.reject', 'Reject');
-
-    fireNotification(approval.description || t('web.feed.approvalNotify', 'Agent waiting for approval'), 'cursor-approval');
-  } else {
-    ctx.$approvalBar.classList.add('hidden');
+    fireNotification(
+      approval.command
+        ? approval.description + ': ' + approval.command.substring(0, 80)
+        : approval.description || t('web.feed.approvalNotify', 'Agent waiting for approval'),
+      'cursor-approval',
+    );
   }
+  ctx.$approvalBar.classList.add('hidden');
   lastPendingApprovalCount = count;
 }
 

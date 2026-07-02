@@ -520,11 +520,15 @@ describe('tabs DOMExtractor logging', () => {
     const client = makeStubClient({
       callFn: async () =>
         minimalState({
+          agentStatus: 'waiting_approval',
           pendingApprovals: [
             {
-              id: 'a1',
+              id: 'tool:a1',
               description: 'run cmd',
-              actions: [{ label: 'Run', type: 'approve', selectorPath: '#run' }],
+              actions: [
+                { label: 'Run', type: 'approve', selectorPath: '#run' },
+                { label: 'Skip', type: 'reject', selectorPath: '#skip' },
+              ],
             },
           ],
           chatTabs: [

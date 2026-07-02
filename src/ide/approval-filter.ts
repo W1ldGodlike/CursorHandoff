@@ -1,4 +1,5 @@
 import type { Approval, CursorState } from '../core/types.js';
+import { applyApprovalActionsToMessages } from './parse/approval-merge.js';
 
 const MAX_DESC_LEN = 280;
 const MAX_LABEL_LEN = 64;
@@ -32,7 +33,7 @@ function isKnownApproveLabel(label: string): boolean {
   if (JUNK_LABELS.has(t)) return false;
   if (t.startsWith('{') && t.includes('"ok"')) return false;
   if (t === 'run' || t === 'accept' || t === 'approve' || t === 'allow') return true;
-  if (t === 'accept all') return true;
+  if (t === 'accept all' || t === 'continue') return true;
   if (t.startsWith('allowlist')) return true;
   return false;
 }
@@ -40,8 +41,14 @@ function isKnownApproveLabel(label: string): boolean {
 function isKnownRejectLabel(label: string): boolean {
   const t = normalize(label).toLowerCase();
   if (!t || t.length > MAX_LABEL_LEN) return false;
+  if (t === 'skip' || t === 'reject' || t === 'deny' || t === 'cancel') return true;
   if (JUNK_LABELS.has(t)) return false;
-  return t === 'skip' || t === 'reject' || t === 'deny';
+  return false;
+}
+
+function isKnownToggleLabel(label: string): boolean {
+  const t = normalize(label).toLowerCase();
+  return !!t && t.length <= MAX_LABEL_LEN;
 }
 
 /** Drops false DOM matches (terminal buttons, JSON dumps, reject-only matches). */
@@ -57,6 +64,8 @@ export function isActionableApproval(approval: Approval): boolean {
     const label = normalize(action.label);
     if (action.type === 'reject') {
       if (!isKnownRejectLabel(label)) return false;
+    } else if (action.type === 'toggle') {
+      if (!isKnownToggleLabel(label)) return false;
     } else if (!isKnownApproveLabel(label)) {
       return false;
     }
@@ -75,15 +84,17 @@ export function filterActionableApprovals(approvals: Approval[]): Approval[] {
   return approvals.filter(isActionableApproval);
 }
 
-/** Removes junk approvals and fixes agentStatus when none remain. */
+/** Removes junk approvals, syncs run_command action buttons, fixes agentStatus. */
 export function applyApprovalFilter(state: CursorState): CursorState {
   const pendingApprovals = filterActionableApprovals(state.pendingApprovals);
-  if (pendingApprovals.length === state.pendingApprovals.length) return state;
+  const messages = applyApprovalActionsToMessages({ ...state, pendingApprovals });
 
   let agentStatus = state.agentStatus;
-  if (pendingApprovals.length === 0 && agentStatus === 'waiting_approval') {
+  if (pendingApprovals.length > 0) {
+    agentStatus = 'waiting_approval';
+  } else if (agentStatus === 'waiting_approval') {
     agentStatus = 'idle';
   }
 
-  return { ...state, pendingApprovals, agentStatus };
+  return { ...state, pendingApprovals, messages, agentStatus };
 }

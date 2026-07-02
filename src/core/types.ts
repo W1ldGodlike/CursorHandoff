@@ -310,8 +310,10 @@ export interface TodoListBlock {
 
 export interface RunAction {
   label: string;
-  type: 'run' | 'skip' | 'allow';
+  type: 'run' | 'skip' | 'allow' | 'toggle';
   selectorPath: string;
+  /** Toggle/checkbox actions — current checked state from DOM. */
+  checked?: boolean;
 }
 
 export interface RunCommand {
@@ -335,13 +337,16 @@ export interface LoadingIndicator {
 export interface Approval {
   id: string;
   description: string;
+  /** Shell command body when description is a separate header line. */
+  command?: string;
   actions: ApprovalAction[];
 }
 
 export interface ApprovalAction {
   label: string;
-  type: 'approve' | 'reject' | 'approve_all';
+  type: 'approve' | 'reject' | 'approve_all' | 'toggle';
   selectorPath: string;
+  checked?: boolean;
 }
 
 export interface SelectorStrategy {

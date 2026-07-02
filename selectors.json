@@ -17,7 +17,7 @@
       "button[aria-label*='Run']",
       "button[aria-label*='Allow']"
     ],
-    "textMatch": ["Accept", "Approve", "Run", "Allow", "Accept All"]
+    "textMatch": ["Accept", "Approve", "Run", "Allow", "Accept All", "Continue"]
   },
   "rejectButton": {
     "strategies": [

@@ -2495,8 +2495,38 @@ html[data-theme="light"] .markdown-body .md-diagram-wrap svg .cluster rect {
 .run-actions-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px;
+  margin-top: 2px;
+}
+
+.run-actions-left,
+.run-actions-right {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.run-actions-right {
+  margin-left: auto;
+}
+
+.run-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.run-toggle input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent-blue);
 }
 
 .run-btn {
@@ -2510,8 +2540,9 @@ html[data-theme="light"] .markdown-body .md-diagram-wrap svg .cluster rect {
 }
 
 .run-btn-run {
-  background: var(--accent-green);
+  background: var(--accent-blue);
   color: #fff;
+  font-weight: 500;
 }
 
 .run-btn-skip {

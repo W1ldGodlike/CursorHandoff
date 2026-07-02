@@ -799,7 +799,8 @@ export class CommandExecutor {
     selectorPath: string
   ): Promise<CommandResult> {
     return this.withRetry(commandId, async (client) => {
-      await client.click(selectorPath);
+      const ok = await this.clickResolvedSelector(client, selectorPath);
+      if (!ok) throw new Error(`Element not found: ${selectorPath}`);
     });
   }
 
@@ -1569,9 +1570,45 @@ export class CommandExecutor {
 
   async clickAction(commandId: string, selectorPath: string): Promise<CommandResult> {
     return this.withRetry(commandId, async (client) => {
-      await client.click(selectorPath);
+      const ok = await this.clickResolvedSelector(client, selectorPath);
+      if (!ok) throw new Error(`Element not found: ${selectorPath}`);
       logCommandOk(selectorPath.substring(0, 60), commandCtx(commandId, { hint: selectorPath.substring(0, 60) }));
     });
+  }
+
+  private async clickResolvedSelector(client: CdpClient, selectorPath: string): Promise<boolean> {
+    return (await client.evaluate(`
+      (() => {
+        const path = ${JSON.stringify(selectorPath)};
+        const SHELL_SKIP = 'button.ui-shell-tool-call__skip-btn';
+        const SHELL_RUN = 'button.ui-shell-tool-call__run-btn';
+        const SHELL_ALLOW = 'button.ui-shell-tool-call__allowlist-button';
+        const stable = [SHELL_SKIP, SHELL_RUN, SHELL_ALLOW];
+        const clickEl = (el) => {
+          if (!el) return false;
+          el.scrollIntoView({ block: 'center', behavior: 'instant' });
+          el.click();
+          return true;
+        };
+        const row = document.querySelector('.ui-shell-tool-call__approval-row');
+        if (row) {
+          if (stable.includes(path)) return clickEl(row.querySelector(path));
+          if (path.includes('checkbox') || path.includes('switch')) {
+            return clickEl(row.querySelector('input[type="checkbox"], [role="checkbox"], [role="switch"]'));
+          }
+          if (path.includes('#bubble') || path.includes('nth-of-type')) {
+            return clickEl(row.querySelector(SHELL_RUN))
+              || clickEl(row.querySelector(SHELL_SKIP))
+              || clickEl(row.querySelector(SHELL_ALLOW));
+          }
+        }
+        if (stable.includes(path)) return clickEl(document.querySelector(path));
+        if (path.includes('checkbox') || path.includes('switch')) {
+          return clickEl(document.querySelector('.ui-shell-tool-call__approval-row input[type="checkbox"], .ui-shell-tool-call__approval-row [role="checkbox"], .ui-shell-tool-call__approval-row [role="switch"]'));
+        }
+        return clickEl(document.querySelector(path));
+      })()
+    `)) as boolean;
   }
 
   async extractToolContent(toolCallId: string): Promise<{ code: string; language?: string; filename?: string } | null> {
