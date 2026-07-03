@@ -179,6 +179,24 @@ The sidebar **Status** tree is read-mostly (server, CDP, agent, clients, windows
 
 Implementation: `src/workspace/project-web.ts`, wired in `src/web/http-routes.ts`. Telegram `/projects` and `/open_project` use the same open path. After **close**, snapshots for that CDP target are removed and the live window list is refreshed so `isOpen` in the picker stays accurate.
 
+### Tool approval `selectorPath` (CDP)
+
+Web **Run** / **Skip** and Telegram inline buttons send `click_action` with a `selectorPath`. Shell approvals use live DOM selectors from `pendingApprovals` (e.g. `button.ui-shell-tool-call__run-btn`). Confirm search and Delete file use stable magic paths built in `src/ide/parse/confirm-search-selectors.ts` and `delete-file-selectors.ts`; CDP resolves them in `navigation.ts` (`clickConfirmSearchAtCoords`, `clickDeleteFileAtCoords`).
+
+| Card | Path pattern | Action |
+|------|--------------|--------|
+| Confirm search | `confirm-search:{toolCallId}:{urlEncodedQuery}:continue` | Approve web search |
+| Confirm search | `confirm-search:{toolCallId}:{urlEncodedQuery}:cancel` | Reject web search |
+| Confirm search | `confirm-search:{toolCallId}:{urlEncodedQuery}:auto-search-toggle` | Toggle Auto-search web |
+| Delete file | `delete-file:{toolCallId}:{urlEncodedFilename}:accept` | Accept delete |
+| Delete file | `delete-file:{toolCallId}:{urlEncodedFilename}:reject` | Reject delete |
+
+- **Query / filename segments** — `encodeURIComponent` of up to 120 chars (query) or the basename (filename). Omitted when empty: `confirm-search:{toolCallId}:continue`, `delete-file:{toolCallId}:accept`.
+- **Scoped matching** — With several cards open, merge attaches paths from the matched message `toolCallId` and command/filename so the bottom card’s **Continue** does not click the top row.
+- **Legacy (deprecated)** — Global `confirm-search:continue`, `confirm-search:cancel`, `confirm-search:auto-search-toggle` (no id/query); prefer scoped paths.
+
+Sources: `confirm-search-merge.ts`, `delete-file-merge.ts`, `shell-approval-merge.ts` (orchestrated by `approval-merge.ts`). User-facing behavior: [guide § Web client](guide.md), [Telegram § Tool approvals](telegram.md#tool-approvals-run--confirm-search--delete).
+
 ---
 
 ## Health endpoint

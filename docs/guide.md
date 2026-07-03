@@ -161,6 +161,16 @@ The header status strip includes an **Access** chip: it shows how you reached th
 
 You get a live chat feed, approval cards (optional approve sound in ⚙, default off), plan widgets, rendered code and diffs, and file attachments from the phone (images paste into the composer; other files land on disk and paths go in the message). While an attachment send is in flight, **Send** shows a spinner and stays disabled until the server answers (large photos over a tunnel can take a few seconds). Messages starting with `$` force-submit even when the agent is busy; other text queues until the agent is idle. Header **Mode** and **Model** pills open sheets that read the live Cursor menus over CDP (same lists as in the IDE — not a hardcoded catalog). Preferences sync to `<data-root>/web-settings.json`.
 
+**Tool approval cards** mirror Cursor while `agentStatus` is `waiting_approval`:
+
+| Card type | Buttons | When |
+|-----------|---------|------|
+| Shell command | **Run** / **Skip** (and **Allow** when shown) | Terminal or MCP tool needs approval |
+| Confirm search | **Continue** / **Cancel** / **Auto-search web** | Agent requests a web search |
+| Delete file | **Accept** / **Reject** | Agent proposes deleting a file |
+
+Each card gets its own button row on web and Telegram. With several Confirm search or Delete cards open, buttons are scoped to that card’s query or filename — tapping **Continue** on the bottom card does not approve the top one.
+
 ---
 
 <a id="remote-access"></a>

@@ -5,6 +5,8 @@ import {
   CONFIRM_SEARCH_CANCEL,
   CONFIRM_SEARCH_CONTINUE,
   CONFIRM_SEARCH_TOGGLE,
+  confirmSearchContinuePath,
+  parseConfirmSearchSelector,
 } from '../../src/ide/parse/confirm-search-selectors.js';
 
 describe('telegram ACTION_SELECTORS', () => {
@@ -118,10 +120,10 @@ describe('resolveStableActionSelector', () => {
 describe('resolveCallbackActionSelector', () => {
   it('prefers hashed confirm-search path over shell fallback', () => {
     const hashes = new Map<string, string>([
-      ['abc12345', CONFIRM_SEARCH_CONTINUE],
+      ['abc12345', confirmSearchContinuePath('tc-1')],
     ]);
     const sel = resolveCallbackActionSelector('run', 'abc12345', (h) => hashes.get(h));
-    assert.equal(sel, CONFIRM_SEARCH_CONTINUE);
+    assert.equal(sel, confirmSearchContinuePath('tc-1'));
   });
 
   it('prefers hashed toggle path over shell checkbox fallback', () => {

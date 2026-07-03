@@ -46,7 +46,7 @@ flowchart LR
 ### IDE layer (`src/ide/`)
 
 - **Session** — discover workbench targets on `:9222`, keep the WebSocket alive, hop between Cursor windows.
-- **Parse** — `tabs.ts`, `messages.ts`, `composer.ts`, `plan-widget.ts` evaluate DOM via `Runtime.callFunction`, keyed on `[data-message-index]` (Cursor 3.8+).
+- **Parse** — `tabs.ts`, `messages.ts`, `composer.ts`, `plan-widget.ts` evaluate DOM via `Runtime.callFunction`, keyed on `[data-message-index]` (Cursor 3.8+). Tool approvals are merged in `approval-merge.ts` from `pendingApprovals` via `shell-approval-merge.ts`, `confirm-search-merge.ts`, and `delete-file-merge.ts` (shell Run/Skip, Confirm search, Delete file).
 - **Actions** — `navigation.ts`, `composer.ts`, `approval.ts`, `agent-controls.ts` turn remote intents into CDP input. The ProseMirror composer needs the Input domain; assigning `.value` on DOM nodes is not enough.
 
 ### State (`src/state/`)

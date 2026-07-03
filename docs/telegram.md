@@ -121,6 +121,18 @@ When the agent shows an **AskQuestion** panel in Cursor, Handoff mirrors it as *
 
 **Do not** send ordinary prompts in the same thread while a questionnaire is open — unrelated text is treated as a normal inbound message and can dismiss the survey widget.
 
+### Tool approvals (Run / Confirm search / Delete)
+
+When the agent waits for approval (`waiting_approval`), Handoff posts inline buttons on the matching feed message (web and Telegram use the same CDP click paths):
+
+| Card | Buttons | Notes |
+|------|---------|-------|
+| Shell | **Run** / **Skip** ( **Allow** when present) | From `pendingApprovals` DOM scan |
+| Confirm search | **Continue** / **Cancel** / **Auto-search web** | Scoped per search query when several cards are open |
+| Delete file | **Accept** / **Reject** | Scoped per filename; buttons clear after accept or when the card leaves pending |
+
+Tap a button → CDP clicks the matching control in Cursor → cards refresh on the next state poll.
+
 
 In a **project thread**:
 

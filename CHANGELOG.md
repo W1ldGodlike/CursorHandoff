@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Confirm search approval cards (web + Telegram)** — When Cursor asks before a web search, Handoff mirrors **Continue**, **Cancel**, and **Auto-search web** on the mobile feed and in Telegram inline keyboards. CDP uses coordinate clicks on empty-text `.cursor-button` rows; stable paths are scoped per `toolCallId` and query (`confirm-search:{id}:{query}:continue|cancel|auto-search-toggle`).
+- **Delete file approval cards (web + Telegram)** — **Accept** / **Reject** for agent `Delete` tool calls, same `run_command` button row as shell Run/Skip. Paths: `delete-file:{toolCallId}:{filename}:accept|reject`.
+- **README: Cursor mobile vs Handoff** — Feature comparison table (cloud agents, Remote Control, Telegram, approvals, plan widgets, localization).
+
+### Fixed
+
+- **Shell Run/Skip visibility** — `pendingApprovals` merge keeps shell approval cards in sync on web and Telegram; stale duplicate `run_command` rows are deduped without touching confirm-search or delete-file cards.
+- **Extension locale switch** — Changing Handoff language reliably stops and restarts the server owner (`spawn-hygiene`, owner lock) so `locales/` reload applies without a manual restart.
+- **Delete file buttons without DOM scan** — Parser-only path promotes `Delete` tool bubbles to approval cards when `pendingApprovals` is empty (recording / offline parse).
+- **Delete filename in CDP click** — Parse basename from card text; fix `Continue` caret regex in confirm-search coordinate evaluation.
+- **Confirm search multi-card clicks** — Merge scopes action paths from the matched message `toolCallId` (not only the approval scan id). CDP finds cards in two passes (id+query, then query only); match query against full row text; clear buttons when the approval leaves `pendingApprovals`.
+- **Approval merge isolation** — Shell, confirm-search, and delete-file run in separate pipelines so fixes to one card type do not strip buttons from another.
+
+### Changed
+
+- **Approval parse layout** — `approval-merge.ts` orchestrates `shell-approval-merge.ts`, `confirm-search-merge.ts`, and `delete-file-merge.ts`; shared command text helpers in `approval-command-text.ts`.
+
+### Documentation
+
+- **Web client** — `docs/guide.md` lists shell, Confirm search, and Delete file approval cards.
+- **Telegram** — `docs/telegram.md` documents tool approval inline buttons.
+- **Architecture** — `docs/architecture.md` notes split approval merge modules under `src/ide/parse/`.
+- **Reference** — `docs/reference.md` documents confirm-search and delete-file `selectorPath` patterns.
+
 ## [1.3.0] - 2026-06-30
 
 ### Removed

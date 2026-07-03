@@ -84,7 +84,7 @@ Official docs: [Cloud Agents](https://cursor.com/docs/cloud-agent) · [Cursor fo
 | **Native Android app** | ❌ PWA only ([cursor.com/agents](https://cursor.com/agents)) | ✅ Any browser or Telegram on any platform |
 | **Telegram bridge** | ❌ | ✅ Forum topic per tab, slash commands — [guide](docs/telegram.md) |
 | **Live local agent chat** | Remote Control only (narrow path) | ✅ Main use case — same tabs and composer as the IDE |
-| **Run / Skip tool approvals** | Cloud agents auto-run terminal; different model for RC | ✅ Same approval cards as the IDE |
+| **Run / Skip / Confirm search / Delete file approvals** | Cloud agents auto-run terminal; different model for RC | ✅ Same approval cards as the IDE (shell, web-search confirm, file delete) |
 | **AskQuestion / surveys** | In the mobile agent chat | ✅ **Web:** full functionality like the IDE. **Telegram:** inline A/B/C + Reply — [guide](docs/telegram.md#askquestion--questionnaires) |
 | **Plan widget (View Plan / Build)** | ❌ | ✅ Web + Telegram |
 | **File relay → Telegram** | Cloud artifacts / PR attachments | ✅ Ask the agent in chat to send you a file in Telegram ([outbox](docs/telegram.md#cursor--telegram) + `cursor-handoff-telegram-send` skill) |

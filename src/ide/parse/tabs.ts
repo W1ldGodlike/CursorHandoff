@@ -518,6 +518,33 @@ export function extractionFunction(
       return `delete-file:${toolCallId}${fileSeg}:reject`;
     }
 
+    function confirmSearchContinuePath(toolCallId: string, query = ''): string {
+      const q = query.trim();
+      const seg = q ? `:${encodeURIComponent(q.slice(0, 120))}` : '';
+      return `confirm-search:${toolCallId}${seg}:continue`;
+    }
+
+    function confirmSearchCancelPath(toolCallId: string, query = ''): string {
+      const q = query.trim();
+      const seg = q ? `:${encodeURIComponent(q.slice(0, 120))}` : '';
+      return `confirm-search:${toolCallId}${seg}:cancel`;
+    }
+
+    function confirmSearchTogglePath(toolCallId: string, query = ''): string {
+      const q = query.trim();
+      const seg = q ? `:${encodeURIComponent(q.slice(0, 120))}` : '';
+      return `confirm-search:${toolCallId}${seg}:auto-search-toggle`;
+    }
+
+    function resolveToolCallId(root: Element, flatIndex: number): string {
+      const bubble = root.querySelector('[data-tool-call-id]') || root.closest('[data-tool-call-id]');
+      const fromBubble = bubble?.getAttribute('data-tool-call-id');
+      if (fromBubble) return fromBubble;
+      const msgId = root.querySelector('[data-message-id]')?.getAttribute('data-message-id');
+      if (msgId) return msgId;
+      return `tool-${flatIndex}`;
+    }
+
     function isPlausibleShellCommand(cmd: string): boolean {
       const s = cmd.replace(/\s+/g, ' ').trim();
       if (!s || s.length > 8000) return false;
@@ -609,9 +636,6 @@ export function extractionFunction(
     const SHELL_RUN_SEL = 'button.ui-shell-tool-call__run-btn';
     const SHELL_ALLOW_SEL = 'button.ui-shell-tool-call__allowlist-button';
     const SHELL_TOGGLE_SEL = '.ui-shell-tool-call__approval-row input[type="checkbox"], .ui-shell-tool-call__approval-row [role="checkbox"], .ui-shell-tool-call__approval-row [role="switch"]';
-    const CONFIRM_SEARCH_CONTINUE = 'confirm-search:continue';
-    const CONFIRM_SEARCH_CANCEL = 'confirm-search:cancel';
-    const CONFIRM_SEARCH_TOGGLE = 'confirm-search:auto-search-toggle';
 
     function readToggleChecked(el: Element): boolean {
       const aria = el.getAttribute('aria-checked');
@@ -669,10 +693,15 @@ export function extractionFunction(
     }
 
     function extractConfirmSearchActions(
-      container: Element
+      container: Element,
+      toolCallId: string,
     ): { label: string; type: 'run' | 'skip' | 'allow' | 'toggle'; selectorPath: string; checked?: boolean }[] {
       const fields = extractConfirmSearchFields(container);
       if (!fields) return [];
+
+      const CONFIRM_SEARCH_CONTINUE = confirmSearchContinuePath(toolCallId, fields.command);
+      const CONFIRM_SEARCH_CANCEL = confirmSearchCancelPath(toolCallId, fields.command);
+      const CONFIRM_SEARCH_TOGGLE = confirmSearchTogglePath(toolCallId, fields.command);
 
       const scope = confirmSearchScope(container);
       const searchRoot = confirmSearchRow(container);
@@ -777,7 +806,8 @@ export function extractionFunction(
 
     function isConfirmSearchCardActive(root: Element): boolean {
       if (!extractConfirmSearchFields(root)) return false;
-      const actions = extractConfirmSearchActions(root);
+      const toolCallId = resolveToolCallId(root, 0);
+      const actions = extractConfirmSearchActions(root, toolCallId);
       return actions.some((a) => a.type === 'run' || a.type === 'skip');
     }
 
@@ -1083,7 +1113,11 @@ export function extractionFunction(
         }
       }
 
-      for (const action of extractConfirmSearchActions(container)) pushAction(action);
+      const confirmBubble = container.closest('[data-tool-call-id]')
+        || container.querySelector('[data-tool-call-id]');
+      const confirmToolCallId = confirmBubble?.getAttribute('data-tool-call-id')
+        || buildSelectorPath(container);
+      for (const action of extractConfirmSearchActions(container, confirmToolCallId)) pushAction(action);
 
       return actions;
     }
@@ -1095,7 +1129,7 @@ export function extractionFunction(
       patchRaw: RawElRef | null
     ): { element: ChatElement; parsedAs: string } | null {
       const toolEl = toolRoot.querySelector('[data-tool-call-id]') || toolRoot;
-      const toolCallId = toolEl.getAttribute('data-tool-call-id') || `tool-${flatIndex}`;
+      const toolCallId = resolveToolCallId(toolRoot, flatIndex);
       const toolStatus = (toolEl.getAttribute('data-tool-status') ||
         toolRoot.getAttribute('data-tool-status') ||
         'completed') as 'loading' | 'completed';
@@ -1106,7 +1140,7 @@ export function extractionFunction(
 
       const confirmFieldsEarly = extractConfirmSearchFields(toolRoot);
       if (confirmFieldsEarly) {
-        const confirmActionsEarly = extractConfirmSearchActions(toolRoot);
+        const confirmActionsEarly = extractConfirmSearchActions(toolRoot, toolCallId);
         if (confirmActionsEarly.some((a) => a.type === 'run' || a.type === 'skip')) {
           return shellActionsToRunCommand(
             toolRoot,
@@ -1429,7 +1463,7 @@ export function extractionFunction(
         const compactActions = extractToolActions(toolRoot);
         const confirmFieldsCompact = extractConfirmSearchFields(toolRoot);
         if (confirmFieldsCompact) {
-          const confirmActionsCompact = extractConfirmSearchActions(toolRoot);
+          const confirmActionsCompact = extractConfirmSearchActions(toolRoot, toolCallId);
           if (confirmActionsCompact.some((a) => a.type === 'run' || a.type === 'skip')) {
             return shellActionsToRunCommand(
               toolRoot,
@@ -1549,7 +1583,7 @@ export function extractionFunction(
       const fallbackActions = extractToolActions(toolRoot);
       const confirmFieldsFallback = extractConfirmSearchFields(toolRoot);
       if (confirmFieldsFallback) {
-        const confirmActionsFallback = extractConfirmSearchActions(toolRoot);
+        const confirmActionsFallback = extractConfirmSearchActions(toolRoot, toolCallId);
         if (confirmActionsFallback.some((a) => a.type === 'run' || a.type === 'skip')) {
           return shellActionsToRunCommand(
             toolRoot,
@@ -2036,15 +2070,15 @@ export function extractionFunction(
       const root = confirmSearchRootFromHeader(header);
       if (!root || seenCards.has(root)) continue;
       if (!isConfirmSearchCardActive(root)) continue;
-      const confirmActions = extractConfirmSearchActions(root);
+      const bubble = root.closest('[data-tool-call-id]');
+      const toolCallId = resolveToolCallId(root, pendingApprovals.length);
+      const confirmActions = extractConfirmSearchActions(root, toolCallId);
       const fields = extractConfirmSearchFields(root);
       if (
         fields
         && confirmActions.some((a) => a.type === 'run' || a.type === 'skip')
       ) {
         seenCards.add(root);
-        const bubble = root.closest('[data-tool-call-id]');
-        const toolCallId = bubble?.getAttribute('data-tool-call-id') || buildSelectorPath(root);
         pendingApprovals.push({
           id: `confirm-search:${toolCallId}`,
           description: fields.description,

@@ -8,6 +8,13 @@ import {
   stripShellApprovalActionsFromMessages,
   stripRunCommandApprovalActions,
 } from '../../src/ide/parse/approval-merge.js';
+import { mergeConfirmSearchApprovals } from '../../src/ide/parse/confirm-search-merge.js';
+import { mergeDeleteFileApprovals } from '../../src/ide/parse/delete-file-merge.js';
+import {
+  confirmSearchCancelPath,
+  confirmSearchContinuePath,
+  confirmSearchTogglePath,
+} from '../../src/ide/parse/confirm-search-selectors.js';
 import type { Approval, CursorState, RunCommand } from '../../src/core/types.js';
 
 function runCommand(partial: Partial<RunCommand> & Pick<RunCommand, 'id' | 'toolCallId'>): RunCommand {
@@ -177,19 +184,19 @@ describe('approval-merge', () => {
     }
   });
 
-  it('mergeApprovalsIntoMessages appends confirm-search when no message match', () => {
+  it('mergeConfirmSearchApprovals appends confirm-search when no message match', () => {
     const messages: CursorState['messages'] = [
       { type: 'assistant', id: 'a1', flatIndex: 1, text: 'Searching…' },
     ];
-    const merged = mergeApprovalsIntoMessages(messages, [
+    const merged = mergeConfirmSearchApprovals(messages, [
       approval({
         id: 'confirm-search:tc-web-1',
         description: 'Confirm search',
         command: 'Cursor IDE agent confirm web search',
         actions: [
-          { label: 'Continue', type: 'approve', selectorPath: 'confirm-search:continue' },
-          { label: 'Cancel', type: 'reject', selectorPath: 'confirm-search:cancel' },
-          { label: 'Auto-search web', type: 'toggle', selectorPath: 'confirm-search:auto-search-toggle', checked: false },
+          { label: 'Continue', type: 'approve', selectorPath: confirmSearchContinuePath('tc-web-1') },
+          { label: 'Cancel', type: 'reject', selectorPath: confirmSearchCancelPath('tc-web-1') },
+          { label: 'Auto-search web', type: 'toggle', selectorPath: confirmSearchTogglePath('tc-web-1'), checked: false },
         ],
       }),
     ]);
@@ -207,7 +214,7 @@ describe('approval-merge', () => {
     }
   });
 
-  it('mergeApprovalsIntoMessages upgrades existing Confirm search tool', () => {
+  it('mergeConfirmSearchApprovals upgrades existing Confirm search tool', () => {
     const messages: CursorState['messages'] = [
       {
         type: 'tool',
@@ -219,14 +226,14 @@ describe('approval-merge', () => {
         details: 'Cursor IDE documentation official docs',
       },
     ];
-    const merged = mergeApprovalsIntoMessages(messages, [
+    const merged = mergeConfirmSearchApprovals(messages, [
       approval({
         id: 'confirm-search:tc-search',
         description: 'Confirm search',
         command: 'Cursor IDE documentation official docs',
         actions: [
-          { label: 'Continue', type: 'approve', selectorPath: 'confirm-search:continue' },
-          { label: 'Cancel', type: 'reject', selectorPath: 'confirm-search:cancel' },
+          { label: 'Continue', type: 'approve', selectorPath: confirmSearchContinuePath('tc-search') },
+          { label: 'Cancel', type: 'reject', selectorPath: confirmSearchCancelPath('tc-search') },
         ],
       }),
     ]);
@@ -248,8 +255,8 @@ describe('approval-merge', () => {
           description: 'Confirm search',
           command: 'handoff web search query',
           actions: [
-            { label: 'Continue', type: 'approve', selectorPath: 'confirm-search:continue' },
-            { label: 'Cancel', type: 'reject', selectorPath: 'confirm-search:cancel' },
+            { label: 'Continue', type: 'approve', selectorPath: confirmSearchContinuePath('tc-web-1') },
+            { label: 'Cancel', type: 'reject', selectorPath: confirmSearchCancelPath('tc-web-1') },
           ],
         }),
       ],
@@ -262,7 +269,191 @@ describe('approval-merge', () => {
     }
   });
 
-  it('mergeApprovalsIntoMessages upgrades Delete tool by toolCallId', () => {
+  it('assigns confirm-search buttons per toolCallId when two cards pending', () => {
+    const messages: CursorState['messages'] = [
+      {
+        type: 'tool',
+        id: 't1',
+        flatIndex: 1,
+        toolCallId: 'tc-a',
+        status: 'completed',
+        action: 'Confirm search',
+        details: 'query one',
+      },
+      {
+        type: 'tool',
+        id: 't2',
+        flatIndex: 2,
+        toolCallId: 'tc-b',
+        status: 'completed',
+        action: 'Confirm search',
+        details: 'query two',
+      },
+    ];
+    const fixed = applyApprovalActionsToMessages({
+      agentStatus: 'waiting_approval',
+      pendingApprovals: [
+        approval({
+          id: 'confirm-search:tc-a',
+          description: 'Confirm search',
+          command: 'query one',
+          actions: [
+            { label: 'Continue', type: 'approve', selectorPath: confirmSearchContinuePath('tc-a') },
+            { label: 'Cancel', type: 'reject', selectorPath: confirmSearchCancelPath('tc-a') },
+          ],
+        }),
+        approval({
+          id: 'confirm-search:tc-b',
+          description: 'Confirm search',
+          command: 'query two',
+          actions: [
+            { label: 'Continue', type: 'approve', selectorPath: confirmSearchContinuePath('tc-b') },
+            { label: 'Cancel', type: 'reject', selectorPath: confirmSearchCancelPath('tc-b') },
+          ],
+        }),
+      ],
+      messages,
+    } as CursorState);
+    const cards = fixed.filter((m) => m.type === 'run_command') as RunCommand[];
+    assert.equal(cards.length, 2);
+    const a = cards.find((c) => c.toolCallId === 'tc-a');
+    const b = cards.find((c) => c.toolCallId === 'tc-b');
+    assert.equal(a?.actions.length, 2);
+    assert.equal(b?.actions.length, 2);
+    assert.equal(a?.actions[0].selectorPath, confirmSearchContinuePath('tc-a', 'query one'));
+    assert.equal(b?.actions[0].selectorPath, confirmSearchContinuePath('tc-b', 'query two'));
+  });
+
+  it('scopes confirm-search paths with message toolCallId when approval id differs', () => {
+    const messages: CursorState['messages'] = [
+      {
+        type: 'tool',
+        id: 't1',
+        flatIndex: 1,
+        toolCallId: 'dom-real-id',
+        status: 'completed',
+        action: 'Confirm search',
+        details: '$ Cursor IDE documentation agent web search',
+      },
+    ];
+    const fixed = applyApprovalActionsToMessages({
+      agentStatus: 'waiting_approval',
+      pendingApprovals: [
+        approval({
+          id: 'confirm-search:pending-scan-id',
+          description: 'Confirm search',
+          command: '$ Cursor IDE documentation agent web search',
+          actions: [
+            { label: 'Continue', type: 'approve', selectorPath: confirmSearchContinuePath('pending-scan-id') },
+            { label: 'Cancel', type: 'reject', selectorPath: confirmSearchCancelPath('pending-scan-id') },
+          ],
+        }),
+      ],
+      messages,
+    } as CursorState);
+    const card = fixed.find((m) => m.type === 'run_command') as RunCommand | undefined;
+    assert.ok(card);
+    assert.equal(card.toolCallId, 'dom-real-id');
+    assert.equal(
+      card.actions[0].selectorPath,
+      confirmSearchContinuePath('dom-real-id', '$ Cursor IDE documentation agent web search'),
+    );
+  });
+
+  it('clears confirm-search buttons when approval is no longer pending', () => {
+    const messages: CursorState['messages'] = [
+      runCommand({
+        id: 'rc1',
+        toolCallId: 'tc-done',
+        description: 'Confirm search',
+        command: 'old query',
+        actions: [
+          { label: 'Continue', type: 'run', selectorPath: confirmSearchContinuePath('tc-done') },
+          { label: 'Cancel', type: 'skip', selectorPath: confirmSearchCancelPath('tc-done') },
+        ],
+      }),
+    ];
+    const fixed = applyApprovalActionsToMessages({
+      agentStatus: 'idle',
+      pendingApprovals: [],
+      messages,
+    } as CursorState);
+    if (fixed[0].type === 'run_command') assert.equal(fixed[0].actions.length, 0);
+  });
+
+  it('clears delete buttons when tool shows Deleted', () => {
+    const messages: CursorState['messages'] = [
+      {
+        type: 'tool',
+        id: 't-done',
+        flatIndex: 1,
+        toolCallId: 'tool-9',
+        status: 'completed',
+        action: 'Deleted',
+        details: 'smoke.mjs',
+      },
+      runCommand({
+        id: 'rc-del',
+        toolCallId: 'tool-9',
+        description: 'Delete',
+        command: 'smoke.mjs',
+        actions: [
+          { label: 'Reject', type: 'skip', selectorPath: 'delete-file:tool-9:smoke.mjs:reject' },
+          { label: 'Accept', type: 'run', selectorPath: 'delete-file:tool-9:smoke.mjs:accept' },
+        ],
+      }),
+    ];
+    const fixed = applyApprovalActionsToMessages({
+      agentStatus: 'idle',
+      pendingApprovals: [],
+      messages,
+    } as CursorState);
+    const card = fixed.find((m) => m.type === 'run_command');
+    if (card?.type === 'run_command') assert.equal(card.actions.length, 0);
+  });
+
+  it('clears delete buttons when another delete is still pending', () => {
+    const messages: CursorState['messages'] = [
+      {
+        type: 'tool',
+        id: 't-done',
+        flatIndex: 1,
+        toolCallId: 'tool-a',
+        status: 'completed',
+        action: 'Deleted',
+        details: 'a.mjs',
+      },
+      runCommand({
+        id: 'rc-a',
+        toolCallId: 'tool-a',
+        description: 'Delete',
+        command: 'a.mjs',
+        actions: [
+          { label: 'Reject', type: 'skip', selectorPath: 'delete-file:tool-a:a.mjs:reject' },
+          { label: 'Accept', type: 'run', selectorPath: 'delete-file:tool-a:a.mjs:accept' },
+        ],
+      }),
+    ];
+    const fixed = applyApprovalActionsToMessages({
+      agentStatus: 'waiting_approval',
+      pendingApprovals: [
+        approval({
+          id: 'delete-file:tool-b',
+          description: 'Delete',
+          command: 'b.mjs',
+          actions: [
+            { label: 'Reject', type: 'reject', selectorPath: 'delete-file:tool-b:b.mjs:reject' },
+            { label: 'Accept', type: 'approve', selectorPath: 'delete-file:tool-b:b.mjs:accept' },
+          ],
+        }),
+      ],
+      messages,
+    } as CursorState);
+    const card = fixed.find((m) => m.type === 'run_command' && m.toolCallId === 'tool-a');
+    if (card?.type === 'run_command') assert.equal(card.actions.length, 0);
+  });
+
+  it('mergeDeleteFileApprovals upgrades Delete tool by toolCallId', () => {
     const messages: CursorState['messages'] = [
       {
         type: 'tool',
@@ -274,7 +465,7 @@ describe('approval-merge', () => {
         details: 'probe-composer-html.mjs',
       },
     ];
-    const merged = mergeApprovalsIntoMessages(messages, [
+    const merged = mergeDeleteFileApprovals(messages, [
       approval({
         id: 'delete-file:tool-1526',
         description: 'Delete',
@@ -296,7 +487,7 @@ describe('approval-merge', () => {
     }
   });
 
-  it('mergeApprovalsIntoMessages merges multiple delete-file pending approvals', () => {
+  it('mergeDeleteFileApprovals merges multiple delete-file pending approvals', () => {
     const messages: CursorState['messages'] = [
       {
         type: 'tool',
@@ -317,7 +508,7 @@ describe('approval-merge', () => {
         details: 'b.mjs',
       },
     ];
-    const merged = mergeApprovalsIntoMessages(messages, [
+    const merged = mergeDeleteFileApprovals(messages, [
       approval({
         id: 'delete-file:tool-a',
         description: 'Delete',
@@ -373,18 +564,21 @@ describe('approval-merge', () => {
     }
   });
 
-  it('clears delete-file actions when pendingApprovals is empty', () => {
+  it('preserves delete-file actions without pending when Delete tool is still active', () => {
     const messages: CursorState['messages'] = [
-      runCommand({
-        id: 'rc-del',
+      {
+        type: 'tool',
+        id: 't-del',
+        flatIndex: 1,
         toolCallId: 'tool-1526',
-        description: 'Delete',
-        command: 'smoke.mjs',
+        status: 'completed',
+        action: 'Delete',
+        details: 'smoke.mjs',
         actions: [
-          { label: 'Reject', type: 'skip', selectorPath: 'delete-file:tool-1526:reject' },
-          { label: 'Accept', type: 'run', selectorPath: 'delete-file:tool-1526:accept' },
+          { label: 'Reject', type: 'skip', selectorPath: 'div#bubble > div:nth-of-type(2)' },
+          { label: 'Accept', type: 'run', selectorPath: 'div#bubble > div:nth-of-type(3)' },
         ],
-      }),
+      },
     ];
     const fixed = applyApprovalActionsToMessages({
       agentStatus: 'idle',
@@ -393,7 +587,7 @@ describe('approval-merge', () => {
     } as CursorState);
     if (fixed[0].type === 'run_command') {
       assert.equal(fixed[0].actions.length, 2);
-      assert.equal(fixed[0].actions[0].selectorPath, 'delete-file:tool-1526:reject');
+      assert.equal(fixed[0].actions[0].selectorPath, 'delete-file:tool-1526:smoke.mjs:reject');
     }
   });
 
