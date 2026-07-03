@@ -10,26 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Confirm search approval cards (web + Telegram)** — When Cursor asks before a web search, Handoff mirrors **Continue**, **Cancel**, and **Auto-search web** on the mobile feed and in Telegram inline keyboards. CDP uses coordinate clicks on empty-text `.cursor-button` rows; stable paths are scoped per `toolCallId` and query (`confirm-search:{id}:{query}:continue|cancel|auto-search-toggle`).
-- **Delete file approval cards (web + Telegram)** — **Accept** / **Reject** for agent `Delete` tool calls, same `run_command` button row as shell Run/Skip. Paths: `delete-file:{toolCallId}:{filename}:accept|reject`.
+- **Delete file approval cards (web + Telegram)** — **Accept** / **Reject** for agent `Delete` tool calls, same `run_command` button row as shell Run/Skip. Paths: `delete-file:{toolCallId}:{filename}:accept|reject`. Parser promotes `Delete` tool bubbles when `pendingApprovals` is empty; filename parsing and CDP coordinate clicks for Reject/Accept.
+- **Long shell command display (web + Telegram)** — Full command text in approval cards and notifications (no 80-char clip). Telegram soft-wraps long one-liners in `<pre>`. DOM parser accepts commands up to 32k chars for `pendingApprovals` and `isPlausibleShellCommand`.
+- **Web shell syntax highlighting** — `code-highlight.js` colors `run_command` shell cards, markdown `<pre><code>`, and native code blocks (bash / PowerShell / `node -e` detection; token colors aligned with Telegram `language-bash` blocks). Delete file cards keep plain filename text (no `$` shell prompt).
 - **README: Cursor mobile vs Handoff** — Feature comparison table (cloud agents, Remote Control, Telegram, approvals, plan widgets, localization).
-
-### Fixed
-
-- **Shell Run/Skip visibility** — `pendingApprovals` merge keeps shell approval cards in sync on web and Telegram; stale duplicate `run_command` rows are deduped without touching confirm-search or delete-file cards.
-- **Extension locale switch** — Changing Handoff language reliably stops and restarts the server owner (`spawn-hygiene`, owner lock) so `locales/` reload applies without a manual restart.
-- **Delete file buttons without DOM scan** — Parser-only path promotes `Delete` tool bubbles to approval cards when `pendingApprovals` is empty (recording / offline parse).
-- **Delete filename in CDP click** — Parse basename from card text; fix `Continue` caret regex in confirm-search coordinate evaluation.
-- **Confirm search multi-card clicks** — Merge scopes action paths from the matched message `toolCallId` (not only the approval scan id). CDP finds cards in two passes (id+query, then query only); match query against full row text; clear buttons when the approval leaves `pendingApprovals`.
-- **Approval merge isolation** — Shell, confirm-search, and delete-file run in separate pipelines so fixes to one card type do not strip buttons from another.
-- **Long run_command display** — Web shows full command text (no 80-char notify truncation; scroll/wrap in feed). Telegram soft-wraps long one-liners in `<pre>`. DOM parser shell command cap raised to 32k chars (was 240, then 8k — 20k one-liners were rejected as implausible and showed collapsed Cursor preview junk).
 
 ### Changed
 
-- **Approval parse layout** — `approval-merge.ts` orchestrates `shell-approval-merge.ts`, `confirm-search-merge.ts`, and `delete-file-merge.ts`; shared command text helpers in `approval-command-text.ts`.
+- **Approval merge pipelines** — Shell, confirm-search, and delete-file run in separate modules (`shell-approval-merge.ts`, `confirm-search-merge.ts`, `delete-file-merge.ts`); shell `pendingApprovals` merge skips `description: Delete` cards so filenames and `delete-file:` paths are not overwritten by shell commands.
+- **Shell Run/Skip sync** — `pendingApprovals` keeps shell approval cards aligned on web and Telegram; stale duplicate `run_command` rows are deduped without stripping confirm-search or delete-file buttons.
+- **Confirm search CDP clicks** — Multi-card support: action paths use the matched message `toolCallId`; CDP finds cards in two passes (id+query, then query only); buttons clear when the approval leaves `pendingApprovals`.
+- **Extension locale switch** — Changing Handoff language stops and restarts the server owner (`spawn-hygiene`, owner lock) so `locales/` reload without a manual restart.
 
 ### Documentation
 
-- **Web client** — `docs/guide.md` lists shell, Confirm search, and Delete file approval cards.
+- **Web client** — `docs/guide.md` lists shell, Confirm search, and Delete file approval cards; shell command syntax highlighting on web.
 - **Telegram** — `docs/telegram.md` documents tool approval inline buttons.
 - **Architecture** — `docs/architecture.md` notes split approval merge modules under `src/ide/parse/`.
 - **Reference** — `docs/reference.md` documents confirm-search and delete-file `selectorPath` patterns.

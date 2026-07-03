@@ -4,6 +4,11 @@ import * as socketState from './socket-state.js';
 import * as planUi from './plan-widget.js';
 import * as approve from './approve-ui.js';
 import * as fileMention from './file-mention.js';
+import {
+  applyHighlightToCodeEl,
+  detectCommandLanguage,
+  highlightCommandHtml,
+} from './code-highlight.js';
 export const MAX_ATTACHMENTS = 10;
 export const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
 
@@ -1034,7 +1039,7 @@ export function openCodeBlockFullscreen(wrapper) {
 /** Native code/diff from server `CodeBlockItem` (not mirrored Monaco HTML). */
 export function createNativeBlockFromItem(item, filenameFallback) {
   const wrapper = document.createElement('div');
-  wrapper.className = 'code-block native-code-block';
+  wrapper.className = 'code-block native-code-block code-syntax';
 
   const title = (item.filename || item.language || filenameFallback || '').trim();
   const toolbar = document.createElement('div');
@@ -1076,7 +1081,9 @@ export function createNativeBlockFromItem(item, filenameFallback) {
   } else {
     const pre = document.createElement('pre');
     const code = document.createElement('code');
-    code.textContent = item.code || '';
+    const lang = detectCommandLanguage(item.code || '');
+    code.className = lang === 'plaintext' ? '' : `language-${lang}`;
+    applyHighlightToCodeEl(code, item.code || '', item.language || lang);
     pre.appendChild(code);
     body.appendChild(pre);
     body.classList.add('code-block-diff-plain--raw');
@@ -1507,6 +1514,10 @@ export function appendRunStyleActionButtons(container, actions) {
   container.appendChild(right);
 }
 
+function isDeleteRunCommandMsg(msg) {
+  return (msg.description || '').trim().toLowerCase() === 'delete';
+}
+
 export function createRunCommandEl(msg) {
   const el = document.createElement('div');
   el.className = 'chat-el el-run-command';
@@ -1531,15 +1542,25 @@ export function createRunCommandEl(msg) {
 
   if (msg.command && msg.command.trim()) {
     const cmdBlock = document.createElement('div');
-    cmdBlock.className = 'run-command-block';
-    const prompt = document.createElement('span');
-    prompt.className = 'run-prompt';
-    prompt.textContent = '$ ';
-    cmdBlock.appendChild(prompt);
-    const cmdText = document.createElement('span');
-    cmdText.className = 'run-command-text';
-    cmdText.textContent = msg.command;
-    cmdBlock.appendChild(cmdText);
+    cmdBlock.className = isDeleteRunCommandMsg(msg)
+      ? 'run-command-block run-delete-block'
+      : 'run-command-block code-syntax';
+    if (isDeleteRunCommandMsg(msg)) {
+      const filename = document.createElement('span');
+      filename.className = 'run-delete-filename';
+      filename.textContent = msg.command;
+      cmdBlock.appendChild(filename);
+    } else {
+      const pre = document.createElement('pre');
+      const code = document.createElement('code');
+      const lang = detectCommandLanguage(msg.command);
+      code.className = lang === 'plaintext' ? '' : `language-${lang}`;
+      const prompt = '<span class="run-prompt">$ </span>';
+      code.innerHTML = prompt + highlightCommandHtml(msg.command, lang);
+      code.dataset.raw = msg.command;
+      pre.appendChild(code);
+      cmdBlock.appendChild(pre);
+    }
     card.appendChild(cmdBlock);
   }
 
@@ -1555,7 +1576,14 @@ export function createRunCommandEl(msg) {
 }
 
 export function updateRunCommandEl(el, msg) {
-  const oldCommand = (el.querySelector('.run-command-text')?.textContent || '').trim();
+  const isDelete = isDeleteRunCommandMsg(msg);
+  const oldCommand = isDelete
+    ? (el.querySelector('.run-delete-filename')?.textContent || '').trim()
+    : (
+      el.querySelector('.run-command-block code')?.dataset.raw
+      || el.querySelector('.run-command-text')?.textContent
+      || ''
+    ).trim();
   const nextMsg = (!msg.command || !msg.command.trim()) && oldCommand
     ? { ...msg, command: oldCommand }
     : msg;
@@ -2026,6 +2054,12 @@ export function normalizeMarkdownCodeBlocks(root) {
     code.textContent = text;
     pre.appendChild(code);
     codeEl.replaceWith(pre);
+  });
+
+  root.querySelectorAll('pre > code').forEach((codeEl) => {
+    const raw = codeEl.dataset.raw || codeEl.textContent || '';
+    if (!raw.trim()) return;
+    applyHighlightToCodeEl(codeEl, raw);
   });
 }
 

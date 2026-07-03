@@ -157,6 +157,7 @@ export function mergeShellApprovalsIntoMessages(
     for (let i = out.length - 1; i >= 0; i--) {
       const m = out[i];
       if (m.type !== 'tool' && m.type !== 'run_command') continue;
+      if (m.type === 'run_command' && isShellDedupeExempt(m)) continue;
       if ('toolCallId' in m && rawId && m.toolCallId === rawId) {
         idx = i;
         break;
@@ -166,6 +167,7 @@ export function mergeShellApprovalsIntoMessages(
       for (let i = out.length - 1; i >= 0; i--) {
         const m = out[i];
         if (m.type !== 'tool' && m.type !== 'run_command') continue;
+        if (m.type === 'run_command' && isShellDedupeExempt(m)) continue;
         const actionText = m.type === 'tool' ? (m.action || '') : (m.description || '');
         if (
           actionText === approval.description

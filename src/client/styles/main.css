@@ -2479,17 +2479,98 @@ html[data-theme="light"] .markdown-body .md-diagram-wrap svg .cluster rect {
   padding: 6px 8px;
   font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--text-primary);
+  color: var(--shiki-foreground, var(--text-primary));
   overflow-x: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
+.run-command-block pre {
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  overflow: visible;
+}
+
+.run-command-block code {
+  display: block;
+  padding: 0;
+  background: none;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: inherit;
+}
+
 .run-prompt {
   color: var(--accent-green);
   user-select: none;
 }
+
+.run-delete-block {
+  color: var(--text-primary);
+}
+
+.run-delete-filename {
+  font-family: inherit;
+  word-break: break-all;
+}
+
+.code-syntax {
+  --shiki-foreground: rgba(228, 228, 228, 0.92);
+  --shiki-token-comment: #7f848e;
+  --shiki-token-keyword: #c678dd;
+  --shiki-token-type: #e5c07b;
+  --shiki-token-function: #61afef;
+  --shiki-token-string: #98c379;
+  --shiki-token-punctuation: rgba(228, 228, 228, 0.72);
+  --shiki-token-constant: #d19a66;
+  --shiki-token-number: #d19a66;
+  --shiki-token-variable: #e5c07b;
+}
+
+html[data-theme="light"] .code-syntax {
+  --shiki-foreground: rgba(20, 20, 22, 0.94);
+  --shiki-token-comment: #6a737d;
+  --shiki-token-keyword: #a626a4;
+  --shiki-token-type: #c18401;
+  --shiki-token-function: #4078f2;
+  --shiki-token-string: #50a14f;
+  --shiki-token-punctuation: rgba(20, 20, 22, 0.72);
+  --shiki-token-constant: #986801;
+  --shiki-token-number: #986801;
+  --shiki-token-variable: #c18401;
+}
+
+.code-syntax .tok-keyword { color: var(--shiki-token-keyword); }
+.code-syntax .tok-string { color: var(--shiki-token-string); }
+.code-syntax .tok-comment { color: var(--shiki-token-comment); font-style: italic; }
+.code-syntax .tok-variable { color: var(--shiki-token-variable); }
+.code-syntax .tok-type { color: var(--shiki-token-type); }
+.code-syntax .tok-function { color: var(--shiki-token-function); }
+.code-syntax .tok-number { color: var(--shiki-token-number); }
+.code-syntax .tok-punctuation { color: var(--shiki-token-punctuation); }
+
+.assistant-content.markdown-body .tok-keyword { color: var(--shiki-token-keyword); }
+.assistant-content.markdown-body .tok-string { color: var(--shiki-token-string); }
+.assistant-content.markdown-body .tok-comment { color: var(--shiki-token-comment); font-style: italic; }
+.assistant-content.markdown-body .tok-variable { color: var(--shiki-token-variable); }
+.assistant-content.markdown-body .tok-type { color: var(--shiki-token-type); }
+.assistant-content.markdown-body .tok-function { color: var(--shiki-token-function); }
+.assistant-content.markdown-body .tok-number { color: var(--shiki-token-number); }
+.assistant-content.markdown-body .tok-punctuation { color: var(--shiki-token-punctuation); }
+
+.code-block-diff-plain--raw pre code .tok-keyword { color: var(--shiki-token-keyword); }
+.code-block-diff-plain--raw pre code .tok-string { color: var(--shiki-token-string); }
+.code-block-diff-plain--raw pre code .tok-comment { color: var(--shiki-token-comment); font-style: italic; }
+.code-block-diff-plain--raw pre code .tok-variable { color: var(--shiki-token-variable); }
+.code-block-diff-plain--raw pre code .tok-type { color: var(--shiki-token-type); }
+.code-block-diff-plain--raw pre code .tok-number { color: var(--shiki-token-number); }
+.code-block-diff-plain--raw pre code .tok-punctuation { color: var(--shiki-token-punctuation); }
 
 .run-actions-row {
   display: flex;

@@ -165,7 +165,7 @@ You get a live chat feed, approval cards (optional approve sound in ⚙, default
 
 | Card type | Buttons | When |
 |-----------|---------|------|
-| Shell command | **Run** / **Skip** (and **Allow** when shown) | Terminal or MCP tool needs approval |
+| Shell command | **Run** / **Skip** (and **Allow** when shown) | Terminal or MCP tool needs approval; command text is syntax-highlighted on web |
 | Confirm search | **Continue** / **Cancel** / **Auto-search web** | Agent requests a web search |
 | Delete file | **Accept** / **Reject** | Agent proposes deleting a file |
 

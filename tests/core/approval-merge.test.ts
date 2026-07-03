@@ -736,4 +736,42 @@ describe('approval-merge', () => {
     } as CursorState);
     assert.equal(fixed.filter((m) => m.type === 'run_command').length, 2);
   });
+
+  it('does not merge shell pending approval into delete run_command card', () => {
+    const messages: CursorState['messages'] = [
+      {
+        type: 'tool',
+        id: 'tool-del',
+        flatIndex: 0,
+        toolCallId: 'tool-del',
+        status: 'pending',
+        action: 'Delete',
+        details: 'test-file-1.txt',
+        actions: [
+          { label: 'Reject', type: 'skip', selectorPath: 'delete-file:tool-del:test-file-1.txt:reject' },
+          { label: 'Accept', type: 'run', selectorPath: 'delete-file:tool-del:test-file-1.txt:accept' },
+        ],
+      },
+    ];
+    const fixed = applyApprovalActionsToMessages({
+      agentStatus: 'waiting_approval',
+      pendingApprovals: [
+        approval({
+          id: 'tool:shell-1',
+          description: 'Delete test files from Downloads',
+          command: 'Remove-Item -Path test-file-1.txt -Force',
+          actions: [
+            { label: 'Skip', type: 'reject', selectorPath: 'tool:shell-1:skip' },
+            { label: 'Run', type: 'approve', selectorPath: 'tool:shell-1:run' },
+          ],
+        }),
+      ],
+      messages,
+    } as CursorState);
+    const del = fixed.find((m) => m.type === 'run_command' && m.description === 'Delete');
+    assert.ok(del && del.type === 'run_command');
+    assert.equal(del.command, 'test-file-1.txt');
+    assert.ok(del.actions?.length);
+    assert.match(del.actions[0].selectorPath || '', /^delete-file:/);
+  });
 });
