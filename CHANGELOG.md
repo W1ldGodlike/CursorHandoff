@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.4.0] - 2026-07-03
 
+![CursorHandoff brand concept](https://github.com/W1ldGodlike/CursorHandoff/releases/download/v1.4.0/handoff-release-hero.png)
+
 ### Added
 
 - **Confirm search approval cards (web + Telegram)** — When Cursor asks before a web search, Handoff mirrors **Continue**, **Cancel**, and **Auto-search web** on the mobile feed and in Telegram inline keyboards. CDP uses coordinate clicks on empty-text `.cursor-button` rows; stable paths are scoped per `toolCallId` and query (`confirm-search:{id}:{query}:continue|cancel|auto-search-toggle`).
