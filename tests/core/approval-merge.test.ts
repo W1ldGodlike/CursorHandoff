@@ -427,7 +427,7 @@ describe('approval-merge', () => {
         toolCallId: 'tool-1525',
         status: 'completed',
         action: 'Delete',
-        details: '',
+        details: 'confirm-search-smoke.mjs',
         actions: [
           { label: 'Reject', type: 'skip', selectorPath: 'div#bubble-0436200e2130 > div:nth-of-type(2)' },
           { label: 'Accept^', type: 'run', selectorPath: 'div#bubble-0436200e2130 > div:nth-of-type(3)' },
@@ -442,9 +442,10 @@ describe('approval-merge', () => {
     assert.equal(fixed.length, 1);
     assert.equal(fixed[0].type, 'run_command');
     if (fixed[0].type === 'run_command') {
+      assert.equal(fixed[0].command, 'confirm-search-smoke.mjs');
       assert.equal(fixed[0].actions.length, 2);
-      assert.equal(fixed[0].actions[0].selectorPath, 'delete-file:tool-1525:reject');
-      assert.equal(fixed[0].actions[1].selectorPath, 'delete-file:tool-1525:accept');
+      assert.equal(fixed[0].actions[0].selectorPath, 'delete-file:tool-1525:confirm-search-smoke.mjs:reject');
+      assert.equal(fixed[0].actions[1].selectorPath, 'delete-file:tool-1525:confirm-search-smoke.mjs:accept');
     }
   });
 

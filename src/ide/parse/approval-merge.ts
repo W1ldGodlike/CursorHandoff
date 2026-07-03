@@ -4,7 +4,11 @@ import {
   CONFIRM_SEARCH_CONTINUE,
   CONFIRM_SEARCH_TOGGLE,
 } from './confirm-search-selectors.js';
-import { deleteFileAcceptPath, deleteFileRejectPath } from './delete-file-selectors.js';
+import {
+  deleteFileAcceptPath,
+  deleteFileRejectPath,
+  parseDeleteFilenameFromCardText,
+} from './delete-file-selectors.js';
 
 const SHELL_ACTION_TYPES = new Set<RunAction['type']>(['run', 'skip', 'allow', 'toggle']);
 
@@ -148,19 +152,20 @@ function promoteToolApprovalCards(messages: CursorState['messages'] | undefined)
 
     const actionLabel = (m.action || '').trim();
     if (/^delete$/i.test(actionLabel)) {
+      const filename = (m.details || m.filename || '').trim();
       const actions: RunAction[] = [];
       for (const a of m.actions) {
         if (a.type === 'run') {
           actions.push({
             ...a,
             label: a.label || 'Accept',
-            selectorPath: deleteFileAcceptPath(m.toolCallId),
+            selectorPath: deleteFileAcceptPath(m.toolCallId, filename),
           });
         } else if (a.type === 'skip') {
           actions.push({
             ...a,
             label: a.label || 'Reject',
-            selectorPath: deleteFileRejectPath(m.toolCallId),
+            selectorPath: deleteFileRejectPath(m.toolCallId, filename),
           });
         }
       }

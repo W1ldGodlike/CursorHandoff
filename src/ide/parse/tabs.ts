@@ -498,6 +498,26 @@ export function extractionFunction(
     const cleanBtnLabel = (raw: string): string =>
       raw.replace(/\s*(Shift\+)?⏎\s*/g, '').replace(/\^+\s*$/g, '').replace(/\s+/g, ' ').trim();
 
+    function parseDeleteFilenameFromCardText(raw: string): string {
+      const text = raw.replace(/\s+/g, ' ').trim();
+      if (!/^delete/i.test(text) || /^deleted/i.test(text)) return '';
+      return text
+        .replace(/^delete\s*/i, '')
+        .replace(/reject\s*accept\^?.*/i, '')
+        .replace(/⏎.*$/g, '')
+        .trim();
+    }
+
+    function deleteFileAcceptPath(toolCallId: string, filename = ''): string {
+      const fileSeg = filename ? `:${encodeURIComponent(filename)}` : '';
+      return `delete-file:${toolCallId}${fileSeg}:accept`;
+    }
+
+    function deleteFileRejectPath(toolCallId: string, filename = ''): string {
+      const fileSeg = filename ? `:${encodeURIComponent(filename)}` : '';
+      return `delete-file:${toolCallId}${fileSeg}:reject`;
+    }
+
     function isPlausibleShellCommand(cmd: string): boolean {
       const s = cmd.replace(/\s+/g, ' ').trim();
       if (!s || s.length > 8000) return false;
@@ -780,10 +800,11 @@ export function extractionFunction(
       const detailsEl = root.querySelector('.ui-tool-call-line-details');
       if (actionEl) {
         const action = cleanBtnLabel(actionEl.textContent || '');
+        if (/^deleted$/i.test(action)) return null;
         if (/^delet(e|ing)$/i.test(action)) {
-          const filename = cleanBtnLabel(detailsEl?.textContent || '');
-          if (filename) {
-            return { description: 'Delete', command: filename.substring(0, 500), candidates: '' };
+          const fromDetails = cleanBtnLabel(detailsEl?.textContent || '');
+          if (fromDetails) {
+            return { description: 'Delete', command: fromDetails.substring(0, 500), candidates: '' };
           }
         }
       }
@@ -792,18 +813,19 @@ export function extractionFunction(
         ? root
         : root.querySelector('.composer-tool-call-header');
       if (header) {
-        const raw = (header.textContent || '').replace(/\s+/g, ' ').trim();
-        if (/^Delete/i.test(raw) && !/^Deleted/i.test(raw)) {
-          let filename = raw.replace(/^Delete\s*/i, '').replace(/\s*Reject\s*Accept.*$/i, '').trim();
-          if (filename) {
-            return { description: 'Delete', command: filename.substring(0, 500), candidates: '' };
-          }
+        const filename = parseDeleteFilenameFromCardText(header.textContent || '');
+        if (filename) {
+          return { description: 'Delete', command: filename.substring(0, 500), candidates: '' };
         }
       }
 
       const row = deleteFileRow(root);
       const rowText = (row.textContent || '').replace(/\s+/g, ' ').trim();
-      const m = rowText.match(/Delete\s+(\S+?)(?:Reject|$)/i);
+      const fromRow = parseDeleteFilenameFromCardText(rowText);
+      if (fromRow) {
+        return { description: 'Delete', command: fromRow.substring(0, 500), candidates: '' };
+      }
+      const m = rowText.match(/Delete\s*(\S+?)(?=Reject|Accept|$)/i);
       if (m && !/^Deleted/i.test(rowText.slice(0, 10))) {
         return { description: 'Delete', command: m[1].substring(0, 500), candidates: '' };
       }
@@ -817,8 +839,8 @@ export function extractionFunction(
       const fields = extractDeleteFileFields(container);
       if (!fields) return [];
 
-      const DELETE_FILE_ACCEPT = 'delete-file:' + toolCallId + ':accept';
-      const DELETE_FILE_REJECT = 'delete-file:' + toolCallId + ':reject';
+      const DELETE_FILE_ACCEPT = deleteFileAcceptPath(toolCallId, fields.command);
+      const DELETE_FILE_REJECT = deleteFileRejectPath(toolCallId, fields.command);
       const scope = deleteFileScope(container);
       const searchRoot = deleteFileRow(container);
       const actions: {
@@ -1564,6 +1586,11 @@ export function extractionFunction(
           fallbackActions,
         );
       }
+      let fallbackDetails = details;
+      if (/^delete$/i.test(action || '') && fallbackActions.length > 0) {
+        const deleteFields = extractDeleteFileFields(toolRoot);
+        if (deleteFields?.command) fallbackDetails = deleteFields.command;
+      }
       return {
         element: {
           type: 'tool' as const,
@@ -1572,7 +1599,7 @@ export function extractionFunction(
           toolCallId,
           status: toolStatus,
           action: action || 'Tool',
-          details,
+          details: fallbackDetails,
           filename: filename2 || (action === 'Edit' || action === 'Write' ? details : undefined),
           additions: additions2,
           deletions: deletions2,

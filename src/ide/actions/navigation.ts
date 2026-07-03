@@ -1591,7 +1591,12 @@ export class CommandExecutor {
       }
       const deleteClick = parseDeleteFileSelector(selectorPath);
       if (deleteClick) {
-        const result = await this.clickDeleteFileAtCoords(client, deleteClick.toolCallId, deleteClick.kind);
+        const result = await this.clickDeleteFileAtCoords(
+          client,
+          deleteClick.toolCallId,
+          deleteClick.kind,
+          deleteClick.filename,
+        );
         if (!result.ok || result.x == null || result.y == null) {
           throw new Error(result.error ?? `Element not found: ${selectorPath}`);
         }
@@ -1841,11 +1846,13 @@ export class CommandExecutor {
     client: CdpClient,
     toolCallId: string,
     kind: 'accept' | 'reject',
+    filename?: string,
   ): Promise<{ ok: boolean; error?: string; x?: number; y?: number }> {
     return (await client.evaluate(`
       (() => {
         const toolCallId = ${JSON.stringify(toolCallId)};
         const kind = ${JSON.stringify(kind)};
+        const filename = ${JSON.stringify(filename || '')};
         const visible = (el) => {
           if (!el) return false;
           const r = el.getBoundingClientRect();
@@ -1864,7 +1871,22 @@ export class CommandExecutor {
           const r = el.getBoundingClientRect();
           return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
         };
-        const cleanAction = (raw) => (raw || '').replace(/\^+/g, '').trim().toLowerCase();
+        const cleanAction = (raw) => (raw || '').replace(/\\^+/g, '').trim().toLowerCase();
+        const parseDeleteFilename = (raw) => {
+          const text = (raw || '').replace(/\\s+/g, ' ').trim();
+          if (!/^delete/i.test(text) || /^deleted/i.test(text)) return '';
+          return text
+            .replace(/^delete\\s*/i, '')
+            .replace(/reject\\s*accept\\^?.*/i, '')
+            .trim();
+        };
+        const rowMatchesTarget = (row) => {
+          if (!filename) return true;
+          const rowText = (row.textContent || '').replace(/\\s+/g, ' ');
+          const parsed = parseDeleteFilename(rowText);
+          if (parsed && parsed.toLowerCase() === filename.toLowerCase()) return true;
+          return rowText.toLowerCase().includes(filename.toLowerCase());
+        };
         const isActiveDeleteRow = (row) => {
           const action = row.querySelector('.ui-tool-call-line-action');
           const actionText = cleanAction(action?.textContent);
@@ -1884,12 +1906,17 @@ export class CommandExecutor {
             activeRows.push(row);
           }
           for (const row of activeRows) {
-            if (rowToolCallId(row) === toolCallId) return row;
+            if (rowToolCallId(row) === toolCallId && rowMatchesTarget(row)) return row;
           }
           const byId = document.querySelector('[data-tool-call-id="' + toolCallId + '"]');
           if (byId) {
             const row = byId.closest('.virtualized-composer-messages-row') || byId;
-            if (isActiveDeleteRow(row)) return row;
+            if (isActiveDeleteRow(row) && rowMatchesTarget(row)) return row;
+          }
+          if (filename) {
+            for (const row of activeRows) {
+              if (rowMatchesTarget(row)) return row;
+            }
           }
           if (activeRows.length === 1) return activeRows[0];
           return null;
