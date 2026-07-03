@@ -2042,7 +2042,11 @@ export function extractionFunction(
       const fields = extractDeleteFileFields(row);
       if (!fields) continue;
       const bubble = row.querySelector('[data-tool-call-id]') || row.closest('[data-tool-call-id]');
-      const toolCallId = bubble?.getAttribute('data-tool-call-id') || buildSelectorPath(row);
+      const msgIdEl = row.querySelector('[data-message-id]');
+      const toolCallId =
+        bubble?.getAttribute('data-tool-call-id')
+        || msgIdEl?.getAttribute('data-message-id')
+        || `del-${pendingApprovals.length}`;
       const deleteActions = extractDeleteFileActions(row, toolCallId);
       if (!deleteActions.some((a) => a.type === 'run' || a.type === 'skip')) continue;
       seenCards.add(row);

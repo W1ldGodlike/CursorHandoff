@@ -208,4 +208,19 @@ describe('approval-filter', () => {
     });
     assert.deepEqual(filterActionableApprovals([real, junk]), [real]);
   });
+
+  it('keeps delete-file approvals with long DOM fallback ids', () => {
+    const longPath = 'div.virtualized-composer-messages-row:nth-child(3)>div:nth-child(1)>span:nth-child(2)';
+    const ok = approval({
+      id: `delete-file:${longPath}`,
+      description: 'Delete',
+      command: 'readme.txt',
+      actions: [
+        { label: 'Reject', type: 'reject', selectorPath: `delete-file:${longPath}:reject` },
+        { label: 'Accept', type: 'approve', selectorPath: `delete-file:${longPath}:accept` },
+      ],
+    });
+    assert.equal(isActionableApproval(ok), true);
+    assert.equal(filterActionableApprovals([ok]).length, 1);
+  });
 });

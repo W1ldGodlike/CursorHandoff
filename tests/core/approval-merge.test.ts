@@ -392,7 +392,59 @@ describe('approval-merge', () => {
       messages,
     } as CursorState);
     if (fixed[0].type === 'run_command') {
-      assert.deepEqual(fixed[0].actions, []);
+      assert.equal(fixed[0].actions.length, 2);
+      assert.equal(fixed[0].actions[0].selectorPath, 'delete-file:tool-1526:reject');
+    }
+  });
+
+  it('recording: Deleted tool has no approval buttons', () => {
+    const messages: CursorState['messages'] = [
+      {
+        type: 'tool',
+        id: 't-done',
+        flatIndex: 1520,
+        toolCallId: 'tool_1d664536-2d0c-4349-a43e-7b3911ebb77',
+        status: 'completed',
+        action: 'Deleted',
+        details: 'confirm-search-smoke.mjs',
+      },
+    ];
+    const fixed = applyApprovalActionsToMessages({
+      agentStatus: 'idle',
+      pendingApprovals: [],
+      messages,
+    } as CursorState);
+    assert.equal(fixed[0].type, 'tool');
+    if (fixed[0].type === 'tool') assert.equal(fixed[0].actions, undefined);
+  });
+
+  it('recording: Delete tool bubble actions survive without pendingApprovals', () => {
+    const messages: CursorState['messages'] = [
+      {
+        type: 'tool',
+        id: '55804d20-e87e-4387-9f15-0436200e2130',
+        flatIndex: 1525,
+        toolCallId: 'tool-1525',
+        status: 'completed',
+        action: 'Delete',
+        details: '',
+        actions: [
+          { label: 'Reject', type: 'skip', selectorPath: 'div#bubble-0436200e2130 > div:nth-of-type(2)' },
+          { label: 'Accept^', type: 'run', selectorPath: 'div#bubble-0436200e2130 > div:nth-of-type(3)' },
+        ],
+      },
+    ];
+    const fixed = applyApprovalActionsToMessages({
+      agentStatus: 'idle',
+      pendingApprovals: [],
+      messages,
+    } as CursorState);
+    assert.equal(fixed.length, 1);
+    assert.equal(fixed[0].type, 'run_command');
+    if (fixed[0].type === 'run_command') {
+      assert.equal(fixed[0].actions.length, 2);
+      assert.equal(fixed[0].actions[0].selectorPath, 'delete-file:tool-1525:reject');
+      assert.equal(fixed[0].actions[1].selectorPath, 'delete-file:tool-1525:accept');
     }
   });
 

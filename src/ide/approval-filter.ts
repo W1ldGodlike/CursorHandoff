@@ -57,7 +57,8 @@ export function isActionableApproval(approval: Approval): boolean {
     return false;
   }
 
-  if (approval.id.length > MAX_ID_LEN) return false;
+  // delete-file ids may embed a DOM fallback path; do not drop before stable-prefix check
+  if (!approval.id.startsWith('delete-file:') && approval.id.length > MAX_ID_LEN) return false;
   if (looksLikeJunkDescription(approval.description)) return false;
 
   for (const action of approval.actions) {

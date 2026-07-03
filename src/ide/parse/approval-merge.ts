@@ -207,6 +207,14 @@ function promoteToolApprovalCards(messages: CursorState['messages'] | undefined)
   });
 }
 
+function isDeleteApprovalCard(description: string): boolean {
+  return description.trim().toLowerCase() === 'delete';
+}
+
+function deleteFileRunActions(actions: RunAction[] | undefined): RunAction[] {
+  return (actions ?? []).filter((a) => a.selectorPath?.startsWith('delete-file:'));
+}
+
 /** Clear DOM-sourced shell approval buttons; pendingApprovals is the only source of truth. */
 export function stripShellApprovalActionsFromMessages(
   messages: CursorState['messages'] | undefined,
@@ -215,7 +223,8 @@ export function stripShellApprovalActionsFromMessages(
   return messages.map((m) => {
     if (m.type === 'run_command') {
       const command = approvalCardCommand(m.description, m.command);
-      return { ...m, command, actions: [] };
+      const actions = isDeleteApprovalCard(m.description) ? deleteFileRunActions(m.actions) : [];
+      return { ...m, command, actions };
     }
     if (m.type === 'tool' && m.actions?.some(isShellApprovalAction)) {
       const kept = m.actions.filter((a) => !isShellApprovalAction(a));
@@ -299,7 +308,18 @@ export function mergeApprovalsIntoMessages(
           idx = i;
           break;
         }
-        if (m.type === 'tool' && /^delete$/i.test((m.action || '').trim())) {
+        if (m.type === 'run_command' && /^delete$/i.test((m.description || '').trim())) {
+          const cmd = (m.command || '').replace(/\s+/g, ' ').trim();
+          if (approval.command && cmd && (
+            cmd === approval.command
+            || cmd.includes(approval.command.slice(0, 40))
+            || approval.command.includes(cmd.slice(0, 40))
+          )) {
+            idx = i;
+            break;
+          }
+        }
+        if (m.type === 'tool' && /^delet(e|ing)$/i.test((m.action || '').trim())) {
           const detailText = (m.details || '').replace(/\s+/g, ' ').trim();
           if (approval.command && detailText && (
             detailText.includes(approval.command.slice(0, 40))
