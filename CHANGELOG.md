@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Delete filename in CDP click** — Parse basename from card text; fix `Continue` caret regex in confirm-search coordinate evaluation.
 - **Confirm search multi-card clicks** — Merge scopes action paths from the matched message `toolCallId` (not only the approval scan id). CDP finds cards in two passes (id+query, then query only); match query against full row text; clear buttons when the approval leaves `pendingApprovals`.
 - **Approval merge isolation** — Shell, confirm-search, and delete-file run in separate pipelines so fixes to one card type do not strip buttons from another.
+- **Long run_command display** — Web shows full command text (no 80-char notify truncation; scroll/wrap in feed). Telegram soft-wraps long one-liners in `<pre>`. DOM parser shell command cap raised to 32k chars (was 240, then 8k — 20k one-liners were rejected as implausible and showed collapsed Cursor preview junk).
 
 ### Changed
 

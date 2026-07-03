@@ -2482,9 +2482,8 @@ html[data-theme="light"] .markdown-body .md-diagram-wrap svg .cluster rect {
   color: var(--text-primary);
   overflow-x: auto;
   white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 200px;
-  overflow-y: auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .run-prompt {

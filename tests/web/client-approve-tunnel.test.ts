@@ -35,4 +35,8 @@ describe('web client approve sound and access chip', () => {
     assert.match(authSettings, /approveSound: false/);
     assert.match(authSettings, /\$settingApproveSound/);
   });
+
+  it('does not truncate run_command text in approval notifications', () => {
+    assert.doesNotMatch(approveUi, /command\.substring\(0,\s*80\)/);
+  });
 });

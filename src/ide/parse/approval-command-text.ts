@@ -1,3 +1,6 @@
+/** Max shell command text mirrored to web/TG (long one-liner approval cards). */
+export const MAX_SHELL_COMMAND_DISPLAY_LEN = 32768;
+
 /** Strip approval-row button labels accidentally concatenated onto shell command text. */
 export function stripApprovalLabelBleedFromCommand(cmd: string): string {
   let s = cmd;
@@ -15,7 +18,7 @@ export function stripApprovalLabelBleedFromCommand(cmd: string): string {
 /** Reject terminal table listings and compact-header junk mistaken for shell commands. */
 export function isPlausibleShellCommand(cmd: string): boolean {
   const s = stripApprovalLabelBleedFromCommand(cmd).replace(/\s+/g, ' ').trim();
-  if (!s || s.length > 8000) return false;
+  if (!s || s.length > MAX_SHELL_COMMAND_DISPLAY_LEN) return false;
   if (/Name\s+Length/i.test(s)) return false;
   if (/----\s*-{2,}/.test(s)) return false;
   if (/(\.[a-z0-9]{1,10}\s+\d+\s*){2,}/i.test(s)) return false;

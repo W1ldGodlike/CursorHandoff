@@ -20,6 +20,7 @@ import { tgKeyboard, type TgKeyboard } from '../types.js';
 import { isConfirmSearchSelector } from '../../ide/parse/confirm-search-selectors.js';
 import { isDeleteFileSelector } from '../../ide/parse/delete-file-selectors.js';
 import { t } from '../../i18n/t.js';
+import { telegramBashPreBlock } from './pre-wrap.js';
 
 const TG_MSG_LIMIT = 4096;
 /** Rich Messages limit (Bot API 10.1). */
@@ -315,7 +316,8 @@ function formatRunCommand(
   if (msg.candidates) header += `  <code>${escapeHtml(msg.candidates)}</code>`;
   lines.push(header);
   if (msg.command?.trim()) {
-    lines.push(`<pre><code class="language-bash">$ ${escapeHtml(msg.command.trim())}</code></pre>`);
+    const bash = telegramBashPreBlock(msg.command);
+    if (bash) lines.push(`<pre><code class="language-bash">${escapeHtml(bash)}</code></pre>`);
   }
 
   let keyboard: TgKeyboard | undefined;
@@ -482,7 +484,8 @@ export function formatApprovals(
     `${t('tg.fmt.approvalNeeded', '⚠️ Approval needed:')} ${escapeHtml(approval.description)}`,
   ];
   if (approval.command?.trim()) {
-    lines.push(`<pre><code class="language-bash">$ ${escapeHtml(approval.command.trim())}</code></pre>`);
+    const bash = telegramBashPreBlock(approval.command);
+    if (bash) lines.push(`<pre><code class="language-bash">${escapeHtml(bash)}</code></pre>`);
   }
 
   const kb = tgKeyboard();

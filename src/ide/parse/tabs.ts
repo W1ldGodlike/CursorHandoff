@@ -48,6 +48,9 @@ export function extractionFunction(
   modelSelectors: string[],
   windowTitle?: string
 ): CursorState | null {
+  /** Match isPlausibleShellCommand cap — long one-liner approval cards. */
+  const MAX_SHELL_COMMAND_LEN = 32768;
+
   function projectNameFromTitle(title: string): string {
     const idx = title.indexOf(' [');
     return (idx >= 0 ? title.substring(0, idx) : title).trim();
@@ -547,7 +550,7 @@ export function extractionFunction(
 
     function isPlausibleShellCommand(cmd: string): boolean {
       const s = cmd.replace(/\s+/g, ' ').trim();
-      if (!s || s.length > 8000) return false;
+      if (!s || s.length > 32768) return false;
       if (/Name\s+Length/i.test(s)) return false;
       if (/----\s*-{2,}/.test(s)) return false;
       if (/(\.[a-z0-9]{1,10}\s+\d+\s*){2,}/i.test(s)) return false;
@@ -1514,7 +1517,7 @@ export function extractionFunction(
               messageId,
               toolCallId,
               {
-                description: description || command.substring(0, 80),
+                description: description || command,
                 command,
                 candidates: '',
               },
@@ -2040,11 +2043,11 @@ export function extractionFunction(
         .trim()
         .replace(/^\$\s*/, '')
         .replace(/\s+/g, ' ')
-        .substring(0, 240);
+        .substring(0, MAX_SHELL_COMMAND_LEN);
       if (!cmdText) {
         const raw = shellTextWithoutApprovalRow(card).replace(/\s+/g, ' ');
         const dollar = raw.indexOf('$');
-        if (dollar >= 0) cmdText = normalizeShellCommandText(raw.slice(dollar)).substring(0, 240);
+        if (dollar >= 0) cmdText = normalizeShellCommandText(raw.slice(dollar)).substring(0, MAX_SHELL_COMMAND_LEN);
       }
       const descEl = card.querySelector('.ui-shell-tool-call__description');
       const descText = (descEl?.textContent || '').trim().substring(0, 200);
@@ -2242,11 +2245,11 @@ export function extractionFunction(
           .trim()
           .replace(/^\$\s*/, '')
           .replace(/\s+/g, ' ')
-          .substring(0, 240);
+          .substring(0, MAX_SHELL_COMMAND_LEN);
         if (!cmdText) {
           const raw = (primaryRoot.textContent || '').replace(/\s+/g, ' ');
           const dollar = raw.indexOf('$');
-          if (dollar >= 0) cmdText = normalizeShellCommandText(raw.slice(dollar)).substring(0, 240);
+          if (dollar >= 0) cmdText = normalizeShellCommandText(raw.slice(dollar)).substring(0, MAX_SHELL_COMMAND_LEN);
         }
         const descEl = primaryRoot.querySelector('.ui-shell-tool-call__description') ||
           primaryRoot.querySelector('.composer-terminal-top-header-description');

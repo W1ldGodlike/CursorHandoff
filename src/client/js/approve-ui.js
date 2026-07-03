@@ -73,7 +73,7 @@ export function renderApprovals() {
     const approval = ctx.state.pendingApprovals[0];
     fireNotification(
       approval.command
-        ? approval.description + ': ' + approval.command.substring(0, 80)
+        ? approval.description + ': ' + approval.command
         : approval.description || t('web.feed.approvalNotify', 'Agent waiting for approval'),
       'cursor-approval',
     );
@@ -336,7 +336,7 @@ export function checkMessagesForNotifications() {
     var text = null;
 
     if (msg.type === 'run_command' && msg.actions && msg.actions.length > 0) {
-      text = (msg.description || t('web.feed.notifyRunCommand', 'Run command')) + ': ' + (msg.command || '').substring(0, 80);
+      text = (msg.description || t('web.feed.notifyRunCommand', 'Run command')) + ': ' + (msg.command || '');
     } else if (msg.type === 'tool' && msg.actions && msg.actions.length > 0) {
       var detail = msg.details || msg.filename || '';
       text = (msg.action || t('web.feed.notifyTool', 'Tool')) + (detail ? ' ' + detail : '') + ' ' + t('web.feed.notifyToolApproval', 'requires confirmation');

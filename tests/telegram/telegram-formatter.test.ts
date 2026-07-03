@@ -206,6 +206,20 @@ describe('formatElement', () => {
     assert.ok(keyboard);
   });
 
+  it('wraps very long run_command for Telegram pre display', () => {
+    const long = 'node -e "' + 'x'.repeat(120) + '"';
+    const msg: RunCommand = {
+      type: 'run_command', id: 'rc-long', flatIndex: 0, toolCallId: 'tc-long',
+      description: 'Extract fields', candidates: '',
+      command: long,
+      actions: [],
+    };
+    const { html } = formatElement(msg, dummyHash);
+    assert.match(html, /<pre><code class="language-bash">/);
+    assert.match(html, /node -e/);
+    assert.ok(html.includes('x'.repeat(40)));
+  });
+
   it('formats plan with todos and actions', () => {
     const msg: PlanBlock = {
       type: 'plan', id: 'plan1234', flatIndex: 0,

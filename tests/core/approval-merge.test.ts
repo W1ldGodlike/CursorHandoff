@@ -44,6 +44,16 @@ describe('approval-merge', () => {
     assert.equal(isPlausibleShellCommand(junk), false);
   });
 
+  it('accepts long one-liner shell commands up to display cap', () => {
+    const long = '$x=1;' + 'a'.repeat(20_000);
+    assert.equal(isPlausibleShellCommand(long), true);
+  });
+
+  it('rejects shell commands above display cap', () => {
+    const tooLong = 'x'.repeat(32_769);
+    assert.equal(isPlausibleShellCommand(tooLong), false);
+  });
+
   it('dedupes duplicate run_command cards keeping real script', () => {
     const messages: CursorState['messages'] = [
       {
