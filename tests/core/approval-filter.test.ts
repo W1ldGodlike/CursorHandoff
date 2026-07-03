@@ -165,6 +165,19 @@ describe('approval-filter', () => {
     assert.equal(isActionableApproval(ok), true);
   });
 
+  it('keeps delete-file stable id with Accept^ label', () => {
+    const ok = approval({
+      id: 'delete-file:tool-1526',
+      description: 'Delete',
+      command: 'probe-composer-html.mjs',
+      actions: [
+        { label: 'Reject', type: 'reject', selectorPath: 'delete-file:tool-1526:reject' },
+        { label: 'Accept^', type: 'approve', selectorPath: 'delete-file:tool-1526:accept' },
+      ],
+    });
+    assert.equal(isActionableApproval(ok), true);
+  });
+
   it('keeps toggle checkbox actions', () => {
     const ok = approval({
       id: 'tool:shell-1',

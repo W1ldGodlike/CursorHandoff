@@ -1,4 +1,10 @@
 import type { Approval, ChatElement, CursorState, RunAction, RunCommand } from '../../core/types.js';
+import {
+  CONFIRM_SEARCH_CANCEL,
+  CONFIRM_SEARCH_CONTINUE,
+  CONFIRM_SEARCH_TOGGLE,
+} from './confirm-search-selectors.js';
+import { deleteFileAcceptPath, deleteFileRejectPath } from './delete-file-selectors.js';
 
 const SHELL_ACTION_TYPES = new Set<RunAction['type']>(['run', 'skip', 'allow', 'toggle']);
 
@@ -66,6 +72,14 @@ function isShellApprovalAction(action: { type: string }): boolean {
   return SHELL_ACTION_TYPES.has(action.type as RunAction['type']);
 }
 
+function approvalCardCommand(description: string, command: string): string {
+  const desc = description.trim().toLowerCase();
+  if (desc === 'delete' || desc === 'confirm search') {
+    return stripApprovalLabelBleedFromCommand(command).trim();
+  }
+  return isPlausibleShellCommand(command) ? stripApprovalLabelBleedFromCommand(command) : '';
+}
+
 function runCommandScore(msg: RunCommand): number {
   let score = 0;
   if (msg.actions?.length) score += 10_000;
@@ -74,7 +88,7 @@ function runCommandScore(msg: RunCommand): number {
 }
 
 function collapseResolvedRunCommand(msg: RunCommand): ChatElement {
-  const command = isPlausibleShellCommand(msg.command) ? stripApprovalLabelBleedFromCommand(msg.command) : '';
+  const command = approvalCardCommand(msg.description, msg.command);
   if (msg.actions?.length) {
     return { ...msg, command, actions: msg.actions };
   }
@@ -100,7 +114,9 @@ function dedupeRunCommandMessages(messages: ChatElement[]): ChatElement[] {
       out.push(m);
       continue;
     }
-    const key = (m.description || '').trim().toLowerCase();
+    const key = m.toolCallId
+      ? `tc:${m.toolCallId}`
+      : `${(m.description || '').trim().toLowerCase()}\0${(m.command || '').trim().toLowerCase()}`;
     if (!key) {
       out.push(collapseResolvedRunCommand(m));
       continue;
@@ -124,6 +140,73 @@ function dedupeRunCommandMessages(messages: ChatElement[]): ChatElement[] {
   return out;
 }
 
+/** Tool cards parsed with bubble-hash actions → run_command with stable click paths. */
+function promoteToolApprovalCards(messages: CursorState['messages'] | undefined): CursorState['messages'] {
+  if (!messages?.length) return messages ?? [];
+  return messages.map((m) => {
+    if (m.type !== 'tool' || !m.actions?.some(isShellApprovalAction)) return m;
+
+    const actionLabel = (m.action || '').trim();
+    if (/^delete$/i.test(actionLabel)) {
+      const actions: RunAction[] = [];
+      for (const a of m.actions) {
+        if (a.type === 'run') {
+          actions.push({
+            ...a,
+            label: a.label || 'Accept',
+            selectorPath: deleteFileAcceptPath(m.toolCallId),
+          });
+        } else if (a.type === 'skip') {
+          actions.push({
+            ...a,
+            label: a.label || 'Reject',
+            selectorPath: deleteFileRejectPath(m.toolCallId),
+          });
+        }
+      }
+      if (actions.length) {
+        return {
+          type: 'run_command' as const,
+          id: m.id,
+          flatIndex: m.flatIndex,
+          toolCallId: m.toolCallId,
+          description: 'Delete',
+          candidates: '',
+          command: (m.details || m.filename || '').trim(),
+          actions,
+        };
+      }
+    }
+
+    if (/^confirm search/i.test(actionLabel)) {
+      const actions: RunAction[] = [];
+      for (const a of m.actions) {
+        if (a.type === 'run') {
+          actions.push({ ...a, label: a.label || 'Continue', selectorPath: CONFIRM_SEARCH_CONTINUE });
+        } else if (a.type === 'skip') {
+          actions.push({ ...a, label: a.label || 'Cancel', selectorPath: CONFIRM_SEARCH_CANCEL });
+        } else if (a.type === 'toggle') {
+          actions.push({ ...a, selectorPath: CONFIRM_SEARCH_TOGGLE });
+        }
+      }
+      if (actions.some((a) => a.type === 'run' || a.type === 'skip')) {
+        return {
+          type: 'run_command' as const,
+          id: m.id,
+          flatIndex: m.flatIndex,
+          toolCallId: m.toolCallId,
+          description: 'Confirm search',
+          candidates: '',
+          command: (m.details || '').trim(),
+          actions,
+        };
+      }
+    }
+
+    return m;
+  });
+}
+
 /** Clear DOM-sourced shell approval buttons; pendingApprovals is the only source of truth. */
 export function stripShellApprovalActionsFromMessages(
   messages: CursorState['messages'] | undefined,
@@ -131,14 +214,8 @@ export function stripShellApprovalActionsFromMessages(
   if (!messages?.length) return messages ?? [];
   return messages.map((m) => {
     if (m.type === 'run_command') {
-      const command = isPlausibleShellCommand(m.command)
-        ? stripApprovalLabelBleedFromCommand(m.command)
-        : '';
-      return {
-        ...m,
-        command,
-        actions: [],
-      };
+      const command = approvalCardCommand(m.description, m.command);
+      return { ...m, command, actions: [] };
     }
     if (m.type === 'tool' && m.actions?.some(isShellApprovalAction)) {
       const kept = m.actions.filter((a) => !isShellApprovalAction(a));
@@ -163,7 +240,13 @@ export function mergeApprovalsIntoMessages(
     if (!runActions.length) continue;
 
     let idx = -1;
-    const rawId = approval.id.startsWith('tool:') ? approval.id.slice(5) : '';
+    const rawId = approval.id.startsWith('tool:')
+      ? approval.id.slice(5)
+      : approval.id.startsWith('confirm-search:')
+        ? approval.id.slice('confirm-search:'.length)
+        : approval.id.startsWith('delete-file:')
+          ? approval.id.slice('delete-file:'.length)
+          : '';
     for (let i = out.length - 1; i >= 0; i--) {
       const m = out[i];
       if (m.type !== 'tool' && m.type !== 'run_command') continue;
@@ -187,7 +270,75 @@ export function mergeApprovalsIntoMessages(
         }
       }
     }
-    if (idx < 0) continue;
+    if (idx < 0 && approval.id.startsWith('confirm-search:')) {
+      for (let i = out.length - 1; i >= 0; i--) {
+        const m = out[i];
+        if (m.type !== 'tool' && m.type !== 'run_command') continue;
+        if (m.type === 'tool') {
+          const actionText = (m.action || '').replace(/\s+/g, ' ').trim();
+          if (/^Confirm search\b/i.test(actionText)) {
+            idx = i;
+            break;
+          }
+          const detailText = (m.details || '').replace(/\s+/g, ' ').trim();
+          if (approval.command && detailText && (
+            detailText.includes(approval.command.slice(0, 40))
+            || approval.command.includes(detailText.slice(0, 40))
+          )) {
+            idx = i;
+            break;
+          }
+        }
+      }
+    }
+    if (idx < 0 && approval.id.startsWith('delete-file:')) {
+      for (let i = out.length - 1; i >= 0; i--) {
+        const m = out[i];
+        if (m.type !== 'tool' && m.type !== 'run_command') continue;
+        if ('toolCallId' in m && rawId && m.toolCallId === rawId) {
+          idx = i;
+          break;
+        }
+        if (m.type === 'tool' && /^delete$/i.test((m.action || '').trim())) {
+          const detailText = (m.details || '').replace(/\s+/g, ' ').trim();
+          if (approval.command && detailText && (
+            detailText.includes(approval.command.slice(0, 40))
+            || approval.command.includes(detailText.slice(0, 40))
+          )) {
+            idx = i;
+            break;
+          }
+        }
+      }
+    }
+    if (idx < 0) {
+      if (approval.id.startsWith('confirm-search:')) {
+        const flatIndex = out.length > 0 ? out[out.length - 1].flatIndex + 1 : 0;
+        out.push({
+          type: 'run_command',
+          id: `confirm-search-${rawId || approval.id}`,
+          flatIndex,
+          toolCallId: rawId || approval.id,
+          description: approval.description || 'Confirm search',
+          candidates: '',
+          command: approval.command || '',
+          actions: runActions,
+        });
+      } else if (approval.id.startsWith('delete-file:')) {
+        const flatIndex = out.length > 0 ? out[out.length - 1].flatIndex + 1 : 0;
+        out.push({
+          type: 'run_command',
+          id: `delete-file-${rawId || approval.id}`,
+          flatIndex,
+          toolCallId: rawId || approval.id,
+          description: approval.description || 'Delete',
+          candidates: '',
+          command: approval.command || '',
+          actions: runActions,
+        });
+      }
+      continue;
+    }
 
     const m = out[idx];
     const description =
@@ -207,9 +358,7 @@ export function mergeApprovalsIntoMessages(
         command = normalizeShellCommandText(blob.slice(dollar));
       }
     } else {
-      command = isPlausibleShellCommand(command)
-        ? stripApprovalLabelBleedFromCommand(command)
-        : '';
+      command = approvalCardCommand(description, command);
     }
     out[idx] = {
       type: 'run_command',
@@ -226,10 +375,10 @@ export function mergeApprovalsIntoMessages(
 }
 
 export function applyApprovalActionsToMessages(state: CursorState): CursorState['messages'] {
-  let messages = stripShellApprovalActionsFromMessages(state.messages);
+  let messages = promoteToolApprovalCards(state.messages);
+  messages = stripShellApprovalActionsFromMessages(messages);
   if (state.pendingApprovals.length > 0) {
-    const active = state.pendingApprovals[state.pendingApprovals.length - 1];
-    messages = mergeApprovalsIntoMessages(messages, [active]);
+    messages = mergeApprovalsIntoMessages(messages, state.pendingApprovals);
   }
   return dedupeRunCommandMessages(messages);
 }

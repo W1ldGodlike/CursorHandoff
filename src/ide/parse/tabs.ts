@@ -496,7 +496,7 @@ export function extractionFunction(
       return popup === 'menu' || popup === 'true' || popup === 'listbox';
     };
     const cleanBtnLabel = (raw: string): string =>
-      raw.replace(/\s*(Shift\+)?⏎\s*/g, '').replace(/\s+/g, ' ').trim();
+      raw.replace(/\s*(Shift\+)?⏎\s*/g, '').replace(/\^+\s*$/g, '').replace(/\s+/g, ' ').trim();
 
     function isPlausibleShellCommand(cmd: string): boolean {
       const s = cmd.replace(/\s+/g, ' ').trim();
@@ -589,6 +589,328 @@ export function extractionFunction(
     const SHELL_RUN_SEL = 'button.ui-shell-tool-call__run-btn';
     const SHELL_ALLOW_SEL = 'button.ui-shell-tool-call__allowlist-button';
     const SHELL_TOGGLE_SEL = '.ui-shell-tool-call__approval-row input[type="checkbox"], .ui-shell-tool-call__approval-row [role="checkbox"], .ui-shell-tool-call__approval-row [role="switch"]';
+    const CONFIRM_SEARCH_CONTINUE = 'confirm-search:continue';
+    const CONFIRM_SEARCH_CANCEL = 'confirm-search:cancel';
+    const CONFIRM_SEARCH_TOGGLE = 'confirm-search:auto-search-toggle';
+
+    function readToggleChecked(el: Element): boolean {
+      const aria = el.getAttribute('aria-checked');
+      if (aria === 'true') return true;
+      if (aria === 'false') return false;
+      const input = el as HTMLInputElement;
+      return !!input.checked;
+    }
+
+    function extractConfirmSearchFields(
+      root: Element
+    ): { description: string; command: string; candidates: string } | null {
+      const header = root.matches('.composer-tool-call-header')
+        ? root
+        : root.querySelector('.composer-tool-call-header');
+      if (!header) return null;
+      const raw = (header.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!/^Confirm search/i.test(raw)) return null;
+      let query = raw.replace(/^Confirm search\s*/i, '').trim();
+      query = query
+        .replace(/\s*Auto-search web\s*(Cancel\s*Continue\s*⏎?\s*)*$/i, '')
+        .trim();
+      return {
+        description: 'Confirm search',
+        command: query.substring(0, 500),
+        candidates: '',
+      };
+    }
+
+    function confirmSearchRow(root: Element): Element {
+      return root.closest('.virtualized-composer-messages-row') || root;
+    }
+
+    function confirmSearchScope(root: Element): Element {
+      return (
+        root.querySelector('.composer-tool-call-status-row')
+        || root.querySelector('.composer-tool-call-control-row')
+        || root
+      );
+    }
+
+    function readAutoSearchToggleLabel(scope: Element, toggle: Element): string {
+      const row = toggle.closest('.composer-tool-call-status-row')
+        || toggle.closest('.composer-tool-call-control-row')
+        || scope;
+      const text = (row?.textContent || '').replace(/\s+/g, ' ').trim();
+      const m = text.match(/Auto-search web/i);
+      if (m) return 'Auto-search web';
+      const sibling = toggle.nextElementSibling;
+      if (sibling) {
+        const fromSibling = cleanBtnLabel(sibling.textContent || '');
+        if (fromSibling) return fromSibling;
+      }
+      return '';
+    }
+
+    function extractConfirmSearchActions(
+      container: Element
+    ): { label: string; type: 'run' | 'skip' | 'allow' | 'toggle'; selectorPath: string; checked?: boolean }[] {
+      const fields = extractConfirmSearchFields(container);
+      if (!fields) return [];
+
+      const scope = confirmSearchScope(container);
+      const searchRoot = confirmSearchRow(container);
+      const actions: {
+        label: string;
+        type: 'run' | 'skip' | 'allow' | 'toggle';
+        selectorPath: string;
+        checked?: boolean;
+      }[] = [];
+      const seenPaths = new Set<string>();
+
+      const pushAction = (action: {
+        label: string;
+        type: 'run' | 'skip' | 'allow' | 'toggle';
+        selectorPath: string;
+        checked?: boolean;
+      }) => {
+        if (!action.selectorPath || seenPaths.has(action.selectorPath)) return;
+        seenPaths.add(action.selectorPath);
+        actions.push(action);
+      };
+
+      const toggle = scope.querySelector('.cursor-setting-value-checkbox[role="checkbox"]')
+        || scope.querySelector('.cursor-setting-value-checkbox')
+        || searchRoot.querySelector('.cursor-setting-value-checkbox');
+      if (toggle && !isMenuTrigger(toggle)) {
+        pushAction({
+          label: readAutoSearchToggleLabel(scope, toggle) || 'Auto-search web',
+          type: 'toggle',
+          selectorPath: CONFIRM_SEARCH_TOGGLE,
+          checked: readToggleChecked(toggle),
+        });
+      }
+
+      const buttonRoots = [scope, searchRoot];
+      for (const buttonRoot of buttonRoots) {
+        for (const btn of Array.from(buttonRoot.querySelectorAll('.cursor-button'))) {
+          if (btn.closest('.usage-limit-policy-banner')) continue;
+          if (isMenuTrigger(btn)) continue;
+          const label = cleanBtnLabel(btn.textContent || '');
+          const lower = label.toLowerCase();
+          if (lower === 'continue' || btn.classList.contains('cursor-button-primary-clickable')) {
+            pushAction({
+              label: label || 'Continue',
+              type: 'run',
+              selectorPath: CONFIRM_SEARCH_CONTINUE,
+            });
+          }
+          if (lower === 'cancel' || btn.classList.contains('cursor-button-secondary-clickable')) {
+            pushAction({
+              label: label || 'Cancel',
+              type: 'skip',
+              selectorPath: CONFIRM_SEARCH_CANCEL,
+            });
+          }
+        }
+      }
+
+      for (const btn of Array.from(searchRoot.querySelectorAll('button, [role="button"]'))) {
+        if (btn.closest('.usage-limit-policy-banner')) continue;
+        if (isMenuTrigger(btn)) continue;
+        const label = cleanBtnLabel(btn.textContent || btn.getAttribute('aria-label') || '');
+        const lower = label.toLowerCase();
+        const path = buildSelectorPath(btn);
+        if (seenPaths.has(path)) continue;
+        if (lower === 'continue') {
+          pushAction({ label: 'Continue', type: 'run', selectorPath: CONFIRM_SEARCH_CONTINUE });
+        } else if (lower === 'cancel') {
+          pushAction({ label: 'Cancel', type: 'skip', selectorPath: CONFIRM_SEARCH_CANCEL });
+        }
+      }
+
+      if (!seenPaths.has(CONFIRM_SEARCH_CONTINUE) || !seenPaths.has(CONFIRM_SEARCH_CANCEL)) {
+        const rowText = (searchRoot.textContent || '').replace(/\s+/g, ' ');
+        const toggleEl = toggle;
+        const row = toggleEl?.closest('.composer-tool-call-status-row')
+          || toggleEl?.closest('.composer-tool-call-control-row')
+          || scope;
+        const rowClickables = row
+          ? Array.from(row.querySelectorAll('.cursor-button, button.ui-button, button, [role="button"]'))
+            .filter((el) => el !== toggleEl && !toggleEl?.contains(el) && !isMenuTrigger(el))
+          : [];
+        if (rowClickables.length >= 2) {
+          if (!seenPaths.has(CONFIRM_SEARCH_CANCEL)) {
+            pushAction({ label: 'Cancel', type: 'skip', selectorPath: CONFIRM_SEARCH_CANCEL });
+          }
+          if (!seenPaths.has(CONFIRM_SEARCH_CONTINUE)) {
+            pushAction({ label: 'Continue', type: 'run', selectorPath: CONFIRM_SEARCH_CONTINUE });
+          }
+        } else if (/Cancel\s*Continue/i.test(rowText)) {
+          if (!seenPaths.has(CONFIRM_SEARCH_CANCEL)) {
+            pushAction({ label: 'Cancel', type: 'skip', selectorPath: CONFIRM_SEARCH_CANCEL });
+          }
+          if (!seenPaths.has(CONFIRM_SEARCH_CONTINUE)) {
+            pushAction({ label: 'Continue', type: 'run', selectorPath: CONFIRM_SEARCH_CONTINUE });
+          }
+        }
+      }
+
+      return actions;
+    }
+
+    function isConfirmSearchCardActive(root: Element): boolean {
+      if (!extractConfirmSearchFields(root)) return false;
+      const actions = extractConfirmSearchActions(root);
+      return actions.some((a) => a.type === 'run' || a.type === 'skip');
+    }
+
+    function deleteFileRow(root: Element): Element {
+      return root.closest('.virtualized-composer-messages-row') || root;
+    }
+
+    function deleteFileScope(root: Element): Element {
+      return (
+        root.querySelector('.composer-tool-call-status-row')
+        || root.querySelector('.composer-tool-call-control-row')
+        || root
+      );
+    }
+
+    function extractDeleteFileFields(
+      root: Element
+    ): { description: string; command: string; candidates: string } | null {
+      const actionEl = root.querySelector('.ui-tool-call-line-action');
+      const detailsEl = root.querySelector('.ui-tool-call-line-details');
+      if (actionEl) {
+        const action = cleanBtnLabel(actionEl.textContent || '');
+        if (/^delet(e|ing)$/i.test(action)) {
+          const filename = cleanBtnLabel(detailsEl?.textContent || '');
+          if (filename) {
+            return { description: 'Delete', command: filename.substring(0, 500), candidates: '' };
+          }
+        }
+      }
+
+      const header = root.matches('.composer-tool-call-header')
+        ? root
+        : root.querySelector('.composer-tool-call-header');
+      if (header) {
+        const raw = (header.textContent || '').replace(/\s+/g, ' ').trim();
+        if (/^Delete/i.test(raw) && !/^Deleted/i.test(raw)) {
+          let filename = raw.replace(/^Delete\s*/i, '').replace(/\s*Reject\s*Accept.*$/i, '').trim();
+          if (filename) {
+            return { description: 'Delete', command: filename.substring(0, 500), candidates: '' };
+          }
+        }
+      }
+
+      const row = deleteFileRow(root);
+      const rowText = (row.textContent || '').replace(/\s+/g, ' ').trim();
+      const m = rowText.match(/Delete\s+(\S+?)(?:Reject|$)/i);
+      if (m && !/^Deleted/i.test(rowText.slice(0, 10))) {
+        return { description: 'Delete', command: m[1].substring(0, 500), candidates: '' };
+      }
+      return null;
+    }
+
+    function extractDeleteFileActions(
+      container: Element,
+      toolCallId: string
+    ): { label: string; type: 'run' | 'skip' | 'allow' | 'toggle'; selectorPath: string; checked?: boolean }[] {
+      const fields = extractDeleteFileFields(container);
+      if (!fields) return [];
+
+      const DELETE_FILE_ACCEPT = 'delete-file:' + toolCallId + ':accept';
+      const DELETE_FILE_REJECT = 'delete-file:' + toolCallId + ':reject';
+      const scope = deleteFileScope(container);
+      const searchRoot = deleteFileRow(container);
+      const actions: {
+        label: string;
+        type: 'run' | 'skip' | 'allow' | 'toggle';
+        selectorPath: string;
+        checked?: boolean;
+      }[] = [];
+      const seenPaths = new Set<string>();
+
+      const pushAction = (action: {
+        label: string;
+        type: 'run' | 'skip' | 'allow' | 'toggle';
+        selectorPath: string;
+        checked?: boolean;
+      }) => {
+        if (!action.selectorPath || seenPaths.has(action.selectorPath)) return;
+        seenPaths.add(action.selectorPath);
+        actions.push(action);
+      };
+
+      const buttonRoots = [scope, searchRoot];
+      for (const buttonRoot of buttonRoots) {
+        for (const btn of Array.from(buttonRoot.querySelectorAll('.cursor-button'))) {
+          if (btn.closest('.usage-limit-policy-banner')) continue;
+          if (isMenuTrigger(btn)) continue;
+          const label = cleanBtnLabel(btn.textContent || '');
+          const lower = label.toLowerCase();
+          if (lower === 'accept' || lower.startsWith('accept') || btn.classList.contains('cursor-button-primary-clickable')) {
+            pushAction({ label: label || 'Accept', type: 'run', selectorPath: DELETE_FILE_ACCEPT });
+          }
+          if (lower === 'reject' || btn.classList.contains('cursor-button-secondary-clickable')) {
+            pushAction({ label: label || 'Reject', type: 'skip', selectorPath: DELETE_FILE_REJECT });
+          }
+        }
+      }
+
+      for (const btn of Array.from(searchRoot.querySelectorAll('button, [role="button"]'))) {
+        if (btn.closest('.usage-limit-policy-banner')) continue;
+        if (isMenuTrigger(btn)) continue;
+        const label = cleanBtnLabel(btn.textContent || btn.getAttribute('aria-label') || '');
+        const lower = label.toLowerCase();
+        if (lower === 'accept' || lower.startsWith('accept')) {
+          pushAction({ label: 'Accept', type: 'run', selectorPath: DELETE_FILE_ACCEPT });
+        } else if (lower === 'reject') {
+          pushAction({ label: 'Reject', type: 'skip', selectorPath: DELETE_FILE_REJECT });
+        }
+      }
+
+      if (!seenPaths.has(DELETE_FILE_ACCEPT) || !seenPaths.has(DELETE_FILE_REJECT)) {
+        const rowText = (searchRoot.textContent || '').replace(/\s+/g, ' ');
+        const rowClickables = Array.from(scope.querySelectorAll('.cursor-button, button.ui-button, button, [role="button"]'))
+          .filter((el) => !isMenuTrigger(el));
+        if (rowClickables.length >= 2) {
+          if (!seenPaths.has(DELETE_FILE_REJECT)) {
+            pushAction({ label: 'Reject', type: 'skip', selectorPath: DELETE_FILE_REJECT });
+          }
+          if (!seenPaths.has(DELETE_FILE_ACCEPT)) {
+            pushAction({ label: 'Accept', type: 'run', selectorPath: DELETE_FILE_ACCEPT });
+          }
+        } else if (/Reject\s*Accept/i.test(rowText)) {
+          if (!seenPaths.has(DELETE_FILE_REJECT)) {
+            pushAction({ label: 'Reject', type: 'skip', selectorPath: DELETE_FILE_REJECT });
+          }
+          if (!seenPaths.has(DELETE_FILE_ACCEPT)) {
+            pushAction({ label: 'Accept', type: 'run', selectorPath: DELETE_FILE_ACCEPT });
+          }
+        }
+      }
+
+      return actions;
+    }
+
+    function isDeleteFileCardActive(root: Element): boolean {
+      const actionEl = root.querySelector('.ui-tool-call-line-action');
+      if (actionEl && /^deleted$/i.test(cleanBtnLabel(actionEl.textContent || ''))) return false;
+      if (!extractDeleteFileFields(root)) return false;
+      const bubble = root.querySelector('[data-tool-call-id]') || root.closest('[data-tool-call-id]');
+      const toolCallId = bubble?.getAttribute('data-tool-call-id') || 'probe';
+      const actions = extractDeleteFileActions(root, toolCallId);
+      return actions.some((a) => a.type === 'run' || a.type === 'skip');
+    }
+
+    function confirmSearchRootFromHeader(header: Element): Element | null {
+      return (
+        header.closest('.ui-tool-call-card')
+        || header.closest('.composer-tool-call-container')
+        || header.closest('.virtualized-composer-messages-row')
+        || header.closest('[data-tool-call-id]')
+        || header.parentElement
+      );
+    }
 
     function selectorForApprovalButton(btn: Element): string {
       if (btn.matches(SHELL_SKIP_SEL)) return SHELL_SKIP_SEL;
@@ -630,14 +952,6 @@ export function extractionFunction(
         if (!action.selectorPath || seenPaths.has(action.selectorPath)) return;
         seenPaths.add(action.selectorPath);
         actions.push(action);
-      };
-
-      const readToggleChecked = (el: Element): boolean => {
-        const aria = el.getAttribute('aria-checked');
-        if (aria === 'true') return true;
-        if (aria === 'false') return false;
-        const input = el as HTMLInputElement;
-        return !!input.checked;
       };
 
       const readToggleLabel = (toggle: Element): string => {
@@ -747,6 +1061,8 @@ export function extractionFunction(
         }
       }
 
+      for (const action of extractConfirmSearchActions(container)) pushAction(action);
+
       return actions;
     }
 
@@ -764,6 +1080,36 @@ export function extractionFunction(
       if (patchRaw) {
         patchRaw.toolCallId = toolCallId;
         patchRaw.toolStatus = toolStatus;
+      }
+
+      const confirmFieldsEarly = extractConfirmSearchFields(toolRoot);
+      if (confirmFieldsEarly) {
+        const confirmActionsEarly = extractConfirmSearchActions(toolRoot);
+        if (confirmActionsEarly.some((a) => a.type === 'run' || a.type === 'skip')) {
+          return shellActionsToRunCommand(
+            toolRoot,
+            flatIndex,
+            messageId,
+            toolCallId,
+            confirmFieldsEarly,
+            confirmActionsEarly,
+          );
+        }
+      }
+
+      const deleteFieldsEarly = extractDeleteFileFields(toolRoot);
+      if (deleteFieldsEarly) {
+        const deleteActionsEarly = extractDeleteFileActions(toolRoot, toolCallId);
+        if (deleteActionsEarly.some((a) => a.type === 'run' || a.type === 'skip')) {
+          return shellActionsToRunCommand(
+            toolRoot,
+            flatIndex,
+            messageId,
+            toolCallId,
+            deleteFieldsEarly,
+            deleteActionsEarly,
+          );
+        }
       }
 
       const planContainer = toolRoot.querySelector('.composer-create-plan-container');
@@ -1059,6 +1405,34 @@ export function extractionFunction(
         }
 
         const compactActions = extractToolActions(toolRoot);
+        const confirmFieldsCompact = extractConfirmSearchFields(toolRoot);
+        if (confirmFieldsCompact) {
+          const confirmActionsCompact = extractConfirmSearchActions(toolRoot);
+          if (confirmActionsCompact.some((a) => a.type === 'run' || a.type === 'skip')) {
+            return shellActionsToRunCommand(
+              toolRoot,
+              flatIndex,
+              messageId,
+              toolCallId,
+              confirmFieldsCompact,
+              confirmActionsCompact,
+            );
+          }
+        }
+        const deleteFieldsCompact = extractDeleteFileFields(toolRoot);
+        if (deleteFieldsCompact) {
+          const deleteActionsCompact = extractDeleteFileActions(toolRoot, toolCallId);
+          if (deleteActionsCompact.some((a) => a.type === 'run' || a.type === 'skip')) {
+            return shellActionsToRunCommand(
+              toolRoot,
+              flatIndex,
+              messageId,
+              toolCallId,
+              deleteFieldsCompact,
+              deleteActionsCompact,
+            );
+          }
+        }
         const shellFields = extractShellRunFields(toolRoot);
         if (shellFields && (compactActions.length > 0 || isPlausibleShellCommand(shellFields.command))) {
           return shellActionsToRunCommand(
@@ -1151,6 +1525,34 @@ export function extractionFunction(
 
       const diffBlockLine = extractDiffBlockFromScope(toolRoot);
       const fallbackActions = extractToolActions(toolRoot);
+      const confirmFieldsFallback = extractConfirmSearchFields(toolRoot);
+      if (confirmFieldsFallback) {
+        const confirmActionsFallback = extractConfirmSearchActions(toolRoot);
+        if (confirmActionsFallback.some((a) => a.type === 'run' || a.type === 'skip')) {
+          return shellActionsToRunCommand(
+            toolRoot,
+            flatIndex,
+            messageId,
+            toolCallId,
+            confirmFieldsFallback,
+            confirmActionsFallback,
+          );
+        }
+      }
+      const deleteFieldsFallback = extractDeleteFileFields(toolRoot);
+      if (deleteFieldsFallback) {
+        const deleteActionsFallback = extractDeleteFileActions(toolRoot, toolCallId);
+        if (deleteActionsFallback.some((a) => a.type === 'run' || a.type === 'skip')) {
+          return shellActionsToRunCommand(
+            toolRoot,
+            flatIndex,
+            messageId,
+            toolCallId,
+            deleteFieldsFallback,
+            deleteActionsFallback,
+          );
+        }
+      }
       const shellFieldsFallback = extractShellRunFields(toolRoot);
       if (shellFieldsFallback && (fallbackActions.length > 0 || isPlausibleShellCommand(shellFieldsFallback.command))) {
         return shellActionsToRunCommand(
@@ -1601,6 +2003,66 @@ export function extractionFunction(
     const activeRow = approvalRows.length > 0 ? approvalRows[approvalRows.length - 1] : null;
     if (activeRow) pushShellApprovalFromRow(activeRow);
 
+    for (const header of Array.from(container.querySelectorAll('.composer-tool-call-header'))) {
+      const raw = (header.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!/^Confirm search/i.test(raw)) continue;
+      const root = confirmSearchRootFromHeader(header);
+      if (!root || seenCards.has(root)) continue;
+      if (!isConfirmSearchCardActive(root)) continue;
+      const confirmActions = extractConfirmSearchActions(root);
+      const fields = extractConfirmSearchFields(root);
+      if (
+        fields
+        && confirmActions.some((a) => a.type === 'run' || a.type === 'skip')
+      ) {
+        seenCards.add(root);
+        const bubble = root.closest('[data-tool-call-id]');
+        const toolCallId = bubble?.getAttribute('data-tool-call-id') || buildSelectorPath(root);
+        pendingApprovals.push({
+          id: `confirm-search:${toolCallId}`,
+          description: fields.description,
+          command: fields.command,
+          actions: confirmActions.map((a) => ({
+            label: a.label,
+            type:
+              a.type === 'run' ? 'approve' as const
+              : a.type === 'skip' ? 'reject' as const
+              : a.type === 'allow' ? 'approve_all' as const
+              : 'toggle' as const,
+            selectorPath: a.selectorPath,
+            ...(a.checked !== undefined ? { checked: a.checked } : {}),
+          })),
+        });
+      }
+    }
+
+    for (const row of Array.from(container.querySelectorAll('.virtualized-composer-messages-row'))) {
+      if (seenCards.has(row)) continue;
+      if (!isDeleteFileCardActive(row)) continue;
+      const fields = extractDeleteFileFields(row);
+      if (!fields) continue;
+      const bubble = row.querySelector('[data-tool-call-id]') || row.closest('[data-tool-call-id]');
+      const toolCallId = bubble?.getAttribute('data-tool-call-id') || buildSelectorPath(row);
+      const deleteActions = extractDeleteFileActions(row, toolCallId);
+      if (!deleteActions.some((a) => a.type === 'run' || a.type === 'skip')) continue;
+      seenCards.add(row);
+      pendingApprovals.push({
+        id: `delete-file:${toolCallId}`,
+        description: fields.description,
+        command: fields.command,
+        actions: deleteActions.map((a) => ({
+          label: a.label,
+          type:
+            a.type === 'run' ? 'approve' as const
+            : a.type === 'skip' ? 'reject' as const
+            : a.type === 'allow' ? 'approve_all' as const
+            : 'toggle' as const,
+          selectorPath: a.selectorPath,
+          ...(a.checked !== undefined ? { checked: a.checked } : {}),
+        })),
+      });
+    }
+
     if (pendingApprovals.length === 0) {
       // Legacy fallback — tool-call containers only. Never scan whole composer
       // for "Run"/"Cancel"; terminal history keeps those buttons and spammed
@@ -1742,11 +2204,10 @@ export function extractionFunction(
 
     const statusEl = findFirst(statusSelectors);
     let agentStatus: CursorState['agentStatus'] = 'idle';
-    if (hasLoadingToolEarly) {
-      agentStatus = 'running_tool';
-      pendingApprovals.length = 0;
-    } else if (pendingApprovals.length > 0) {
+    if (pendingApprovals.length > 0) {
       agentStatus = 'waiting_approval';
+    } else if (hasLoadingToolEarly) {
+      agentStatus = 'running_tool';
     } else if (statusEl) {
       const combined = `${(statusEl.textContent || '').toLowerCase()} ${statusEl.classList.toString().toLowerCase()}`;
       if (combined.includes('think')) agentStatus = 'thinking';

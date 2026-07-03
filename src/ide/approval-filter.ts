@@ -28,7 +28,7 @@ function looksLikeJunkDescription(description: string): boolean {
 }
 
 function isKnownApproveLabel(label: string): boolean {
-  const t = normalize(label).toLowerCase();
+  const t = normalize(label).toLowerCase().replace(/\^+$/g, '');
   if (!t || t.length > MAX_LABEL_LEN) return false;
   if (JUNK_LABELS.has(t)) return false;
   if (t.startsWith('{') && t.includes('"ok"')) return false;
@@ -71,8 +71,8 @@ export function isActionableApproval(approval: Approval): boolean {
     }
   }
 
-  // Primary shell-tool path: stable ids.
-  if (approval.id.startsWith('tool:')) return true;
+  // Primary shell-tool / confirm-search / delete-file paths: stable ids.
+  if (approval.id.startsWith('tool:') || approval.id.startsWith('confirm-search:') || approval.id.startsWith('delete-file:')) return true;
 
   // Legacy fallback: need at least one canonical approve label.
   return approval.actions.some(

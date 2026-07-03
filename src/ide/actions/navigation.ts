@@ -4,6 +4,12 @@ import { logWarn, logError, logCommandOk } from '../../core/log-event.js';
 import type { LogContext } from '../../core/log-event.js';
 import { setClipboardImage } from '../../media/clipboard-win.js';
 import { MESSAGE_WRAPPER_SELECTOR } from '../message-index.js';
+import {
+  CONFIRM_SEARCH_CANCEL,
+  CONFIRM_SEARCH_CONTINUE,
+  CONFIRM_SEARCH_TOGGLE,
+} from '../parse/confirm-search-selectors.js';
+import { parseDeleteFileSelector } from '../parse/delete-file-selectors.js';
 
 function commandCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
   return { scope: 'cdp', op, ...extra };
@@ -1570,26 +1576,461 @@ export class CommandExecutor {
 
   async clickAction(commandId: string, selectorPath: string): Promise<CommandResult> {
     return this.withRetry(commandId, async (client) => {
+      if (
+        selectorPath === CONFIRM_SEARCH_CONTINUE
+        || selectorPath === CONFIRM_SEARCH_CANCEL
+        || selectorPath === CONFIRM_SEARCH_TOGGLE
+      ) {
+        const result = await this.clickConfirmSearchAtCoords(client, selectorPath);
+        if (!result.ok || result.x == null || result.y == null) {
+          throw new Error(result.error ?? `Element not found: ${selectorPath}`);
+        }
+        await client.clickAtCoords(result.x, result.y);
+        logCommandOk(selectorPath.substring(0, 60), commandCtx(commandId, { hint: selectorPath.substring(0, 60) }));
+        return;
+      }
+      const deleteClick = parseDeleteFileSelector(selectorPath);
+      if (deleteClick) {
+        const result = await this.clickDeleteFileAtCoords(client, deleteClick.toolCallId, deleteClick.kind);
+        if (!result.ok || result.x == null || result.y == null) {
+          throw new Error(result.error ?? `Element not found: ${selectorPath}`);
+        }
+        await client.clickAtCoords(result.x, result.y);
+        logCommandOk(selectorPath.substring(0, 60), commandCtx(commandId, { hint: selectorPath.substring(0, 60) }));
+        return;
+      }
       const ok = await this.clickResolvedSelector(client, selectorPath);
       if (!ok) throw new Error(`Element not found: ${selectorPath}`);
       logCommandOk(selectorPath.substring(0, 60), commandCtx(commandId, { hint: selectorPath.substring(0, 60) }));
     });
   }
 
+  /** Confirm search uses empty-text .cursor-button divs — coordinate click (see sandbox recording frame 16). */
+  private async clickConfirmSearchAtCoords(
+    client: CdpClient,
+    selectorPath: string,
+  ): Promise<{ ok: boolean; error?: string; x?: number; y?: number }> {
+    return (await client.evaluate(`
+      (() => {
+        const path = ${JSON.stringify(selectorPath)};
+        const CONFIRM_SEARCH_CONTINUE = ${JSON.stringify(CONFIRM_SEARCH_CONTINUE)};
+        const CONFIRM_SEARCH_CANCEL = ${JSON.stringify(CONFIRM_SEARCH_CANCEL)};
+        const CONFIRM_SEARCH_TOGGLE = ${JSON.stringify(CONFIRM_SEARCH_TOGGLE)};
+        const kind = path === CONFIRM_SEARCH_TOGGLE ? 'toggle'
+          : path === CONFIRM_SEARCH_CONTINUE ? 'continue'
+          : path === CONFIRM_SEARCH_CANCEL ? 'cancel'
+          : '';
+        if (!kind) return { ok: false, error: 'Unknown confirm-search path' };
+
+        const cleanLabel = (raw) => raw.replace(/\\s*(Shift\\+)?⏎\\s*/g, '').replace(/\\s+/g, ' ').trim();
+        const visible = (el) => {
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          if (r.width <= 0 || r.height <= 0) return false;
+          const st = getComputedStyle(el);
+          return st.visibility !== 'hidden' && st.display !== 'none' && st.pointerEvents !== 'none';
+        };
+        const center = (el) => {
+          if (!visible(el)) return null;
+          el.scrollIntoView({ block: 'center', behavior: 'instant' });
+          const r = el.getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        };
+
+        const findActiveConfirmSearchRoot = () => {
+          const headers = Array.from(document.querySelectorAll('.composer-tool-call-header'));
+          for (let i = headers.length - 1; i >= 0; i--) {
+            const h = headers[i];
+            const raw = (h.textContent || '').replace(/\\s+/g, ' ').trim();
+            if (!/^Confirm search/i.test(raw)) continue;
+            const root = h.closest('.virtualized-composer-messages-row')
+              || h.closest('.ui-tool-call-card')
+              || h.closest('[data-tool-call-id]')
+              || h.parentElement;
+            if (!root) continue;
+            const scope = root.querySelector('.composer-tool-call-status-row')
+              || root.querySelector('.composer-tool-call-control-row')
+              || root;
+            const txt = (root.textContent || '').replace(/\\s+/g, ' ');
+            if (scope.querySelector('.cursor-setting-value-checkbox') || /Cancel\\s*Continue/i.test(txt)) {
+              return root;
+            }
+          }
+          return null;
+        };
+
+        const confirmSearchAreas = (root) => {
+          const scope = root.querySelector('.composer-tool-call-status-row')
+            || root.querySelector('.composer-tool-call-control-row')
+            || root;
+          return scope === root ? [root] : [scope, root];
+        };
+
+        const findToggle = (root) => {
+          for (const area of confirmSearchAreas(root)) {
+            const el = area.querySelector('.cursor-setting-value-checkbox[role="checkbox"]')
+              || area.querySelector('.cursor-setting-value-checkbox');
+            if (el) return el;
+          }
+          return null;
+        };
+
+        const isExcluded = (el, toggle) => {
+          if (!el || el === toggle || toggle?.contains(el) || el.contains(toggle)) return true;
+          return !!el.closest('.usage-limit-policy-banner');
+        };
+
+        const collectClickables = (area, toggle) => Array.from(area.querySelectorAll(
+          '.cursor-button, button.ui-button, button, [role="button"], .composer-run-button, .composer-skip-button'
+        )).filter((el) => !isExcluded(el, toggle) && visible(el));
+
+        const findByLabel = (root, word, toggle) => {
+          const want = word.toLowerCase();
+          let best = null;
+          let bestLen = Infinity;
+          for (const el of Array.from(root.querySelectorAll(
+            '.cursor-button, button, [role="button"], .composer-run-button, .composer-skip-button, .ui-button'
+          ))) {
+            if (isExcluded(el, toggle) || !visible(el)) continue;
+            const label = cleanLabel(el.getAttribute('aria-label') || el.textContent || '');
+            const norm = label.toLowerCase();
+            if (norm !== want && !norm.startsWith(want)) continue;
+            const len = (el.textContent || '').length;
+            if (len < bestLen) { best = el; bestLen = len; }
+          }
+          return best;
+        };
+
+        const hasSize = (el) => {
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        };
+
+        const findConfirmSearchTextPoint = (root, wordKind) => {
+          const areas = confirmSearchAreas(root);
+          for (const area of areas) {
+            const walker = document.createTreeWalker(area, NodeFilter.SHOW_TEXT);
+            let node;
+            while ((node = walker.nextNode())) {
+              const raw = node.textContent || '';
+              if (!raw.trim()) continue;
+              let idx = -1;
+              let len = 0;
+              if (wordKind === 'cancel') {
+                const m = raw.match(/Cancel(?=Continue|\\s|$)/i);
+                if (m) { idx = m.index; len = m[0].length; }
+              } else if (wordKind === 'continue') {
+                const m = raw.match(/Continue(?=\\s|⏎|$)/i);
+                if (m) { idx = m.index; len = m[0].length; }
+              }
+              if (idx < 0) continue;
+              const range = document.createRange();
+              range.setStart(node, idx);
+              range.setEnd(node, idx + len);
+              const r = range.getBoundingClientRect();
+              if (r.width <= 0 || r.height <= 0) continue;
+              let hit = node.parentElement;
+              while (hit && hit !== area && !hit.matches('.cursor-button, button, [role=\"button\"]')) {
+                hit = hit.parentElement;
+              }
+              const target = hit && hasSize(hit) ? hit : node.parentElement;
+              if (target) target.scrollIntoView({ block: 'center', behavior: 'instant' });
+              const ptRect = target && hasSize(target) ? target.getBoundingClientRect() : r;
+              return { x: ptRect.left + ptRect.width / 2, y: ptRect.top + ptRect.height / 2 };
+            }
+          }
+          return null;
+        };
+
+        const resolveButtons = (root) => {
+          const toggle = findToggle(root);
+          let cancel = null;
+          let cont = null;
+
+          for (const area of confirmSearchAreas(root)) {
+            const clickables = collectClickables(area, toggle);
+            if (clickables.length >= 2) {
+              cancel = clickables[0];
+              cont = clickables[clickables.length - 1];
+              break;
+            }
+            const cursorBtns = Array.from(area.querySelectorAll('.cursor-button'))
+              .filter((el) => !isExcluded(el, toggle) && (visible(el) || hasSize(el)));
+            if (cursorBtns.length >= 2) {
+              cancel = cursorBtns.find((b) => b.classList.contains('cursor-button-secondary-clickable')) || cursorBtns[0];
+              cont = cursorBtns.find((b) => b.classList.contains('cursor-button-primary-clickable')) || cursorBtns[cursorBtns.length - 1];
+              break;
+            }
+            if (cursorBtns.length === 1 && /Cancel\\s*Continue/i.test(area.textContent || '')) {
+              cancel = cursorBtns[0];
+              cont = cursorBtns[0];
+            }
+          }
+
+          if (toggle) {
+            const row = toggle.closest('.composer-tool-call-status-row')
+              || toggle.closest('.composer-tool-call-control-row')
+              || toggle.parentElement;
+            if (row) {
+              const rowClickables = collectClickables(row, toggle);
+              if (rowClickables.length >= 2) {
+                cancel = cancel || rowClickables[0];
+                cont = cont || rowClickables[rowClickables.length - 1];
+              }
+              const rowCursor = Array.from(row.querySelectorAll('.cursor-button'))
+                .filter((el) => !isExcluded(el, toggle) && (visible(el) || hasSize(el)));
+              if (rowCursor.length >= 2) {
+                cancel = cancel || rowCursor[0];
+                cont = cont || rowCursor[rowCursor.length - 1];
+              }
+            }
+          }
+
+          for (const area of confirmSearchAreas(root)) {
+            cancel = cancel || findByLabel(area, 'cancel', toggle);
+            cont = cont || findByLabel(area, 'continue', toggle);
+          }
+
+          const bar = document.querySelector('.composer-bar')
+            || document.querySelector('#workbench\\\\.parts\\\\.auxiliarybar');
+          if (bar) {
+            cancel = cancel || findByLabel(bar, 'cancel', toggle);
+            cont = cont || findByLabel(bar, 'continue', toggle);
+            const barClickables = collectClickables(bar, toggle);
+            if (!cancel && !cont && barClickables.length >= 2) {
+              cancel = barClickables[0];
+              cont = barClickables[barClickables.length - 1];
+            }
+          }
+
+          return { toggle, cancel, continue: cont };
+        };
+
+        const pointForKind = (root, wordKind) => {
+          const { toggle, cancel, continue: contBtn } = resolveButtons(root);
+          if (wordKind === 'toggle') {
+            if (!toggle) return null;
+            const pt = center(toggle);
+            return pt ? { ok: true, ...pt } : null;
+          }
+          const btn = wordKind === 'continue' ? contBtn : cancel;
+          if (btn) {
+            const pt = center(btn);
+            if (pt) return { ok: true, ...pt };
+          }
+          const textPt = findConfirmSearchTextPoint(root, wordKind);
+          return textPt ? { ok: true, ...textPt } : null;
+        };
+
+        const root = findActiveConfirmSearchRoot();
+        if (!root) return { ok: false, error: 'Confirm search card not found' };
+
+        if (kind === 'toggle') {
+          const hit = pointForKind(root, 'toggle');
+          return hit || { ok: false, error: 'Auto-search toggle not found' };
+        }
+        const hit = pointForKind(root, kind);
+        return hit || { ok: false, error: kind + ' button not found' };
+      })()
+    `)) as { ok: boolean; error?: string; x?: number; y?: number };
+  }
+
+  /** Delete file cards use Reject/Accept text like Confirm search (recording 2026-07-03). */
+  private async clickDeleteFileAtCoords(
+    client: CdpClient,
+    toolCallId: string,
+    kind: 'accept' | 'reject',
+  ): Promise<{ ok: boolean; error?: string; x?: number; y?: number }> {
+    return (await client.evaluate(`
+      (() => {
+        const toolCallId = ${JSON.stringify(toolCallId)};
+        const kind = ${JSON.stringify(kind)};
+        const visible = (el) => {
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          if (r.width <= 0 || r.height <= 0) return false;
+          const st = getComputedStyle(el);
+          return st.visibility !== 'hidden' && st.display !== 'none' && st.pointerEvents !== 'none';
+        };
+        const hasSize = (el) => {
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        };
+        const center = (el) => {
+          if (!visible(el) && !hasSize(el)) return null;
+          el.scrollIntoView({ block: 'center', behavior: 'instant' });
+          const r = el.getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        };
+        const cleanAction = (raw) => (raw || '').replace(/\^+/g, '').trim().toLowerCase();
+        const isActiveDeleteRow = (row) => {
+          const action = row.querySelector('.ui-tool-call-line-action');
+          const actionText = cleanAction(action?.textContent);
+          if (actionText === 'deleted') return false;
+          if (actionText === 'delete' || actionText === 'deleting') return true;
+          const scope = row.querySelector('.composer-tool-call-status-row') || row;
+          return /Reject\\s*Accept/i.test(scope.textContent || '');
+        };
+        const rowToolCallId = (row) => {
+          const bubble = row.querySelector('[data-tool-call-id]') || row.closest('[data-tool-call-id]');
+          return bubble?.getAttribute('data-tool-call-id') || '';
+        };
+        const findRoot = () => {
+          const activeRows = [];
+          for (const row of Array.from(document.querySelectorAll('.virtualized-composer-messages-row'))) {
+            if (!isActiveDeleteRow(row)) continue;
+            activeRows.push(row);
+          }
+          for (const row of activeRows) {
+            if (rowToolCallId(row) === toolCallId) return row;
+          }
+          const byId = document.querySelector('[data-tool-call-id="' + toolCallId + '"]');
+          if (byId) {
+            const row = byId.closest('.virtualized-composer-messages-row') || byId;
+            if (isActiveDeleteRow(row)) return row;
+          }
+          if (activeRows.length === 1) return activeRows[0];
+          return null;
+        };
+        const findTextPoint = (root, wordKind) => {
+          const scope = root.querySelector('.composer-tool-call-status-row') || root;
+          const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+          let node;
+          while ((node = walker.nextNode())) {
+            const raw = node.textContent || '';
+            if (!raw.trim()) continue;
+            let idx = -1;
+            let len = 0;
+            if (wordKind === 'reject') {
+              const m = raw.match(/Reject(?=Accept|\\s|$)/i);
+              if (m) { idx = m.index; len = m[0].length; }
+            } else if (wordKind === 'accept') {
+              const m = raw.match(/Accept\\^?(?=\\s|⏎|$)/i);
+              if (m) { idx = m.index; len = m[0].length; }
+            }
+            if (idx < 0) continue;
+            const range = document.createRange();
+            range.setStart(node, idx);
+            range.setEnd(node, idx + len);
+            const r = range.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0) continue;
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+          }
+          return null;
+        };
+        const root = findRoot();
+        if (!root) return { ok: false, error: 'Delete file card not found' };
+        const scope = root.querySelector('.composer-tool-call-status-row') || root;
+        const clickables = Array.from(scope.querySelectorAll('.cursor-button, button, [role="button"]'))
+          .filter((el) => hasSize(el));
+        let target = null;
+        if (clickables.length >= 2) {
+          target = kind === 'reject' ? clickables[0] : clickables[clickables.length - 1];
+        } else {
+          for (const btn of clickables) {
+            const label = (btn.textContent || '').replace(/\\^+/g, '').trim().toLowerCase();
+            if (kind === 'reject' && label === 'reject') target = btn;
+            if (kind === 'accept' && (label === 'accept' || label.startsWith('accept'))) target = btn;
+          }
+        }
+        if (target) {
+          const pt = center(target);
+          if (pt) return { ok: true, ...pt };
+        }
+        const textPt = findTextPoint(root, kind);
+        return textPt ? { ok: true, ...textPt } : { ok: false, error: kind + ' button not found' };
+      })()
+    `)) as { ok: boolean; error?: string; x?: number; y?: number };
+  }
+
   private async clickResolvedSelector(client: CdpClient, selectorPath: string): Promise<boolean> {
     return (await client.evaluate(`
       (() => {
         const path = ${JSON.stringify(selectorPath)};
+        const CONFIRM_SEARCH_CONTINUE = ${JSON.stringify(CONFIRM_SEARCH_CONTINUE)};
+        const CONFIRM_SEARCH_CANCEL = ${JSON.stringify(CONFIRM_SEARCH_CANCEL)};
+        const CONFIRM_SEARCH_TOGGLE = ${JSON.stringify(CONFIRM_SEARCH_TOGGLE)};
         const SHELL_SKIP = 'button.ui-shell-tool-call__skip-btn';
         const SHELL_RUN = 'button.ui-shell-tool-call__run-btn';
         const SHELL_ALLOW = 'button.ui-shell-tool-call__allowlist-button';
         const stable = [SHELL_SKIP, SHELL_RUN, SHELL_ALLOW];
+        const cleanLabel = (raw) => raw.replace(/\\s*(Shift\\+)?⏎\\s*/g, '').replace(/\\s+/g, ' ').trim();
         const clickEl = (el) => {
           if (!el) return false;
           el.scrollIntoView({ block: 'center', behavior: 'instant' });
           el.click();
           return true;
         };
+        const findActiveConfirmSearchRoot = () => {
+          const headers = Array.from(document.querySelectorAll('.composer-tool-call-header'));
+          for (let i = headers.length - 1; i >= 0; i--) {
+            const h = headers[i];
+            const raw = (h.textContent || '').replace(/\\s+/g, ' ').trim();
+            if (!/^Confirm search/i.test(raw)) continue;
+            const root = h.closest('.virtualized-composer-messages-row')
+              || h.closest('.ui-tool-call-card')
+              || h.closest('[data-tool-call-id]')
+              || h.parentElement;
+            if (!root) continue;
+            const scope = root.querySelector('.composer-tool-call-status-row')
+              || root.querySelector('.composer-tool-call-control-row')
+              || root;
+            const hasControls = (el) => {
+              if (!el) return false;
+              if (el.querySelector('.cursor-setting-value-checkbox')) return true;
+              for (const btn of Array.from(el.querySelectorAll('.cursor-button'))) {
+                if (btn.closest('.usage-limit-policy-banner')) continue;
+                return true;
+              }
+              const txt = (el.textContent || '').replace(/\\s+/g, ' ');
+              return /Cancel\\s*Continue/i.test(txt);
+            };
+            if (hasControls(scope) || hasControls(root)) return root;
+          }
+          return null;
+        };
+        const confirmSearchAreas = (root) => {
+          const scope = root.querySelector('.composer-tool-call-status-row')
+            || root.querySelector('.composer-tool-call-control-row')
+            || root;
+          return scope === root ? [root] : [scope, root];
+        };
+        const clickConfirmSearchButton = (root, kind) => {
+          for (const area of confirmSearchAreas(root)) {
+            for (const btn of Array.from(area.querySelectorAll('.cursor-button'))) {
+              if (btn.closest('.usage-limit-policy-banner')) continue;
+              const label = cleanLabel(btn.textContent || '');
+              if (kind === 'continue' && (/^continue$/i.test(label) || btn.classList.contains('cursor-button-primary-clickable'))) {
+                return clickEl(btn);
+              }
+              if (kind === 'cancel' && (/^cancel$/i.test(label) || btn.classList.contains('cursor-button-secondary-clickable'))) {
+                return clickEl(btn);
+              }
+            }
+          }
+          return false;
+        };
+        const findConfirmSearchToggle = (root) => {
+          for (const area of confirmSearchAreas(root)) {
+            const el = area.querySelector('.cursor-setting-value-checkbox[role="checkbox"]')
+              || area.querySelector('.cursor-setting-value-checkbox');
+            if (el) return el;
+          }
+          return null;
+        };
+        const tryConfirmSearchClick = (kind) => {
+          const root = findActiveConfirmSearchRoot();
+          if (!root) return false;
+          if (kind === 'toggle') return clickEl(findConfirmSearchToggle(root));
+          return clickConfirmSearchButton(root, kind);
+        };
+        if (path === CONFIRM_SEARCH_CONTINUE || path === CONFIRM_SEARCH_CANCEL || path === CONFIRM_SEARCH_TOGGLE) {
+          if (path === CONFIRM_SEARCH_TOGGLE) return tryConfirmSearchClick('toggle');
+          if (path === CONFIRM_SEARCH_CONTINUE) return tryConfirmSearchClick('continue');
+          if (path === CONFIRM_SEARCH_CANCEL) return tryConfirmSearchClick('cancel');
+        }
         const row = document.querySelector('.ui-shell-tool-call__approval-row');
         if (row) {
           if (stable.includes(path)) return clickEl(row.querySelector(path));
@@ -1602,9 +2043,21 @@ export class CommandExecutor {
               || clickEl(row.querySelector(SHELL_ALLOW));
           }
         }
-        if (stable.includes(path)) return clickEl(document.querySelector(path));
+        if (stable.includes(path)) {
+          const hit = clickEl(document.querySelector(path));
+          if (hit) return true;
+          if (path === SHELL_RUN) return tryConfirmSearchClick('continue');
+          if (path === SHELL_SKIP) return tryConfirmSearchClick('cancel');
+          return false;
+        }
         if (path.includes('checkbox') || path.includes('switch')) {
-          return clickEl(document.querySelector('.ui-shell-tool-call__approval-row input[type="checkbox"], .ui-shell-tool-call__approval-row [role="checkbox"], .ui-shell-tool-call__approval-row [role="switch"]'));
+          return clickEl(document.querySelector('.ui-shell-tool-call__approval-row input[type="checkbox"], .ui-shell-tool-call__approval-row [role="checkbox"], .ui-shell-tool-call__approval-row [role="switch"]'))
+            || tryConfirmSearchClick('toggle');
+        }
+        if (path.startsWith('confirm-search:')) {
+          if (path === CONFIRM_SEARCH_TOGGLE) return tryConfirmSearchClick('toggle');
+          if (path === CONFIRM_SEARCH_CONTINUE) return tryConfirmSearchClick('continue');
+          if (path === CONFIRM_SEARCH_CANCEL) return tryConfirmSearchClick('cancel');
         }
         return clickEl(document.querySelector(path));
       })()

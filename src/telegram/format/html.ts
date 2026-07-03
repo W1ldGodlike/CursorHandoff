@@ -17,6 +17,8 @@ import type {
 } from '../../core/types.js';
 import { readPlanFile } from '../../web/plans.js';
 import { tgKeyboard, type TgKeyboard } from '../types.js';
+import { isConfirmSearchSelector } from '../../ide/parse/confirm-search-selectors.js';
+import { isDeleteFileSelector } from '../../ide/parse/delete-file-selectors.js';
 import { t } from '../../i18n/t.js';
 
 const TG_MSG_LIMIT = 4096;
@@ -43,6 +45,7 @@ const SHELL_APPROVAL_SELECTORS: Record<string, string> = {
 
 /** Snapshot CSS paths go stale; shell approvals use stable class selectors. */
 export function stableApprovalSelector(type: string, selectorPath: string): string {
+  if (isConfirmSearchSelector(selectorPath) || isDeleteFileSelector(selectorPath)) return selectorPath;
   const stable = SHELL_APPROVAL_SELECTORS[type];
   if (!stable) return selectorPath;
   if (!selectorPath || selectorPath.includes('#bubble') || selectorPath.includes('nth-of-type')) {
@@ -328,7 +331,9 @@ function formatRunCommand(
         continue;
       }
       const prefix = action.type === 'run' ? 'run' : action.type === 'skip' ? 'skp' : 'alw';
-      const label = action.type === 'run' ? t('tg.fmt.run', '▶ Run')
+      const label = isConfirmSearchSelector(action.selectorPath) || isDeleteFileSelector(action.selectorPath)
+        ? action.label
+        : action.type === 'run' ? t('tg.fmt.run', '▶ Run')
         : action.type === 'skip' ? t('tg.fmt.skip', '⏭ Skip')
         : `🔓 ${action.label}`;
       kb.text(label, `${prefix}:${msg.id.substring(0, 8)}:${hash}`);

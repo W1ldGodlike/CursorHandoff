@@ -152,6 +152,14 @@ export function parseCallbackData(data: string): { action: string; id: string; h
   return { action, id: rest, hash: '' };
 }
 
+export function resolveCallbackActionSelector(
+  action: string,
+  hash: string,
+  resolveHash: (h: string) => string | undefined,
+): string | undefined {
+  return resolveHash(hash) ?? resolveStableActionSelector(action);
+}
+
 export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): Promise<void> {
   const data = ctx.callbackQuery?.data;
   if (!data) {
@@ -370,13 +378,7 @@ export async function handleCallbackQuery(ctx: BotContext, deps: CommandDeps): P
     // Prefer per-card hash from callback_data — exact card clicked in Telegram.
     // Fallback to stable CSS selector if hash evicted (restart, two bots) —
     // works with one visible approval card.
-    const fromHash = deps.messageTracker.resolveHash(hash);
-    const stableFallback = resolveStableActionSelector(action);
-    const shellApproval = action === 'apr' || action === 'rej' || action === 'all'
-      || action === 'run' || action === 'skp' || action === 'alw' || action === 'tog';
-    const selectorPath = shellApproval
-      ? (stableFallback ?? fromHash)
-      : (fromHash ?? stableFallback);
+    const selectorPath = resolveCallbackActionSelector(action, hash, (h) => deps.messageTracker.resolveHash(h));
 
     if (!selectorPath) {
       logWarn('TG_CALLBACK_STALE', `callback ${action}: hash/selector evicted`, callbackCtx(ctx, 'callback', { hint: action }));

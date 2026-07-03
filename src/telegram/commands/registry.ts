@@ -126,6 +126,7 @@ export {
   ACTION_SELECTORS,
   parseCallbackData,
   resolveStableActionSelector,
+  resolveCallbackActionSelector,
 } from './register-callbacks.js';
 
 export {

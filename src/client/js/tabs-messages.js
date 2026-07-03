@@ -1433,13 +1433,14 @@ function sortRunActions(actions) {
 }
 
 function resolveClickSelector(action) {
+  const path = action.selectorPath || '';
+  if (path.startsWith('confirm-search:') || path.startsWith('delete-file:')) return path;
   const stable = {
     run: 'button.ui-shell-tool-call__run-btn',
     skip: 'button.ui-shell-tool-call__skip-btn',
     allow: 'button.ui-shell-tool-call__allowlist-button',
     toggle: '.ui-shell-tool-call__approval-row input[type="checkbox"], .ui-shell-tool-call__approval-row [role="checkbox"], .ui-shell-tool-call__approval-row [role="switch"]',
   };
-  const path = action.selectorPath || '';
   if (stable[action.type] && (path.includes('#bubble') || path.includes('nth-of-type'))) {
     return stable[action.type];
   }

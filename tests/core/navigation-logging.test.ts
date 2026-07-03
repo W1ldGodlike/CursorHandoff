@@ -1315,9 +1315,9 @@ describe('navigation logging coverage', () => {
     assert.match(zone, /return \{ scope: 'cdp', op, \.\.\.extra \}/);
   });
 
-  it('logging zone has twenty COMMAND_OK logCommandOk sites in source', () => {
+  it('logging zone has twenty-two COMMAND_OK logCommandOk sites in source', () => {
     const zone = navigationZoneSrc();
-    assert.equal((zone.match(/logCommandOk\(/g) ?? []).length, 20);
+    assert.equal((zone.match(/logCommandOk\(/g) ?? []).length, 22);
   });
 
   it('logging zone has three COMMAND_WARN logWarn sites in source', () => {
@@ -1362,7 +1362,7 @@ describe('navigation logging coverage', () => {
   it('every log site in logging zone passes commandCtx in source', () => {
     const zone = navigationZoneSrc();
     const sites = zone.match(/log(?:CommandOk|Info|Warn|Error)\([\s\S]*?\);/g) ?? [];
-    assert.equal(sites.length, 24);
+    assert.equal(sites.length, 26);
     for (const site of sites) {
       assert.match(site, /commandCtx\(/);
     }
@@ -1653,9 +1653,9 @@ describe('navigation logging coverage', () => {
     assert.match(body, /throw new Error\(`Tab switch did not activate: \$\{tabTitle\}`\)/);
   });
 
-  it('logging zone has exactly twenty four log call sites in source', () => {
+  it('logging zone has exactly twenty six log call sites in source', () => {
     const zone = navigationZoneSrc();
-    assert.equal((zone.match(/log(?:CommandOk|Info|Warn|Error)\(/g) ?? []).length, 24);
+    assert.equal((zone.match(/log(?:CommandOk|Info|Warn|Error)\(/g) ?? []).length, 26);
   });
 
   it('logging zone ends before file-level sleep helper in source', () => {
@@ -1717,7 +1717,7 @@ describe('navigation logging coverage', () => {
   it('logging zone uses logCommandOk for all COMMAND_OK sites in source', () => {
     const zone = navigationZoneSrc();
     const okSites = zone.match(/logCommandOk\([\s\S]*?\);/g) ?? [];
-    assert.equal(okSites.length, 20);
+    assert.equal(okSites.length, 22);
     for (const site of okSites) {
       assert.match(site, /commandCtx\(/);
     }

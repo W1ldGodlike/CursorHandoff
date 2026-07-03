@@ -1,6 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { ACTION_SELECTORS, resolveStableActionSelector, parseCallbackData } from '../../src/telegram/commands/registry.js';
+import { ACTION_SELECTORS, resolveStableActionSelector, resolveCallbackActionSelector, parseCallbackData } from '../../src/telegram/commands/registry.js';
+import {
+  CONFIRM_SEARCH_CANCEL,
+  CONFIRM_SEARCH_CONTINUE,
+  CONFIRM_SEARCH_TOGGLE,
+} from '../../src/ide/parse/confirm-search-selectors.js';
 
 describe('telegram ACTION_SELECTORS', () => {
   it('covers every callback action used by approval buttons', () => {
@@ -107,5 +112,28 @@ describe('resolveStableActionSelector', () => {
 
   it('returns undefined for unknown actions', () => {
     assert.equal(resolveStableActionSelector('xyz'), undefined);
+  });
+});
+
+describe('resolveCallbackActionSelector', () => {
+  it('prefers hashed confirm-search path over shell fallback', () => {
+    const hashes = new Map<string, string>([
+      ['abc12345', CONFIRM_SEARCH_CONTINUE],
+    ]);
+    const sel = resolveCallbackActionSelector('run', 'abc12345', (h) => hashes.get(h));
+    assert.equal(sel, CONFIRM_SEARCH_CONTINUE);
+  });
+
+  it('prefers hashed toggle path over shell checkbox fallback', () => {
+    const hashes = new Map<string, string>([
+      ['def67890', CONFIRM_SEARCH_TOGGLE],
+    ]);
+    const sel = resolveCallbackActionSelector('tog', 'def67890', (h) => hashes.get(h));
+    assert.equal(sel, CONFIRM_SEARCH_TOGGLE);
+  });
+
+  it('falls back to shell selector when hash evicted', () => {
+    const sel = resolveCallbackActionSelector('skp', 'missing', () => undefined);
+    assert.ok(sel?.includes('button.ui-shell-tool-call__skip-btn'));
   });
 });
