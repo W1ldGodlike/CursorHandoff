@@ -2547,10 +2547,12 @@ html[data-theme="light"] .markdown-body .md-diagram-wrap svg .cluster rect {
 
 .feed-image {
   display: block;
-  max-width: min(100%, 420px);
-  max-height: 420px;
+  max-width: min(100%, 512px);
+  max-height: 512px;
+  width: auto;
   height: auto;
   object-fit: contain;
+  image-rendering: auto;
 }
 
 .code-syntax {

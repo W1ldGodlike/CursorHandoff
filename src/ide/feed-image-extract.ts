@@ -52,11 +52,15 @@ export const FEED_IMAGE_COLLECT_EXPR = `(async () => {
     return btoa(binary);
   };
 
-  const encodeViaCanvas = (img, w, h) => {
+  const encodeViaCanvas = (img) => {
     try {
-      const maxDim = 1024;
-      let iw = w || 0;
-      let ih = h || 0;
+      const maxDim = 2048;
+      let iw = img.naturalWidth || img.width || 0;
+      let ih = img.naturalHeight || img.height || 0;
+      if (iw < MIN_PX || ih < MIN_PX) {
+        iw = img.clientWidth || iw;
+        ih = img.clientHeight || ih;
+      }
       const max = Math.max(iw, ih);
       if (max > maxDim) {
         const scale = maxDim / max;
@@ -97,7 +101,7 @@ export const FEED_IMAGE_COLLECT_EXPR = `(async () => {
       }
     }
 
-    const fromCanvas = encodeViaCanvas(img, dw || nw, dh || nh);
+    const fromCanvas = encodeViaCanvas(img);
     if (fromCanvas) {
       if (fromCanvas.data.length * 0.75 > MAX_BYTES) return;
       pushItem(messageId, index, fromCanvas.mime, fromCanvas.data, fromCanvas.width, fromCanvas.height);

@@ -8,4 +8,10 @@ describe('feed-image-collect expr', () => {
     assert.match(FEED_IMAGE_COLLECT_EXPR, /return out;\s*\}\)\(\)$/);
     assert.match(FEED_IMAGE_COLLECT_EXPR, /data:image/);
   });
+
+  it('re-encodes via canvas at naturalWidth not clientWidth', () => {
+    assert.match(FEED_IMAGE_COLLECT_EXPR, /naturalWidth/);
+    assert.match(FEED_IMAGE_COLLECT_EXPR, /encodeViaCanvas\(img\)/);
+    assert.doesNotMatch(FEED_IMAGE_COLLECT_EXPR, /encodeViaCanvas\(img, dw/);
+  });
 });
