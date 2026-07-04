@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-04
+
+![CursorHandoff brand concept](https://github.com/W1ldGodlike/CursorHandoff/releases/download/v1.5.0/handoff-release-hero.png)
+
+
 ### Added
 
 - **Generate image approval cards (web)** — When Cursor shows a **Generate image** tool card (Smart Mode or explicit approval), Handoff mirrors the prompt and **Run** / **Skip** on the mobile feed. CDP uses scoped paths `generate-image:{toolCallId}:run|skip` (`generate-image-selectors.ts`, `generate-image-merge.ts`, `navigation.ts`).
