@@ -1152,12 +1152,12 @@ describe('windows WindowMonitor logging coverage', () => {
     assert.match(zone, /err instanceof Error \? err\.message : String\(err\)/);
   });
 
-  it('extractFromClient catch returns null without logging in source', () => {
+  it('extractFromClient outer catch returns null without logging in source', () => {
     const zone = windowsZoneSrc();
     const body = zone.slice(zone.indexOf('private async extractFromClient'));
+    assert.match(body, /finalizeExtractedState/);
+    assert.doesNotMatch(body, /FEED_IMAGE_ENRICH_FAIL/);
     assert.match(body, /} catch \{[\s\S]*return null;/);
-    assert.ok(!body.includes('logWarn'));
-    assert.ok(!body.includes('logInfo'));
   });
 
   it('pollWindowParallel skips parallel poll when workspace path missing in source', () => {
@@ -1232,7 +1232,8 @@ describe('windows WindowMonitor logging coverage', () => {
   it('extractFromClient applies derived and approval filters in source', () => {
     const zone = windowsZoneSrc();
     const body = zone.slice(zone.indexOf('private async extractFromClient'));
-    assert.match(body, /applyDerivedActivityToState\(state\)/);
+    assert.match(body, /applyDerivedActivityToState\(enriched\)/);
+    assert.match(body, /finalizeExtractedState/);
     assert.match(body, /applyApprovalFilter\(/);
   });
 

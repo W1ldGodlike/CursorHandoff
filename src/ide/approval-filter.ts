@@ -33,7 +33,7 @@ function isKnownApproveLabel(label: string): boolean {
   if (JUNK_LABELS.has(t)) return false;
   if (t.startsWith('{') && t.includes('"ok"')) return false;
   if (t === 'run' || t === 'accept' || t === 'approve' || t === 'allow') return true;
-  if (t === 'accept all' || t === 'continue') return true;
+  if (t === 'accept all' || t === 'continue' || t === 'generate') return true;
   if (t.startsWith('allowlist')) return true;
   return false;
 }
@@ -58,7 +58,7 @@ export function isActionableApproval(approval: Approval): boolean {
   }
 
   // delete-file ids may embed a DOM fallback path; do not drop before stable-prefix check
-  if (!approval.id.startsWith('delete-file:') && approval.id.length > MAX_ID_LEN) return false;
+  if (!approval.id.startsWith('delete-file:') && !approval.id.startsWith('generate-image:') && approval.id.length > MAX_ID_LEN) return false;
   if (looksLikeJunkDescription(approval.description)) return false;
 
   for (const action of approval.actions) {
@@ -73,7 +73,7 @@ export function isActionableApproval(approval: Approval): boolean {
   }
 
   // Primary shell-tool / confirm-search / delete-file paths: stable ids.
-  if (approval.id.startsWith('tool:') || approval.id.startsWith('confirm-search:') || approval.id.startsWith('delete-file:')) return true;
+  if (approval.id.startsWith('tool:') || approval.id.startsWith('confirm-search:') || approval.id.startsWith('delete-file:') || approval.id.startsWith('generate-image:')) return true;
 
   // Legacy fallback: need at least one canonical approve label.
   return approval.actions.some(

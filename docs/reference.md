@@ -156,6 +156,7 @@ The sidebar **Status** tree is read-mostly (server, CDP, agent, clients, windows
 | `handoff-server.log` | Handoff server log (JSON or human lines with `code=` — `TG_*`, `CDP_*`, `QUEUE_*`, …) |
 | `telegram-questionnaire-freeform/` | Short-lived pending state for TG **Other** + Reply (10 min TTL) |
 | `redeploy-requested` | Dev flag: full redeploy on next stop-hook |
+| `feed-images/` | Sidecar PNG/WebP for agent-generated feed images (`{messageId}-img-{index}.png`) |
 
 ### Per workspace
 
@@ -190,12 +191,22 @@ Web **Run** / **Skip** and Telegram inline buttons send `click_action` with a `s
 | Confirm search | `confirm-search:{toolCallId}:{urlEncodedQuery}:auto-search-toggle` | Toggle Auto-search web |
 | Delete file | `delete-file:{toolCallId}:{urlEncodedFilename}:accept` | Accept delete |
 | Delete file | `delete-file:{toolCallId}:{urlEncodedFilename}:reject` | Reject delete |
+| Generate image | `generate-image:{toolCallId}:run` | Approve image generation |
+| Generate image | `generate-image:{toolCallId}:skip` | Skip image generation |
 
 - **Query / filename segments** — `encodeURIComponent` of up to 120 chars (query) or the basename (filename). Omitted when empty: `confirm-search:{toolCallId}:continue`, `delete-file:{toolCallId}:accept`.
 - **Scoped matching** — With several cards open, merge attaches paths from the matched message `toolCallId` and command/filename so the bottom card’s **Continue** does not click the top row.
 - **Legacy (deprecated)** — Global `confirm-search:continue`, `confirm-search:cancel`, `confirm-search:auto-search-toggle` (no id/query); prefer scoped paths.
 
-Sources: `confirm-search-merge.ts`, `delete-file-merge.ts`, `shell-approval-merge.ts` (orchestrated by `approval-merge.ts`). User-facing behavior: [guide § Web client](guide.md), [Telegram § Tool approvals](telegram.md#tool-approvals-run--confirm-search--delete).
+Sources: `confirm-search-merge.ts`, `delete-file-merge.ts`, `generate-image-merge.ts`, `shell-approval-merge.ts` (orchestrated by `approval-merge.ts`). User-facing behavior: [guide § Web client](guide.md), [Telegram § Tool approvals](telegram.md#tool-approvals-run--confirm-search--delete).
+
+### Feed image HTTP
+
+| Route | Auth | Purpose |
+|-------|------|---------|
+| `GET /api/feed-image/:id` | Session cookie when `webappPassword` set | Serve sidecar image (`id` = `{messageId}-img-{index}`) |
+
+Files live under `<data-root>/feed-images/`. Populated by `enrichStateWithFeedImages` after each CDP extraction when Cursor shows inline previews on **Generated image** tool rows.
 
 ---
 

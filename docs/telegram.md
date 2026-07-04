@@ -130,6 +130,9 @@ When the agent waits for approval (`waiting_approval`), Handoff posts inline but
 | Shell | **Run** / **Skip** ( **Allow** when present) | From `pendingApprovals` DOM scan |
 | Confirm search | **Continue** / **Cancel** / **Auto-search web** | Scoped per search query when several cards are open |
 | Delete file | **Accept** / **Reject** | Scoped per filename; buttons clear after accept or when the card leaves pending |
+| Generate image | **Run** / **Skip** | Prompt on the feed message; scoped per `toolCallId` |
+
+**Generated image previews:** the web client shows inline previews for completed **Generated image** tools (`/api/feed-image/:id`). Telegram still posts the tool line only — automatic `sendPhoto` for agent-generated images is planned separately.
 
 Tap a button → CDP clicks the matching control in Cursor → cards refresh on the next state poll.
 

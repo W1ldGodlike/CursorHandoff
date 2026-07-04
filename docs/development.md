@@ -84,9 +84,9 @@ Then `npm run package` so `extension/media/wake/CursorWake.exe` and `releases/Cu
 
 ```bash
 npm test
-npm run release -- patch    # or minor | major — version, CHANGELOG, commit, tag
+npm run release -- patch    # or minor | major — version, CHANGELOG, move random local/brand/concepts → media/handoff-release-hero.png, commit, tag
 npm run package             # releases/*.vsix + CursorWake-windows.exe
-npm run release:github      # gh release with assets
+npm run release:github      # gh release with VSIX + handoff-release-hero.png + notes from CHANGELOG
 git push && git push --tags
 ```
 

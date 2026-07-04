@@ -23,6 +23,7 @@ import {
   type WebappSessionStore,
 } from './sessions.js';
 import { readWebSettingsRecord, writeWebSettingsRecord } from './settings-api.js';
+import { readFeedImage } from '../media/feed-images.js';
 import { isTelegramPollActive } from './poll-status.js';
 import { getLocale, t } from '../i18n/t.js';
 import { logError, logInfo, logWarn, sanitizeErrorForUser, sanitizePathForUi } from '../core/log-event.js';
@@ -660,6 +661,26 @@ export class Relay {
       }
       const saved = writeWebSettingsRecord(settings);
       res.json(saved);
+    });
+
+    this.app.get('/api/feed-image/:id', (req, res) => {
+      if (this.authEnabled && this.resolveHttpSession(req) === undefined) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+      const id = req.params.id;
+      if (!/^[\w-]+-img-\d+$/.test(id)) {
+        res.status(400).json({ error: 'Invalid id' });
+        return;
+      }
+      const img = readFeedImage(id);
+      if (!img) {
+        res.status(404).json({ error: 'Not found' });
+        return;
+      }
+      res.setHeader('Content-Type', img.mime);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      res.send(img.buffer);
     });
 
     // Auth middleware BEFORE index.html and static — otherwise client code is served without session.

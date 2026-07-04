@@ -428,7 +428,7 @@ describe('dedupe-cross-cutting meta', () => {
     const src = readFileSync(new URL('../../src/ide/actions/navigation.ts', import.meta.url), 'utf-8');
     assert.ok(src.includes('logCommandOk'));
     assert.ok(!src.includes("logInfo('COMMAND_OK'"));
-    assert.equal((src.match(/logCommandOk\(/g) ?? []).length, 22);
+    assert.equal((src.match(/logCommandOk\(/g) ?? []).length, 23);
   });
 
   it('main.ts enableLogDedupe true at boot', () => {

@@ -158,7 +158,11 @@ async function main(): Promise<void> {
       if (state) stateManager.onExtraction(state);
       else stateManager.onExtractionFailure(errorMessage ?? 'Extraction failed');
     },
-    () => cdpBridge.windows.find(w => w.id === cdpBridge.activeTargetId)?.title ?? ''
+    () => cdpBridge.windows.find(w => w.id === cdpBridge.activeTargetId)?.title ?? '',
+    async (client, state) => {
+      const { finalizeExtractedState } = await import('../ide/feed-image-extract.js');
+      return (await finalizeExtractedState(client, state)) ?? state;
+    },
   );
 
   const windowMonitor = new WindowMonitor(cdpBridge, stateManager, extractor, config, selectors);

@@ -73,7 +73,7 @@ function collapseResolvedShellRunCommand(msg: RunCommand): ChatElement {
 
 function isShellDedupeExempt(msg: RunCommand): boolean {
   const desc = msg.description.trim().toLowerCase();
-  return desc === 'delete' || desc === 'confirm search';
+  return desc === 'delete' || desc === 'confirm search' || desc === 'generate image';
 }
 
 export function dedupeShellRunCommandMessages(messages: ChatElement[]): ChatElement[] {
@@ -126,10 +126,14 @@ export function stripShellApprovalActionsFromMessages(
       if (desc === 'confirm search') {
         return { ...m, command: m.command.trim(), actions: [] };
       }
+      if (desc === 'generate image') return m;
       const command = shellApprovalCardCommand(m.command);
       return { ...m, command, actions: [] };
     }
     if (m.type === 'tool' && m.actions?.some(isShellApprovalAction)) {
+      const action = (m.action || '').trim().toLowerCase();
+      if (action === 'delete' || action === 'deleting') return m;
+      if (action === 'generate image' || action === 'generating image') return m;
       const kept = m.actions.filter((a) => !isShellApprovalAction(a));
       return kept.length > 0 ? { ...m, actions: kept } : { ...m, actions: undefined };
     }
@@ -148,7 +152,7 @@ export function mergeShellApprovalsIntoMessages(
   if (!approvals.length) return msgs;
   const out = msgs.slice();
   for (const approval of approvals) {
-    if (approval.id.startsWith('delete-file:') || approval.id.startsWith('confirm-search:')) continue;
+    if (approval.id.startsWith('delete-file:') || approval.id.startsWith('confirm-search:') || approval.id.startsWith('generate-image:')) continue;
     const runActions = approvalActionsToRunActions(approval);
     if (!runActions.length) continue;
 

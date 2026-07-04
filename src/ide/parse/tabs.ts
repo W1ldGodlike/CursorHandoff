@@ -580,7 +580,8 @@ export function extractionFunction(
         prev = text;
         text = text
           .replace(/\s*(Shift\+)?⏎\s*$/g, '')
-          .replace(/(Skip|Enable Auto-review|Run)+$/gi, '')
+          .replace(/(?:SkipEnable Auto-reviewRun|SkipEnable Auto-review|Enable Auto-reviewRun|SkipRun)$/gi, '')
+          .replace(/(?:\s*(?:Skip|Enable Auto-review|Run))+\s*$/gi, '')
           .trimEnd();
       }
       return isPlausibleShellCommand(text) ? text : '';
@@ -957,6 +958,192 @@ export function extractionFunction(
       return actions.some((a) => a.type === 'run' || a.type === 'skip');
     }
 
+    function parseGenerateImagePromptFromCardText(raw: string): string {
+      const text = raw.replace(/\s+/g, ' ').trim();
+      if (/^generated\s+image/i.test(text) || /^image generation skipped/i.test(text)) return '';
+      if (!/^generat(e|ing)\s+image/i.test(text)) return '';
+      return text
+        .replace(/^generat(e|ing)\s+image\s*/i, '')
+        .replace(/skip\s*generate\^?.*/i, '')
+        .replace(/generate\s*skip\^?.*/i, '')
+        .replace(/⏎.*$/g, '')
+        .trim();
+    }
+
+    function generateImageRunPath(toolCallId: string): string {
+      return `generate-image:${toolCallId}:run`;
+    }
+
+    function generateImageSkipPath(toolCallId: string): string {
+      return `generate-image:${toolCallId}:skip`;
+    }
+
+    function stripApprovalSuffix(text: string): string {
+      let t = text.trim();
+      let prev = '';
+      while (t !== prev) {
+        prev = t;
+        t = t
+          .replace(/\s*(Shift\+)?⏎\s*$/g, '')
+          .replace(/(?:SkipEnable Auto-reviewRun|SkipEnable Auto-review|Enable Auto-reviewRun|SkipRun)$/gi, '')
+          .replace(/(?:\s*(?:Skip|Enable Auto-review|Run))+\s*$/gi, '')
+          .trimEnd();
+      }
+      return t;
+    }
+
+    function generateImageHeaderAction(root: Element): string {
+      const actionEl = root.querySelector('.ui-tool-call-line-action');
+      const cardHeader = root.querySelector('.ui-tool-call-card__header');
+      const raw = (actionEl?.textContent || cardHeader?.textContent || '').split('\n')[0] || '';
+      return cleanBtnLabel(raw);
+    }
+
+    function isGenerateImageHeaderLabel(label: string): boolean {
+      return /^generat(e|ing)\s+image$/i.test(label);
+    }
+
+    function extractGenerateImageFields(
+      root: Element
+    ): { description: string; command: string; candidates: string } | null {
+      const headerAction = generateImageHeaderAction(root);
+      if (/^generated\s+image$/i.test(headerAction) || /^image generation skipped$/i.test(headerAction)) {
+        return null;
+      }
+      const isGenerateHeader = isGenerateImageHeaderLabel(headerAction);
+
+      const actionEl = root.querySelector('.ui-tool-call-line-action');
+      const detailsEl = root.querySelector('.ui-tool-call-line-details');
+      if (isGenerateHeader && actionEl) {
+        const fromDetails = stripApprovalSuffix(cleanBtnLabel(detailsEl?.textContent || ''));
+        if (fromDetails) {
+          return { description: 'Generate image', command: fromDetails.substring(0, 2000), candidates: '' };
+        }
+      }
+
+      const bodyEl = root.querySelector(
+        '.composer-tool-call-body, .ui-tool-call-card__body, .composer-tool-call-expanded-content',
+      );
+      if (bodyEl && isGenerateHeader) {
+        const fromBody = (bodyEl.textContent || '').replace(/\s+/g, ' ').trim();
+        const prompt = parseGenerateImagePromptFromCardText(fromBody);
+        if (prompt) {
+          return { description: 'Generate image', command: prompt.substring(0, 2000), candidates: '' };
+        }
+        const stripped = stripApprovalSuffix(
+          fromBody
+            .replace(/^generat(e|ing)\s+image\s*/i, '')
+            .replace(/skip\s*generate.*/i, '')
+            .trim(),
+        );
+        if (stripped.length > 8 && !/^skip$/i.test(stripped)) {
+          return { description: 'Generate image', command: stripped.substring(0, 2000), candidates: '' };
+        }
+      }
+
+      if (isGenerateHeader) {
+        const mdEl = root.querySelector('.markdown-root p, .ui-markdown__paragraph');
+        if (mdEl) {
+          const fromMd = stripApprovalSuffix((mdEl.textContent || '').replace(/\s+/g, ' ').trim());
+          if (fromMd.length > 8) {
+            return { description: 'Generate image', command: fromMd.substring(0, 2000), candidates: '' };
+          }
+        }
+      }
+
+      const header = root.matches('.composer-tool-call-header')
+        ? root
+        : root.querySelector('.composer-tool-call-header');
+      if (header) {
+        const prompt = parseGenerateImagePromptFromCardText(header.textContent || '');
+        if (prompt) {
+          return { description: 'Generate image', command: prompt.substring(0, 2000), candidates: '' };
+        }
+      }
+
+      const scope = deleteFileScope(root);
+      const rowText = (scope.textContent || '').replace(/\s+/g, ' ').trim();
+      const fromRow = parseGenerateImagePromptFromCardText(rowText);
+      if (fromRow) {
+        return { description: 'Generate image', command: fromRow.substring(0, 2000), candidates: '' };
+      }
+
+      if (isGenerateHeader) {
+        return { description: 'Generate image', command: '', candidates: '' };
+      }
+      return null;
+    }
+
+    function extractGenerateImageActions(
+      container: Element,
+      toolCallId: string
+    ): { label: string; type: 'run' | 'skip' | 'allow' | 'toggle'; selectorPath: string; checked?: boolean }[] {
+      const fields = extractGenerateImageFields(container);
+      if (!fields) return [];
+
+      const GENERATE_IMAGE_RUN = generateImageRunPath(toolCallId);
+      const GENERATE_IMAGE_SKIP = generateImageSkipPath(toolCallId);
+      const scope = deleteFileScope(container);
+      const actions: {
+        label: string;
+        type: 'run' | 'skip' | 'allow' | 'toggle';
+        selectorPath: string;
+        checked?: boolean;
+      }[] = [];
+      const seenPaths = new Set<string>();
+
+      const pushAction = (action: {
+        label: string;
+        type: 'run' | 'skip' | 'allow' | 'toggle';
+        selectorPath: string;
+        checked?: boolean;
+      }) => {
+        if (!action.selectorPath || seenPaths.has(action.selectorPath)) return;
+        seenPaths.add(action.selectorPath);
+        actions.push(action);
+      };
+
+      for (const btn of Array.from(scope.querySelectorAll('.cursor-button, button, [role="button"]'))) {
+        if (btn.closest('.usage-limit-policy-banner')) continue;
+        if (isMenuTrigger(btn)) continue;
+        const label = cleanBtnLabel(btn.textContent || btn.getAttribute('aria-label') || '');
+        const lower = label.toLowerCase();
+        if (lower === 'generate' || lower.startsWith('generate')) {
+          pushAction({ label: label || 'Generate', type: 'run', selectorPath: GENERATE_IMAGE_RUN });
+        }
+        if (lower === 'skip') {
+          pushAction({ label: label || 'Skip', type: 'skip', selectorPath: GENERATE_IMAGE_SKIP });
+        }
+      }
+
+      if (!seenPaths.has(GENERATE_IMAGE_RUN) || !seenPaths.has(GENERATE_IMAGE_SKIP)) {
+        const rowText = (scope.textContent || '').replace(/\s+/g, ' ');
+        if (/Skip\s*Generate/i.test(rowText)) {
+          if (!seenPaths.has(GENERATE_IMAGE_SKIP)) {
+            pushAction({ label: 'Skip', type: 'skip', selectorPath: GENERATE_IMAGE_SKIP });
+          }
+          if (!seenPaths.has(GENERATE_IMAGE_RUN)) {
+            pushAction({ label: 'Generate', type: 'run', selectorPath: GENERATE_IMAGE_RUN });
+          }
+        }
+      }
+
+      return actions;
+    }
+
+    function isGenerateImageCardActive(root: Element): boolean {
+      const actionEl = root.querySelector('.ui-tool-call-line-action');
+      if (actionEl) {
+        const action = cleanBtnLabel(actionEl.textContent || '');
+        if (/^generated\s+image$/i.test(action) || /^image generation skipped$/i.test(action)) return false;
+      }
+      if (!extractGenerateImageFields(root)) return false;
+      const bubble = root.querySelector('[data-tool-call-id]') || root.closest('[data-tool-call-id]');
+      const toolCallId = bubble?.getAttribute('data-tool-call-id') || 'probe';
+      const actions = extractGenerateImageActions(root, toolCallId);
+      return actions.some((a) => a.type === 'run' || a.type === 'skip');
+    }
+
     function confirmSearchRootFromHeader(header: Element): Element | null {
       return (
         header.closest('.ui-tool-call-card')
@@ -1167,6 +1354,21 @@ export function extractionFunction(
             toolCallId,
             deleteFieldsEarly,
             deleteActionsEarly,
+          );
+        }
+      }
+
+      const generateFieldsEarly = extractGenerateImageFields(toolRoot);
+      if (generateFieldsEarly) {
+        const generateActionsEarly = extractGenerateImageActions(toolRoot, toolCallId);
+        if (generateActionsEarly.some((a) => a.type === 'run' || a.type === 'skip')) {
+          return shellActionsToRunCommand(
+            toolRoot,
+            flatIndex,
+            messageId,
+            toolCallId,
+            generateFieldsEarly,
+            generateActionsEarly,
           );
         }
       }
@@ -1492,6 +1694,20 @@ export function extractionFunction(
             );
           }
         }
+        const generateFieldsCompact = extractGenerateImageFields(toolRoot);
+        if (generateFieldsCompact) {
+          const generateActionsCompact = extractGenerateImageActions(toolRoot, toolCallId);
+          if (generateActionsCompact.some((a) => a.type === 'run' || a.type === 'skip')) {
+            return shellActionsToRunCommand(
+              toolRoot,
+              flatIndex,
+              messageId,
+              toolCallId,
+              generateFieldsCompact,
+              generateActionsCompact,
+            );
+          }
+        }
         const shellFields = extractShellRunFields(toolRoot);
         if (shellFields && (compactActions.length > 0 || isPlausibleShellCommand(shellFields.command))) {
           return shellActionsToRunCommand(
@@ -1568,7 +1784,7 @@ export function extractionFunction(
       if (deletions2 === undefined) deletions2 = lineDiffFb.deletions;
 
       const shellCmd = toolRoot.querySelector('.ui-shell-tool-call__command');
-      if (shellCmd && !details) details = (shellCmd.textContent || '').trim();
+      if (shellCmd && !details) details = normalizeShellCommandText(shellCmd.textContent || '');
 
       if (!action) {
         const cardHeader = toolRoot.querySelector('.ui-tool-call-card__header');
@@ -1609,6 +1825,20 @@ export function extractionFunction(
             toolCallId,
             deleteFieldsFallback,
             deleteActionsFallback,
+          );
+        }
+      }
+      const generateFieldsFallback = extractGenerateImageFields(toolRoot);
+      if (generateFieldsFallback) {
+        const generateActionsFallback = extractGenerateImageActions(toolRoot, toolCallId);
+        if (generateActionsFallback.some((a) => a.type === 'run' || a.type === 'skip')) {
+          return shellActionsToRunCommand(
+            toolRoot,
+            flatIndex,
+            messageId,
+            toolCallId,
+            generateFieldsFallback,
+            generateActionsFallback,
           );
         }
       }
@@ -2119,6 +2349,37 @@ export function extractionFunction(
         description: fields.description,
         command: fields.command,
         actions: deleteActions.map((a) => ({
+          label: a.label,
+          type:
+            a.type === 'run' ? 'approve' as const
+            : a.type === 'skip' ? 'reject' as const
+            : a.type === 'allow' ? 'approve_all' as const
+            : 'toggle' as const,
+          selectorPath: a.selectorPath,
+          ...(a.checked !== undefined ? { checked: a.checked } : {}),
+        })),
+      });
+    }
+
+    for (const row of Array.from(container.querySelectorAll('.virtualized-composer-messages-row'))) {
+      if (seenCards.has(row)) continue;
+      if (!isGenerateImageCardActive(row)) continue;
+      const fields = extractGenerateImageFields(row);
+      if (!fields) continue;
+      const bubble = row.querySelector('[data-tool-call-id]') || row.closest('[data-tool-call-id]');
+      const msgIdEl = row.querySelector('[data-message-id]');
+      const toolCallId =
+        bubble?.getAttribute('data-tool-call-id')
+        || msgIdEl?.getAttribute('data-message-id')
+        || `gen-${pendingApprovals.length}`;
+      const generateActions = extractGenerateImageActions(row, toolCallId);
+      if (!generateActions.some((a) => a.type === 'run' || a.type === 'skip')) continue;
+      seenCards.add(row);
+      pendingApprovals.push({
+        id: `generate-image:${toolCallId}`,
+        description: fields.description,
+        command: fields.command,
+        actions: generateActions.map((a) => ({
           label: a.label,
           type:
             a.type === 'run' ? 'approve' as const
@@ -2799,6 +3060,7 @@ export class DOMExtractor {
   private client: CdpClient | null = null;
   private onExtract: (state: CursorState | null, errorMessage?: string | null) => void;
   private getWindowTitle: () => string;
+  private postProcess: ((client: CdpClient, state: CursorState) => Promise<CursorState>) | null;
   private loggedFirstExtraction = false;
   private basePollIntervalMs = 300;
   private currentPollIntervalMs = 300;
@@ -2809,11 +3071,13 @@ export class DOMExtractor {
   constructor(
     selectors: SelectorConfig,
     onExtract: (state: CursorState | null, errorMessage?: string | null) => void,
-    getWindowTitle: () => string = () => ''
+    getWindowTitle: () => string = () => '',
+    postProcess: ((client: CdpClient, state: CursorState) => Promise<CursorState>) | null = null,
   ) {
     this.selectors = selectors;
     this.onExtract = onExtract;
     this.getWindowTitle = getWindowTitle;
+    this.postProcess = postProcess;
   }
 
   start(client: CdpClient, intervalMs: number): void {
@@ -2902,7 +3166,7 @@ export class DOMExtractor {
     }
 
     try {
-      const state = await this.client.callFunctionWithTimeout(
+      let state = await this.client.callFunctionWithTimeout(
         extractionFunction as (...args: never[]) => unknown,
         [
           this.selectors.chatContainer.strategies,
@@ -2919,6 +3183,10 @@ export class DOMExtractor {
         ],
         EVALUATE_TIMEOUT_MS
       ) as CursorState | null;
+
+      if (state && this.client && this.postProcess) {
+        state = await this.postProcess(this.client, state);
+      }
 
       const derivedState = state
         ? applyApprovalFilter(applyDerivedActivityToState(state))

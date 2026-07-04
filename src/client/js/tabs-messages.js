@@ -771,6 +771,7 @@ export function messageRenderKey(msg) {
         text: msg.text,
         q: msg.quoted?.text,
         ic: msg.imageCount,
+        img: msg.images,
         m: msg.mentions,
       });
     case 'assistant':
@@ -779,6 +780,7 @@ export function messageRenderKey(msg) {
         html: msg.html,
         text: msg.text,
         cb: msg.codeBlocks,
+        img: msg.images,
       });
     case 'tool':
       return JSON.stringify({
@@ -792,6 +794,7 @@ export function messageRenderKey(msg) {
         deletions: msg.deletions,
         actions: msg.actions,
         diffBlock: msg.diffBlock,
+        img: msg.images,
       });
     case 'thought':
       return JSON.stringify({
@@ -826,6 +829,7 @@ export function messageRenderKey(msg) {
         command: msg.command,
         candidates: msg.candidates,
         actions: msg.actions,
+        img: msg.images,
       });
     case 'loading':
       return JSON.stringify({ t: 'loading' });
@@ -917,7 +921,7 @@ export function createHumanEl(msg) {
   text.textContent = msg.text;
   bubble.appendChild(text);
 
-  if (msg.imageCount > 0) {
+  if (msg.imageCount > 0 && !(msg.images && msg.images.length)) {
     const imgHint = document.createElement('div');
     imgHint.className = 'human-image-hint';
     imgHint.textContent = msg.imageCount === 1
@@ -925,6 +929,8 @@ export function createHumanEl(msg) {
       : tp('web.feed.photosCount', '📷 {count} photo(s)', { count: msg.imageCount });
     bubble.appendChild(imgHint);
   }
+
+  appendFeedImages(bubble, msg.images);
 
   el.appendChild(bubble);
   return el;
@@ -964,6 +970,7 @@ export function updateHumanEl(el, msg) {
   const text = el.querySelector('.human-text');
   if (text) text.textContent = msg.text;
   if (bubble) updateHumanImageHint(bubble, msg);
+  syncFeedImages(el, msg.images);
 }
 
 // --- Assistant message ---
@@ -1155,6 +1162,7 @@ export function createAssistantEl(msg) {
   }
 
   el.appendChild(bubble);
+  appendFeedImages(el, msg.images);
   return el;
 }
 
@@ -1178,6 +1186,48 @@ export function updateAssistantEl(el, msg) {
   if (!msg.html) {
     placeAssistantNativeBlocks(content, bubble, msg);
   }
+  syncFeedImages(el, msg.images);
+}
+
+// --- Feed images (sidecar /api/feed-image) ---
+
+function feedImageUrl(ref) {
+  return `/api/feed-image/${encodeURIComponent(ref.id)}`;
+}
+
+export function appendFeedImages(container, images) {
+  if (!container || !images || !images.length) return;
+  const row = document.createElement('div');
+  row.className = 'feed-image-row';
+  for (const ref of images) {
+    const wrap = document.createElement('div');
+    wrap.className = 'feed-image-wrap';
+    const img = document.createElement('img');
+    img.className = 'feed-image';
+    img.dataset.feedId = ref.id;
+    img.src = feedImageUrl(ref);
+    img.alt = '';
+    if (ref.width) img.width = ref.width;
+    if (ref.height) img.height = ref.height;
+    img.loading = 'lazy';
+    wrap.appendChild(img);
+    row.appendChild(wrap);
+  }
+  container.appendChild(row);
+}
+
+function syncFeedImages(el, images) {
+  const old = el.querySelector('.feed-image-row');
+  if (!images || !images.length) {
+    if (old) old.remove();
+    return;
+  }
+  const key = JSON.stringify(images.map((x) => x.id));
+  if (old && old.dataset.key === key) return;
+  if (old) old.remove();
+  appendFeedImages(el, images);
+  const row = el.querySelector('.feed-image-row');
+  if (row) row.dataset.key = key;
 }
 
 // --- Tool call ---
@@ -1199,6 +1249,7 @@ export function createToolEl(msg) {
     };
     const el = createRunCommandEl(runMsg);
     el.classList.add('el-tool');
+    appendFeedImages(el, msg.images);
     return el;
   }
 
@@ -1270,6 +1321,7 @@ export function createToolEl(msg) {
   }
 
   syncToolDiffHost(el, msg);
+  appendFeedImages(el, msg.images);
   return el;
 }
 
@@ -1325,6 +1377,7 @@ export function updateToolEl(el, msg) {
   }
 
   syncToolDiffHost(el, msg);
+  syncFeedImages(el, msg.images);
 }
 
 // --- Thought block ---
@@ -1441,7 +1494,7 @@ function sortRunActions(actions) {
 
 function resolveClickSelector(action) {
   const path = action.selectorPath || '';
-  if (path.startsWith('confirm-search:') || path.startsWith('delete-file:')) return path;
+  if (path.startsWith('confirm-search:') || path.startsWith('delete-file:') || path.startsWith('generate-image:')) return path;
   const stable = {
     run: 'button.ui-shell-tool-call__run-btn',
     skip: 'button.ui-shell-tool-call__skip-btn',
@@ -1518,6 +1571,10 @@ function isDeleteRunCommandMsg(msg) {
   return (msg.description || '').trim().toLowerCase() === 'delete';
 }
 
+function isGenerateImageRunCommandMsg(msg) {
+  return (msg.description || '').trim().toLowerCase() === 'generate image';
+}
+
 export function createRunCommandEl(msg) {
   const el = document.createElement('div');
   el.className = 'chat-el el-run-command';
@@ -1544,12 +1601,19 @@ export function createRunCommandEl(msg) {
     const cmdBlock = document.createElement('div');
     cmdBlock.className = isDeleteRunCommandMsg(msg)
       ? 'run-command-block run-delete-block'
-      : 'run-command-block code-syntax';
+      : isGenerateImageRunCommandMsg(msg)
+        ? 'run-command-block run-generate-block'
+        : 'run-command-block code-syntax';
     if (isDeleteRunCommandMsg(msg)) {
       const filename = document.createElement('span');
       filename.className = 'run-delete-filename';
       filename.textContent = msg.command;
       cmdBlock.appendChild(filename);
+    } else if (isGenerateImageRunCommandMsg(msg)) {
+      const prompt = document.createElement('div');
+      prompt.className = 'run-generate-prompt';
+      prompt.textContent = msg.command;
+      cmdBlock.appendChild(prompt);
     } else {
       const pre = document.createElement('pre');
       const code = document.createElement('code');
@@ -1572,14 +1636,18 @@ export function createRunCommandEl(msg) {
   }
 
   el.appendChild(card);
+  appendFeedImages(el, msg.images);
   return el;
 }
 
 export function updateRunCommandEl(el, msg) {
   const isDelete = isDeleteRunCommandMsg(msg);
+  const isGenerate = isGenerateImageRunCommandMsg(msg);
   const oldCommand = isDelete
     ? (el.querySelector('.run-delete-filename')?.textContent || '').trim()
-    : (
+    : isGenerate
+      ? (el.querySelector('.run-generate-prompt')?.textContent || '').trim()
+      : (
       el.querySelector('.run-command-block code')?.dataset.raw
       || el.querySelector('.run-command-text')?.textContent
       || ''
@@ -1591,6 +1659,7 @@ export function updateRunCommandEl(el, msg) {
   const newCard = fresh.querySelector('.run-card');
   const oldCard = el.querySelector('.run-card');
   if (newCard && oldCard) el.replaceChild(newCard, oldCard);
+  syncFeedImages(el, msg.images);
 }
 
 // --- Loading indicator ---
@@ -1873,6 +1942,7 @@ export function applyMermaidSvgTheme(root) {
   root.querySelectorAll(
     'img[src^="blob:"], img[src^="vscode-"], img[src^="cursor-"], img[src^="file:"]',
   ).forEach((img) => {
+    if (img.classList.contains('feed-image') || img.dataset.feedId) return;
     const note = document.createElement('div');
     note.className = 'md-diagram-fallback-note';
     note.textContent = (img.getAttribute('alt') || '').trim() || t('web.feed.mermaid', 'diagram');

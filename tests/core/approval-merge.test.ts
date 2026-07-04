@@ -15,6 +15,10 @@ import {
   confirmSearchContinuePath,
   confirmSearchTogglePath,
 } from '../../src/ide/parse/confirm-search-selectors.js';
+import {
+  generateImageRunPath,
+  generateImageSkipPath,
+} from '../../src/ide/parse/generate-image-selectors.js';
 import type { Approval, CursorState, RunCommand } from '../../src/core/types.js';
 
 function runCommand(partial: Partial<RunCommand> & Pick<RunCommand, 'id' | 'toolCallId'>): RunCommand {
@@ -773,5 +777,107 @@ describe('approval-merge', () => {
     assert.equal(del.command, 'test-file-1.txt');
     assert.ok(del.actions?.length);
     assert.match(del.actions[0].selectorPath || '', /^delete-file:/);
+  });
+
+  it('promotes Generate image tool with bubble actions to run_command', () => {
+    const messages: CursorState['messages'] = [
+      {
+        type: 'tool',
+        id: 't-gen',
+        flatIndex: 3,
+        toolCallId: 'tool-gen-1',
+        status: 'loading',
+        action: 'Generate image',
+        details: '',
+        actions: [
+          { label: 'Skip', type: 'skip', selectorPath: 'div#bubble > button:nth-of-type(1)' },
+          { label: 'Generate', type: 'run', selectorPath: 'div#bubble > button:nth-of-type(2)' },
+        ],
+      },
+    ];
+    const fixed = applyApprovalActionsToMessages({
+      agentStatus: 'waiting_approval',
+      pendingApprovals: [
+        approval({
+          id: 'generate-image:tool-gen-1',
+          description: 'Generate image',
+          command: 'A cute cat poster',
+          actions: [
+            { label: 'Skip', type: 'reject', selectorPath: generateImageSkipPath('tool-gen-1') },
+            { label: 'Generate', type: 'approve', selectorPath: generateImageRunPath('tool-gen-1') },
+          ],
+        }),
+      ],
+      messages,
+    } as CursorState);
+    assert.equal(fixed.length, 1);
+    assert.equal(fixed[0].type, 'run_command');
+    if (fixed[0].type === 'run_command') {
+      assert.equal(fixed[0].description, 'Generate image');
+      assert.equal(fixed[0].command, 'A cute cat poster');
+      assert.equal(fixed[0].actions[0].selectorPath, generateImageSkipPath('tool-gen-1'));
+      assert.equal(fixed[0].actions[1].selectorPath, generateImageRunPath('tool-gen-1'));
+    }
+  });
+
+  it('preserves generate-image actions when extract already returned run_command', () => {
+    const messages: CursorState['messages'] = [
+      {
+        type: 'run_command',
+        id: 'rc-gen',
+        flatIndex: 2,
+        toolCallId: 'tool-gen-rc',
+        description: 'Generate image',
+        candidates: '',
+        command: '',
+        actions: [
+          { label: 'Skip', type: 'skip', selectorPath: 'div#bubble > button:nth-of-type(1)' },
+          { label: 'Generate', type: 'run', selectorPath: 'div#bubble > button:nth-of-type(2)' },
+        ],
+      },
+    ];
+    const fixed = applyApprovalActionsToMessages({
+      agentStatus: 'waiting_approval',
+      pendingApprovals: [],
+      messages,
+    } as CursorState);
+    assert.equal(fixed.length, 1);
+    assert.equal(fixed[0].type, 'run_command');
+    if (fixed[0].type === 'run_command') {
+      assert.equal(fixed[0].actions?.length, 2);
+      assert.equal(fixed[0].actions?.[0].selectorPath, generateImageSkipPath('tool-gen-rc'));
+      assert.equal(fixed[0].actions?.[1].selectorPath, generateImageRunPath('tool-gen-rc'));
+    }
+  });
+
+  it('preserves generate-image actions without pending when Generate image tool is active', () => {
+    const messages: CursorState['messages'] = [
+      {
+        type: 'tool',
+        id: 't-gen',
+        flatIndex: 1,
+        toolCallId: 'tool-gen-2',
+        status: 'loading',
+        action: 'Generate image',
+        details: 'prompt text',
+        actions: [
+          { label: 'Skip', type: 'skip', selectorPath: 'div#bubble > button:nth-of-type(1)' },
+          { label: 'Generate', type: 'run', selectorPath: 'div#bubble > button:nth-of-type(2)' },
+        ],
+      },
+    ];
+    const fixed = applyApprovalActionsToMessages({
+      agentStatus: 'idle',
+      pendingApprovals: [],
+      messages,
+    } as CursorState);
+    assert.equal(fixed.length, 1);
+    assert.equal(fixed[0].type, 'run_command');
+    if (fixed[0].type === 'run_command') {
+      assert.equal(fixed[0].command, 'prompt text');
+      assert.equal(fixed[0].actions?.length, 2);
+      assert.equal(fixed[0].actions?.[0].selectorPath, generateImageSkipPath('tool-gen-2'));
+      assert.equal(fixed[0].actions?.[1].selectorPath, generateImageRunPath('tool-gen-2'));
+    }
   });
 });

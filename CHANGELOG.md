@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Generate image approval cards (web)** — When Cursor shows a **Generate image** tool card (Smart Mode or explicit approval), Handoff mirrors the prompt and **Run** / **Skip** on the mobile feed. CDP uses scoped paths `generate-image:{toolCallId}:run|skip` (`generate-image-selectors.ts`, `generate-image-merge.ts`, `navigation.ts`).
+- **Generated image preview (web)** — After **Generated image** completes, a post-extract pass collects inline `img` / `canvas` from composer tool rows over CDP, saves PNG/WebP sidecars under `<data-root>/feed-images/`, attaches `images[]` refs on chat messages, and the web client renders `<img src="/api/feed-image/{id}">` below the tool line.
+- **Feed image API** — Authenticated `GET /api/feed-image/:id` serves sidecar bytes with private cache headers (`src/media/feed-images.ts`, `src/web/http-routes.ts`).
+- **Unified extract finalize** — `finalizeExtractedState()` runs feed-image enrich on every extraction path: home window via `DOMExtractor` postProcess from `main.ts`, and parallel window polls via `WindowMonitor.extractFromClient`.
+- **Release hero automation** — `scripts/release/release-hero-image.ts` moves a random `local/brand/concepts/` image into tracked `media/handoff-release-hero.png`, embeds it in CHANGELOG, and `release:github` uploads it to GitHub Release assets.
+
+### Changed
+
+- **Generate image parser** — `extractGenerateImageFields` in `tabs.ts` matches only real Generate/Generating image headers so shell commands are not mislabeled as Generate image; approval suffixes stripped from command text.
+- **State diff** — `elementsSignature` / `elementContentKey` include `images` so the web feed updates when previews arrive after the tool line.
+- **Approval merge** — Generate image cards merge through a dedicated module; shell dedupe skips `description: Generate image` rows.
+
+### Documentation
+
+- **Web client** — `docs/guide.md`: Generate image approval + generated-image preview on web.
+- **Reference** — `docs/reference.md`: `feed-images/`, `/api/feed-image/:id`, Generate image `selectorPath` patterns.
+- **Architecture** — `docs/architecture.md`: feed-image extract pipeline and generate-image merge module.
+- **Release** — `docs/development.md`: release flow notes brand hero image step.
+
+### Notes
+
+- **Telegram** — Generate image previews and `sendPhoto` on diff are not in this release (web only).
+
 ## [1.4.0] - 2026-07-03
 
 ![CursorHandoff brand concept](https://github.com/W1ldGodlike/CursorHandoff/releases/download/v1.4.0/handoff-release-hero.png)

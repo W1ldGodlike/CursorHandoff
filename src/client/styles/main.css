@@ -2520,6 +2520,39 @@ html[data-theme="light"] .markdown-body .md-diagram-wrap svg .cluster rect {
   word-break: break-all;
 }
 
+.run-generate-block {
+  color: var(--text-primary);
+}
+
+.run-generate-prompt {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.feed-image-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.feed-image-wrap {
+  max-width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+}
+
+.feed-image {
+  display: block;
+  max-width: min(100%, 420px);
+  max-height: 420px;
+  height: auto;
+  object-fit: contain;
+}
+
 .code-syntax {
   --shiki-foreground: rgba(228, 228, 228, 0.92);
   --shiki-token-comment: #7f848e;

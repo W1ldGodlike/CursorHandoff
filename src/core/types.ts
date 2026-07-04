@@ -161,6 +161,14 @@ export type ChatElement =
   | RunCommand
   | LoadingIndicator;
 
+/** Sidecar feed image ref (bytes in `<data-root>/feed-images/`). */
+export interface FeedImageRef {
+  id: string;
+  mime: string;
+  width?: number;
+  height?: number;
+}
+
 export interface HumanMessage {
   type: 'human';
   id: string;
@@ -171,6 +179,7 @@ export interface HumanMessage {
   quoted?: { text: string };
   /** Inline images in human bubble (blob/src in Cursor DOM). */
   imageCount?: number;
+  images?: FeedImageRef[];
 }
 
 export type DiffLineKind = 'add' | 'rem' | 'ctx' | 'meta' | 'hunk';
@@ -193,6 +202,7 @@ export interface AssistantMessage {
   text: string;
   html: string;
   codeBlocks: CodeBlockItem[];
+  images?: FeedImageRef[];
 }
 
 export interface ToolCallElement {
@@ -211,6 +221,7 @@ export interface ToolCallElement {
   blocked?: string;
   /** Structured diff/code for edit-tools; web client renders natively */
   diffBlock?: CodeBlockItem;
+  images?: FeedImageRef[];
 }
 
 export interface ThoughtBlock {
@@ -325,6 +336,7 @@ export interface RunCommand {
   candidates: string;
   command: string;
   actions: RunAction[];
+  images?: FeedImageRef[];
 }
 
 export interface LoadingIndicator {

@@ -168,8 +168,11 @@ You get a live chat feed, approval cards (optional approve sound in ⚙, default
 | Shell command | **Run** / **Skip** (and **Allow** when shown) | Terminal or MCP tool needs approval; command text is syntax-highlighted on web |
 | Confirm search | **Continue** / **Cancel** / **Auto-search web** | Agent requests a web search |
 | Delete file | **Accept** / **Reject** | Agent proposes deleting a file |
+| Generate image | **Run** / **Skip** | Agent proposes an image generation (prompt shown on the card) |
 
 Each card gets its own button row on web and Telegram. With several Confirm search or Delete cards open, buttons are scoped to that card’s query or filename — tapping **Continue** on the bottom card does not approve the top one.
+
+**Generated images (web):** when Cursor shows a completed **Generated image** tool row with an inline preview, Handoff collects the image over CDP, stores it under `<data-root>/feed-images/`, and renders it in the web feed below the tool line (`GET /api/feed-image/:id`). Telegram photo delivery for generated images is not mirrored yet — use the web client or Cursor IDE for previews.
 
 ---
 

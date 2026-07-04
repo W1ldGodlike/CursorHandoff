@@ -84,7 +84,7 @@
 | **Нативный Android** | ❌ Только PWA | ✅ Любой браузер или Telegram на любой платформе |
 | **Мост Telegram** | ❌ | ✅ Топик на вкладку, слэш-команды — [гайд](docs/telegram.md) |
 | **Живой локальный чат** | Только Remote Control (узкий путь) | ✅ Основной сценарий — те же вкладки и composer, что в IDE |
-| **Run / Skip / Confirm search / Delete approvals** | Cloud agents сами жмут терминал; у RC другая модель | ✅ Те же карточки, что в IDE (shell, веб-поиск, удаление файла) |
+| **Run / Skip / Confirm search / Delete / Generate image approvals** | Cloud agents сами жмут терминал; у RC другая модель | ✅ Те же карточки, что в IDE (shell, веб-поиск, удаление файла, генерация картинок) |
 | **AskQuestion / опросники** | В мобильном чате агента | ✅ **Веб:** полный функционал как в IDE. **TG:** кнопки A/B/C + Reply — [гайд](docs/telegram.md#askquestion--questionnaires) |
 | **Виджет плана (View Plan / Build)** | ❌ | ✅ Веб + Telegram |
 | **File relay → Telegram** | Артефакты cloud / вложения к PR | ✅ Попросите агента в чате прислать файл в Telegram ([outbox](docs/telegram.md#cursor--telegram) + skill `cursor-handoff-telegram-send`) |
@@ -109,7 +109,7 @@
 
 | Область | Что даёт |
 |---------|----------|
-| **Веб-клиент** | Живая лента, карточки Run/Skip (опциональный звук approve), виджеты плана (View Plan / Build), код и диффы, вложения (картинки — paste, остальное — путь к файлу), очередь и `$` |
+| **Веб-клиент** | Живая лента, карточки Run/Skip (shell, Confirm search, Delete file, **Generate image**; опциональный звук approve), **превью сгенерированных картинок**, виджеты плана (View Plan / Build), код и диффы, вложения (картинки — paste, остальное — путь к файлу), очередь и `$` |
 | **Telegram** | Топик форума на вкладку, слэш-команды, входящие файлы (фото, видео, голос, документы), исходящий [file relay](docs/telegram.md) из `.cursor-handoff/outbox/` |
 | **Handoff settings** | Одна панель: сеть, пароль веба, Telegram, дополнения — интерфейс на **английском** или **русском** |
 | **Диагностика в сайдбаре** | **Test CDP** / **Test Telegram bot** (сервер не нужен), **Restart server** (владелец), версия и статус туннеля |

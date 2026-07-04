@@ -11,6 +11,7 @@ import {
   parseConfirmSearchSelector,
 } from '../parse/confirm-search-selectors.js';
 import { parseDeleteFileSelector } from '../parse/delete-file-selectors.js';
+import { parseGenerateImageSelector } from '../parse/generate-image-selectors.js';
 
 function commandCtx(op: string, extra?: Omit<LogContext, 'scope'>): LogContext {
   return { scope: 'cdp', op, ...extra };
@@ -1607,6 +1608,20 @@ export class CommandExecutor {
         logCommandOk(selectorPath.substring(0, 60), commandCtx(commandId, { hint: selectorPath.substring(0, 60) }));
         return;
       }
+      const generateClick = parseGenerateImageSelector(selectorPath);
+      if (generateClick) {
+        const result = await this.clickGenerateImageAtCoords(
+          client,
+          generateClick.toolCallId,
+          generateClick.kind,
+        );
+        if (!result.ok || result.x == null || result.y == null) {
+          throw new Error(result.error ?? `Element not found: ${selectorPath}`);
+        }
+        await client.clickAtCoords(result.x, result.y);
+        logCommandOk(selectorPath.substring(0, 60), commandCtx(commandId, { hint: selectorPath.substring(0, 60) }));
+        return;
+      }
       const ok = await this.clickResolvedSelector(client, selectorPath);
       if (!ok) throw new Error(`Element not found: ${selectorPath}`);
       logCommandOk(selectorPath.substring(0, 60), commandCtx(commandId, { hint: selectorPath.substring(0, 60) }));
@@ -2000,6 +2015,178 @@ export class CommandExecutor {
             if (kind === 'accept' && (label === 'accept' || label.startsWith('accept'))) target = btn;
           }
         }
+        if (target) {
+          const pt = center(target);
+          if (pt) return { ok: true, ...pt };
+        }
+        const textPt = findTextPoint(root, kind);
+        return textPt ? { ok: true, ...textPt } : { ok: false, error: kind + ' button not found' };
+      })()
+    `)) as { ok: boolean; error?: string; x?: number; y?: number };
+  }
+
+  /** GenerateImage cards use Skip / Generate (recording 2026-07-04). */
+  private async clickGenerateImageAtCoords(
+    client: CdpClient,
+    toolCallId: string,
+    kind: 'run' | 'skip',
+  ): Promise<{ ok: boolean; error?: string; x?: number; y?: number }> {
+    return (await client.evaluate(`
+      (() => {
+        const toolCallId = ${JSON.stringify(toolCallId)};
+        const kind = ${JSON.stringify(kind)};
+        const cleanLabel = (raw) => (raw || '').replace(/\\^+/g, '').replace(/\\s+/g, ' ').trim();
+        const visible = (el) => {
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          if (r.width <= 0 || r.height <= 0) return false;
+          const st = getComputedStyle(el);
+          return st.visibility !== 'hidden' && st.display !== 'none' && st.pointerEvents !== 'none';
+        };
+        const hasSize = (el) => {
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        };
+        const center = (el) => {
+          if (!el || (!visible(el) && !hasSize(el))) return null;
+          el.scrollIntoView({ block: 'center', behavior: 'instant' });
+          const r = el.getBoundingClientRect();
+          if (r.width <= 0 || r.height <= 0) return null;
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        };
+        const cleanAction = (raw) => cleanLabel(raw).toLowerCase();
+
+        const isActiveGenerateRoot = (root) => {
+          const action = root.querySelector('.ui-tool-call-line-action');
+          const actionText = cleanAction(action?.textContent);
+          if (actionText === 'generated image' || actionText === 'image generation skipped') return false;
+          if (actionText === 'generate image' || actionText === 'generating image') return true;
+          const txt = (root.textContent || '').replace(/\\s+/g, ' ');
+          return /Skip\\s*Generate/i.test(txt) || /Generate\\s*Skip/i.test(txt);
+        };
+
+        const rowToolCallId = (row) => {
+          const bubble = row.querySelector('[data-tool-call-id]') || row.closest('[data-tool-call-id]');
+          const msgId = row.querySelector('[data-message-id]')?.getAttribute('data-message-id');
+          return bubble?.getAttribute('data-tool-call-id') || msgId || '';
+        };
+
+        const findRoot = () => {
+          const active = [];
+          for (const row of Array.from(document.querySelectorAll('.virtualized-composer-messages-row'))) {
+            if (!isActiveGenerateRoot(row)) continue;
+            active.push(row);
+          }
+          for (const h of Array.from(document.querySelectorAll('.composer-tool-call-header')).reverse()) {
+            if (!/^Generat(e|ing)\\s+image/i.test(cleanLabel(h.textContent || ''))) continue;
+            const row = h.closest('.virtualized-composer-messages-row')
+              || h.closest('.ui-tool-call-card')
+              || h.closest('[data-tool-call-id]')
+              || h.parentElement;
+            if (row && isActiveGenerateRoot(row) && !active.includes(row)) active.push(row);
+          }
+          for (const row of active) {
+            const id = rowToolCallId(row);
+            if (id && (id === toolCallId || toolCallId.includes(id) || id.includes(toolCallId))) return row;
+          }
+          const byId = document.querySelector('[data-tool-call-id="' + toolCallId + '"]')
+            || document.querySelector('[data-message-id="' + toolCallId + '"]');
+          if (byId) {
+            const row = byId.closest('.virtualized-composer-messages-row') || byId;
+            if (isActiveGenerateRoot(row)) return row;
+          }
+          if (active.length === 1) return active[0];
+          if (active.length) return active[active.length - 1];
+          return null;
+        };
+
+        const searchAreas = (root) => {
+          const parts = [
+            root.querySelector('.composer-tool-call-control-row'),
+            root.querySelector('.composer-tool-call-status-row'),
+            root.querySelector('.composer-tool-call-container'),
+            root.querySelector('.ui-tool-call-card'),
+            root,
+          ].filter(Boolean);
+          const out = [];
+          const seen = new Set();
+          for (const p of parts) {
+            if (seen.has(p)) continue;
+            seen.add(p);
+            out.push(p);
+          }
+          return out;
+        };
+
+        const isExcluded = (el) => !!el?.closest('.usage-limit-policy-banner');
+
+        const collectClickables = (area) => Array.from(area.querySelectorAll(
+          '.cursor-button, button.ui-button, button, [role="button"], .composer-run-button, .composer-skip-button'
+        )).filter((el) => !isExcluded(el) && (visible(el) || hasSize(el)));
+
+        const findByLabel = (root, word) => {
+          const want = word.toLowerCase();
+          for (const area of searchAreas(root)) {
+            for (const el of collectClickables(area)) {
+              const label = cleanLabel(el.getAttribute('aria-label') || el.textContent || '').toLowerCase();
+              if (label === want || label.startsWith(want)) return el;
+            }
+          }
+          return null;
+        };
+
+        const findTextPoint = (root, wordKind) => {
+          for (const area of searchAreas(root)) {
+            const walker = document.createTreeWalker(area, NodeFilter.SHOW_TEXT);
+            let node;
+            while ((node = walker.nextNode())) {
+              const raw = node.textContent || '';
+              if (!raw.trim()) continue;
+              let idx = -1;
+              let len = 0;
+              if (wordKind === 'skip') {
+                const m = raw.match(/Skip(?=\\s*Generate|\\s|$)/i);
+                if (m) { idx = m.index; len = m[0].length; }
+              } else if (wordKind === 'run') {
+                const m = raw.match(/Generate\\^?(?=\\s|$)/i);
+                if (m) { idx = m.index; len = m[0].length; }
+              }
+              if (idx < 0) continue;
+              const range = document.createRange();
+              range.setStart(node, idx);
+              range.setEnd(node, idx + len);
+              const r = range.getBoundingClientRect();
+              if (r.width <= 0 || r.height <= 0) continue;
+              return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+            }
+          }
+          return null;
+        };
+
+        const root = findRoot();
+        if (!root) return { ok: false, error: 'Generate image card not found' };
+
+        let target = kind === 'skip' ? findByLabel(root, 'skip') : findByLabel(root, 'generate');
+        if (!target) {
+          for (const area of searchAreas(root)) {
+            const clickables = collectClickables(area);
+            const cursorBtns = Array.from(area.querySelectorAll('.cursor-button'))
+              .filter((el) => !isExcluded(el) && (visible(el) || hasSize(el)));
+            const pool = clickables.length >= 2 ? clickables : cursorBtns.length >= 2 ? cursorBtns : [];
+            if (pool.length >= 2) {
+              target = kind === 'skip' ? pool[0] : pool[pool.length - 1];
+              break;
+            }
+            if (cursorBtns.length >= 2) {
+              target = kind === 'skip'
+                ? (cursorBtns.find((b) => b.classList.contains('cursor-button-secondary-clickable')) || cursorBtns[0])
+                : (cursorBtns.find((b) => b.classList.contains('cursor-button-primary-clickable')) || cursorBtns[cursorBtns.length - 1]);
+              break;
+            }
+          }
+        }
+
         if (target) {
           const pt = center(target);
           if (pt) return { ok: true, ...pt };

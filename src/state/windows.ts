@@ -70,12 +70,17 @@ function sleep(ms: number): Promise<void> {
  * Content key for one element by type.
  * Changes on any visible content change.
  */
+function feedImagesKey(refs?: { id: string }[]): string {
+  if (!refs?.length) return '';
+  return refs.map((r) => r.id).join(',');
+}
+
 function elementContentKey(el: ChatElement): string {
   switch (el.type) {
-    case 'assistant': return String(el.html?.length ?? el.text?.length ?? 0);
-    case 'human': return String(el.text.length);
-    case 'tool': return `${el.status}:${el.action}:${el.filename ?? ''}`;
-    case 'run_command': return `${el.command.length}:${el.actions.length}`;
+    case 'assistant': return `${String(el.html?.length ?? el.text?.length ?? 0)}:${feedImagesKey(el.images)}`;
+    case 'human': return `${el.text.length}:${feedImagesKey(el.images)}`;
+    case 'tool': return `${el.status}:${el.action}:${el.filename ?? ''}:${feedImagesKey(el.images)}`;
+    case 'run_command': return `${el.command.length}:${el.actions.length}:${feedImagesKey(el.images)}`;
     case 'thought':
       return `${el.thoughtKind ?? ''}:${el.action ?? ''}:${el.detail ?? ''}:${el.duration ?? ''}`;
     case 'plan':
@@ -118,7 +123,7 @@ function elementsSignature(messages: ChatElement[]): string {
   let sig = '';
   for (const m of messages) {
     sig += m.type[0] + m.id;
-    if (m.type === 'tool') sig += m.status[0];
+    if (m.type === 'tool') sig += m.status[0] + feedImagesKey(m.images);
     else if (m.type === 'plan') {
       sig += m.todosCompleted + (m.descriptionHtml?.length ?? 0) + (m.title?.length ?? 0);
     }     else if (m.type === 'todo_list') sig += m.todosCompleted;
@@ -513,7 +518,10 @@ export class WindowMonitor extends EventEmitter {
       );
 
       const state = result as CursorState | null;
-      return state ? applyApprovalFilter(applyDerivedActivityToState(state)) : null;
+      if (!state) return null;
+      const { finalizeExtractedState } = await import('../ide/feed-image-extract.js');
+      const enriched = (await finalizeExtractedState(client, state)) ?? state;
+      return applyApprovalFilter(applyDerivedActivityToState(enriched));
     } catch {
       return null;
     }
