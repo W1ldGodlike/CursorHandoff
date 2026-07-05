@@ -674,7 +674,7 @@
   "web.settings.feed.toolDiff": "Правки файлов",
   "web.settings.feed.toolDiffCompact": "Компактно",
   "web.settings.feed.toolDiffPreview": "С превью",
-  "web.settings.feed.toolDiffHint": "Компактно: только файл и +/- — ▼ развернуть/свернуть. С превью: кусок diff сразу, ▼ — остальное и обратно.",
+  "web.settings.feed.toolDiffHint": "Компактно: только файл и +/- — ▼ развернуть/свернуть. С превью: кусок diff сразу, ▼ — остальное и обратно. Когда diff открыт, «на весь экран» слева от +/- в той же строке.",
   "web.settings.feed.showTimes": "Время у сообщений",
   "web.settings.feed.timezone": "Часовой пояс",
   "web.settings.quickPhrases": "Быстрые фразы",

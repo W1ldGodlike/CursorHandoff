@@ -188,7 +188,7 @@ When a web client shows an edit-tool row whose `diffBlock` looks partial (stats 
 |-------|-----------|---------|--------|
 | `command:expand_tool_diff` | client → server | `{ commandId, toolCallId?, flatIndex? }` | `command:result` then `state:patch` with full `diffBlock`; cached in broadcast state |
 
-Parser: `src/ide/parse/ui-default-diff.ts`, `expand-tool-diff.ts` (one-shot scroll through Cursor’s virtualized diff viewport). Poll extraction does **not** scroll. Telegram unchanged — stats line only. User-facing: [guide § Edit tool diffs](guide.md#edit-tool-diffs-web).
+Parser: `src/ide/parse/ui-default-diff.ts`, `expand-tool-diff.ts` (one-shot scroll through Cursor’s virtualized diff viewport). Poll extraction does **not** scroll. Web UI: full-screen opens the hunk overlay from the tool header (`.tool-diff-fullscreen` in `.tool-file-info`); no `code-block-toolbar` on edit-tool rows. Telegram unchanged — stats line only. User-facing: [guide § Edit tool diffs](guide.md#edit-tool-diffs-web).
 
 ### Tool approval `selectorPath` (CDP)
 

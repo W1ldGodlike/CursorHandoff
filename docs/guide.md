@@ -181,6 +181,8 @@ When the agent edits files, Cursor shows red/green (and context) diff lines on t
 | **Compact** (default) | Filename and `+/-` only | ▼ shows the full diff (CDP scroll when the hunk is partial) |
 | **With preview** | First **4** diff lines | ▼ toggles the full hunk; ▼ again collapses back to 4 lines |
 
+When the diff body is visible, the tool row also shows a **full-screen** control (left of `+/-`) and **▼** (right of stats). There is no separate toolbar above the hunk — controls stay in one compact header line.
+
 Expanded hunks are cached on the server so later polls do not shrink the diff. Syntax highlighting follows the file extension when known.
 
 **Generated images:** when Cursor shows a completed **Generated image** tool row with an inline preview, Handoff collects the image over CDP, stores it under `<data-root>/feed-images/`, and attaches `images[]` on the message. The **web client** renders it below the tool line (`GET /api/feed-image/:id`). **Telegram** sends the same sidecar bytes with `sendPhoto` / `sendDocument` / album on state diff (dedup `feed-img:{composerId}:{sidecarId}`). Manual agent files still use [file relay](telegram.md#file-relay) outbox — not this path.

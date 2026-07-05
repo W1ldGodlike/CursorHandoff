@@ -1112,21 +1112,6 @@ function createToolDiffBlock(item, msg) {
   const wrapper = document.createElement('div');
   wrapper.className = 'code-block native-code-block tool-diff-block code-syntax';
 
-  const toolbar = document.createElement('div');
-  toolbar.className = 'code-block-toolbar code-block-toolbar--actions-only tool-diff-toolbar';
-  const expandBtn = document.createElement('button');
-  expandBtn.type = 'button';
-  expandBtn.className = 'code-block-fullscreen-btn';
-  expandBtn.setAttribute('aria-label', t('web.feed.fullscreen', 'Full screen'));
-  expandBtn.innerHTML =
-    '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>';
-  expandBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    openCodeBlockFullscreen(wrapper);
-  });
-  toolbar.appendChild(expandBtn);
-  wrapper.appendChild(toolbar);
-
   const viewport = document.createElement('div');
   viewport.className = 'code-block-viewport tool-diff-viewport';
 
@@ -1451,7 +1436,7 @@ export function createToolEl(msg) {
     el.appendChild(actionsRow);
   }
 
-  syncToolDiffToggle(el, msg);
+  syncToolDiffChrome(el, msg);
   appendFeedImages(el, msg.images);
   return el;
 }
@@ -1549,6 +1534,9 @@ function handleToolDiffExpand(el, msg) {
   requestToolDiffFromCursor(el, live);
 }
 
+const TOOL_DIFF_FS_ICON =
+  '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>';
+
 function syncToolDiffToggle(el, msg) {
   const line = el.querySelector('.tool-line');
   if (!line) return;
@@ -1573,6 +1561,43 @@ function syncToolDiffToggle(el, msg) {
   btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
 }
 
+function syncToolDiffFullscreen(el) {
+  const line = el.querySelector('.tool-line');
+  if (!line) return;
+  const block = el.querySelector('.tool-diff-host .tool-diff-block');
+  let btn = line.querySelector('.tool-diff-fullscreen');
+  if (!block) {
+    btn?.remove();
+    return;
+  }
+  const fileInfo = line.querySelector('.tool-file-info');
+  if (!fileInfo) {
+    btn?.remove();
+    return;
+  }
+  if (!btn) {
+    btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tool-diff-fullscreen';
+    btn.setAttribute('aria-label', t('web.feed.fullscreen', 'Full screen'));
+    btn.innerHTML = TOOL_DIFF_FS_ICON;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const live = el.querySelector('.tool-diff-block');
+      if (live) openCodeBlockFullscreen(live);
+    });
+  }
+  const stats = fileInfo.querySelector('.tool-additions, .tool-deletions');
+  if (stats) fileInfo.insertBefore(btn, stats);
+  else fileInfo.appendChild(btn);
+}
+
+function syncToolDiffChrome(el, msg) {
+  syncToolDiffToggle(el, msg);
+  syncToolDiffFullscreen(el);
+}
+
 
 /** Diff edit tool: native block from `diffBlock` (structured lines). */
 export function syncToolDiffHost(el, msg) {
@@ -1584,7 +1609,7 @@ export function syncToolDiffHost(el, msg) {
   const mode = toolDiffDisplayMode();
   const expanded = el.dataset.diffExpanded === '1';
 
-  syncToolDiffToggle(el, msg);
+  syncToolDiffChrome(el, msg);
 
   if (el.dataset.diffLoading === '1' && !toolDiffHasBody(msg)) {
     if (!host) {
@@ -1596,6 +1621,7 @@ export function syncToolDiffHost(el, msg) {
       host.innerHTML = '';
     }
     host.textContent = t('web.feed.toolDiffLoading', 'Loading diff…');
+    syncToolDiffChrome(el, msg);
     return;
   }
 
@@ -1610,6 +1636,7 @@ export function syncToolDiffHost(el, msg) {
       stub.textContent = t('web.feed.toolDiffUnavailable', 'Diff not available');
       el.appendChild(stub);
     }
+    syncToolDiffChrome(el, msg);
     return;
   }
 
@@ -1618,6 +1645,7 @@ export function syncToolDiffHost(el, msg) {
       delete host._nativeDiffKey;
       host.remove();
     }
+    syncToolDiffChrome(el, msg);
     return;
   }
 
@@ -1628,6 +1656,7 @@ export function syncToolDiffHost(el, msg) {
       el.appendChild(host);
     }
     host.textContent = t('web.feed.toolDiffUnavailable', 'Diff not available');
+    syncToolDiffChrome(el, msg);
     return;
   }
 
@@ -1651,6 +1680,7 @@ export function syncToolDiffHost(el, msg) {
   host.innerHTML = '';
   const block = createToolDiffBlock(db, msg);
   host.appendChild(block);
+  syncToolDiffChrome(el, msg);
 }
 
 export function updateToolEl(el, msg) {

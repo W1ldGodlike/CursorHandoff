@@ -674,7 +674,7 @@
   "web.settings.feed.toolDiff": "File edits",
   "web.settings.feed.toolDiffCompact": "Compact",
   "web.settings.feed.toolDiffPreview": "With preview",
-  "web.settings.feed.toolDiffHint": "Compact: filename and +/- — ▼ expands and collapses. With preview: a few lines visible; ▼ toggles the rest.",
+  "web.settings.feed.toolDiffHint": "Compact: filename and +/- — ▼ expands and collapses. With preview: a few lines visible; ▼ toggles the rest. When the diff is open, full-screen sits left of +/- in the same row.",
   "web.settings.feed.showTimes": "Message timestamps",
   "web.settings.feed.timezone": "Time zone",
   "web.settings.quickPhrases": "Quick phrases",

@@ -21,12 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Web tool diff preview mode** — Partial hunks no longer hide the inline preview (looked like compact). Chevron stays visible while expanded so ▼ collapses again after CDP fetch.
 - **Web tool diff preview toggle** — Removed bottom «Show N more»; ▼ in the tool row expands and collapses (preview clamp via CSS only).
 - **Web tool diff preview clamp** — Collapsed preview always shows 4 lines (partial hunks too); expand/collapse no longer jumps from ~4 to 12.
+- **Web tool diff fullscreen** — Full-screen control moved to the tool header row (left of +/- stats); removed the extra diff toolbar bar to save vertical space.
 - **Generate image approval buttons (Telegram)** — Inline **Run** / **Skip** on **Generate image** cards hashed shell selectors (`button.ui-shell-tool-call__run-btn`) instead of magic paths `generate-image:{toolCallId}:run|skip`, so CDP could not find the card buttons. `stableApprovalSelector` now preserves generate-image paths (same as web `resolveClickSelector`).
 - **Generated image preview quality (web)** — CDP feed-image collect used Cursor UI display size (`clientWidth` / `clientHeight`) when re-encoding via canvas, so sidecars were saved as tiny thumbnails and looked blocky when scaled in the web feed. Collect now uses `naturalWidth` / `naturalHeight` (cap 2048px); web preview max size raised to 512px (`feed-image-extract.ts`, `main.css`).
 
 ### Documentation
 
-- **Web tool diff** — [guide.md](docs/guide.md#edit-tool-diffs-web), [reference.md](docs/reference.md#web-tool-diff-expand): compact vs preview, chevron toggle, partial hunk CDP expand.
+- **Web tool diff** — [guide.md](docs/guide.md#edit-tool-diffs-web), [reference.md](docs/reference.md#web-tool-diff-expand): compact vs preview, chevron toggle, partial hunk CDP expand, full-screen in tool header.
 - **Telegram bridge** — `docs/telegram.md`, `docs/guide.md`: generated-image `sendPhoto` on diff; Generate image approval buttons.
 - **Reference & architecture** — `docs/reference.md`, `docs/architecture.md`: `feed-image-outbound.ts` pipeline and dedup keys.
 - **README** — Telegram feature row mentions automatic generated-image delivery.
