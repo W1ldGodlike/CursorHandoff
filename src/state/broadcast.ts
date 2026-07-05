@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
-import type { ChatElement, CursorState, CursorWindow } from '../core/types.js';
+import type { ChatElement, CodeBlockItem, CursorState, CursorWindow } from '../core/types.js';
 import { applyApprovalActionsToMessages } from '../ide/parse/approval-merge.js';
+import { expandedToolDiffKey } from '../ide/parse/expand-tool-diff.js';
 import { logWarn } from '../core/log-event.js';
 import type { LogContext } from '../core/log-event.js';
 import { AGENT_ACTIVITY_STALE_MS } from '../ide/activity-stale.js';
@@ -15,6 +16,34 @@ function composerKey(state: CursorState): string {
   return `${state.activeWindowId || ''}:${composer || tab?.title || ''}`;
 }
 
+function toolDiffLineCount(m: ChatElement): number {
+  if (m.type !== 'tool') return 0;
+  return m.diffBlock?.diffLines?.length ?? 0;
+}
+
+function pickRicherToolMessage(prev: ChatElement, next: ChatElement): ChatElement {
+  if (prev.type !== 'tool' || next.type !== 'tool') return next;
+  if (toolDiffLineCount(prev) > toolDiffLineCount(next)) {
+    return { ...next, diffBlock: prev.diffBlock };
+  }
+  return next;
+}
+
+/** Re-apply expanded diff hunks cached after web ▼ (poll must not downgrade). */
+export function applyExpandedToolDiffCache(
+  messages: ChatElement[],
+  cache: ReadonlyMap<string, CodeBlockItem>,
+): ChatElement[] {
+  if (cache.size === 0) return messages;
+  return messages.map((m) => {
+    if (m.type !== 'tool') return m;
+    const cached = cache.get(expandedToolDiffKey(m.toolCallId, m.flatIndex));
+    if (!cached) return m;
+    const withCache = { ...m, diffBlock: cached };
+    return toolDiffLineCount(withCache) > toolDiffLineCount(m) ? withCache : m;
+  });
+}
+
 export function mergeChatMessages(
   prev: ChatElement[],
   incoming: ChatElement[],
@@ -24,7 +53,10 @@ export function mergeChatMessages(
   if (!nextKey || prevKey !== nextKey) return incoming;
   const byId = new Map<string, ChatElement>();
   for (const m of prev) byId.set(m.id, m);
-  for (const m of incoming) byId.set(m.id, m);
+  for (const m of incoming) {
+    const existing = byId.get(m.id);
+    byId.set(m.id, existing ? pickRicherToolMessage(existing, m) : m);
+  }
   return Array.from(byId.values()).sort(
     (a, b) => (a.flatIndex ?? 0) - (b.flatIndex ?? 0),
   );
@@ -64,6 +96,8 @@ export class StateManager extends EventEmitter {
   private readonly nullWarningThreshold = 10;
   private _generation = 0;
   private messagesComposerKey = '';
+  /** Full diff hunks collected once via expand_tool_diff — not re-scrolled on poll. */
+  private expandedToolDiffs = new Map<string, CodeBlockItem>();
   /** When the current activity line first appeared (unchanged since). */
   private activityStableSince: number | null = null;
   private activityStableText: string | undefined = undefined;
@@ -85,6 +119,34 @@ export class StateManager extends EventEmitter {
 
   getCurrentState(): CursorState {
     return this.currentState;
+  }
+
+  hasExpandedToolDiff(toolCallId?: string, flatIndex?: number): boolean {
+    return this.expandedToolDiffs.has(expandedToolDiffKey(toolCallId, flatIndex));
+  }
+
+  /** Cache + broadcast a full tool diff after one-shot CDP scroll on web ▼. */
+  patchExpandedToolDiff(
+    toolCallId: string | undefined,
+    flatIndex: number | undefined,
+    diffBlock: CodeBlockItem,
+  ): void {
+    const key = expandedToolDiffKey(toolCallId, flatIndex);
+    this.expandedToolDiffs.set(key, diffBlock);
+    const messages = applyExpandedToolDiffCache(
+      this.currentState.messages.map((m) => {
+        if (m.type !== 'tool') return m;
+        if (toolCallId && m.toolCallId === toolCallId) return { ...m, diffBlock };
+        if (flatIndex != null && m.flatIndex === flatIndex) return { ...m, diffBlock };
+        return m;
+      }),
+      this.expandedToolDiffs,
+    );
+    const next: CursorState = { ...this.currentState, messages };
+    const patch = this.diff(this.currentState, next);
+    if (!patch) return;
+    this.currentState = next;
+    this.schedulePatch(patch);
   }
 
   /**
@@ -111,15 +173,21 @@ export class StateManager extends EventEmitter {
 
     const stateForApply = this.applyActivityStaleness(newState);
     const nextKey = composerKey(stateForApply);
-    stateForApply.messages = applyApprovalActionsToMessages({
-      ...stateForApply,
-      messages: mergeChatMessages(
-        this.currentState.messages,
-        stateForApply.messages,
-        this.messagesComposerKey,
-        nextKey,
-      ),
-    });
+    if (this.messagesComposerKey && nextKey && this.messagesComposerKey !== nextKey) {
+      this.expandedToolDiffs.clear();
+    }
+    stateForApply.messages = applyExpandedToolDiffCache(
+      applyApprovalActionsToMessages({
+        ...stateForApply,
+        messages: mergeChatMessages(
+          this.currentState.messages,
+          stateForApply.messages,
+          this.messagesComposerKey,
+          nextKey,
+        ),
+      }),
+      this.expandedToolDiffs,
+    );
     this.messagesComposerKey = nextKey;
 
     const patch = this.diff(this.currentState, stateForApply);

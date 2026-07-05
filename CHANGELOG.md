@@ -9,10 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Web tool diff (edit files)** — Parser reads Cursor `ui-default-diff` lines (`add` / `rem` / `ctx`) into `diffBlock`. Web feed: **Compact** (filename + +/-, expand ▼ for full diff) or **With preview** (first lines visible, **Show more**); setting under ⚙ Feed → **File edits**. Syntax highlight on diff lines by file extension. Telegram unchanged (stats line only).
 - **Generated image preview (Telegram)** — When a completed **Generated image** tool row has `images[]` sidecars, Handoff sends `sendPhoto` / `sendDocument` / album to the forum thread on state diff. Dedup via `messageTracker` keys `feed-img:{composerId}:{sidecarId}` (`feed-image-outbound.ts`).
 
 ### Fixed
 
+- **Web tool diff (dark theme)** — Edit-tool diff blocks use a transparent background so they match the feed instead of a black code slab.
+- **Web tool diff expand** — Re-sync after `state:patch`; ▼ in compact skips CDP only when the hunk looks complete (not +61 with 2 DOM lines).
+- **Web tool diff parser** — Edit-tool diffs live in a scrollable `ui-scroll-area`; extraction now scrolls the viewport and merges lines instead of reading only the ~30 visible rows.
+- **Web tool diff scroll** — Poll no longer scrolls Cursor diffs; one-shot scroll + cache on web ▼ only, merge keeps the richer hunk.
 - **Generate image approval buttons (Telegram)** — Inline **Run** / **Skip** on **Generate image** cards hashed shell selectors (`button.ui-shell-tool-call__run-btn`) instead of magic paths `generate-image:{toolCallId}:run|skip`, so CDP could not find the card buttons. `stableApprovalSelector` now preserves generate-image paths (same as web `resolveClickSelector`).
 - **Generated image preview quality (web)** — CDP feed-image collect used Cursor UI display size (`clientWidth` / `clientHeight`) when re-encoding via canvas, so sidecars were saved as tiny thumbnails and looked blocky when scaled in the web feed. Collect now uses `naturalWidth` / `naturalHeight` (cap 2048px); web preview max size raised to 512px (`feed-image-extract.ts`, `main.css`).
 

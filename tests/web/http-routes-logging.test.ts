@@ -1276,7 +1276,8 @@ describe('web Relay http-routes logging', () => {
     const failBlocks = [
       zone.slice(zone.indexOf("'command:load_history'"), zone.indexOf("'command:approve'")),
       zone.slice(zone.indexOf("'command:switch_window'"), zone.indexOf("'command:refresh_state'")),
-      zone.slice(zone.indexOf("'command:refresh_state'"), zone.indexOf("'disconnect'")),
+      zone.slice(zone.indexOf("'command:refresh_state'"), zone.indexOf("'command:expand_tool_diff'")),
+      zone.slice(zone.indexOf("'command:expand_tool_diff'"), zone.indexOf("'disconnect'")),
     ];
     for (const block of failBlocks) {
       assert.match(block, /err instanceof Error \? err\.message : String\(err\)/);
@@ -1326,7 +1327,7 @@ describe('web Relay http-routes logging', () => {
     const classSrc = readFileSync(new URL('../../src/web/http-routes.ts', import.meta.url), 'utf-8');
     const zone = classSrc.slice(classSrc.indexOf('export class Relay'));
     const logSites = (zone.match(/log(Info|Warn|Error)\(/g) ?? []).length + (zone.match(/logRelayCmd\(/g) ?? []).length;
-    assert.equal(logSites, 40, `expected 40 log sites, got ${logSites}`);
+    assert.equal(logSites, 42, `expected 42 log sites, got ${logSites}`);
     assert.match(relayZoneSrc(), /function relayCtx\(op: string/);
     assert.match(relayZoneSrc(), /scope: 'relay'/);
   });
@@ -1337,11 +1338,11 @@ describe('web Relay http-routes logging', () => {
     assert.match(zone, /logInfo\('RELAY_CMD_OK'/);
   });
 
-  it('logRelayCmd call count is twenty-five in Relay class source', () => {
+  it('logRelayCmd call count is twenty-six in Relay class source', () => {
     const classSrc = readFileSync(new URL('../../src/web/http-routes.ts', import.meta.url), 'utf-8');
     const zone = classSrc.slice(classSrc.indexOf('export class Relay'));
     const hits = zone.match(/logRelayCmd\(/g) ?? [];
-    assert.equal(hits.length, 25);
+    assert.equal(hits.length, 26);
   });
 
   it('logInfo logWarn logError imported from log-event in source', () => {
@@ -1369,13 +1370,14 @@ describe('web Relay http-routes logging', () => {
     assert.ok(!qFree.includes('logRelayCmd'));
   });
 
-  it('RELAY_CMD_FAIL appears on load_history switch_window refresh_state only in source', () => {
+  it('RELAY_CMD_FAIL appears on load_history switch_window refresh_state expand_tool_diff in source', () => {
     const classSrc = readFileSync(new URL('../../src/web/http-routes.ts', import.meta.url), 'utf-8');
     const hits = classSrc.match(/'RELAY_CMD_FAIL'/g) ?? [];
-    assert.equal(hits.length, 3);
+    assert.equal(hits.length, 4);
     assert.match(classSrc, /load_history failed/);
     assert.match(classSrc, /switch_window failed/);
     assert.match(classSrc, /refresh_state failed/);
+    assert.match(classSrc, /expand_tool_diff failed/);
   });
 
   it('auth middleware runs before static client in source', () => {

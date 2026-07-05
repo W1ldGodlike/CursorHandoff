@@ -25,6 +25,12 @@ describe('web-settings', () => {
     assert.equal(normalized.compactFeed, true);
   });
 
+  it('normalizes toolDiffDisplay', () => {
+    assert.equal(normalizeWebClientSettings({ toolDiffDisplay: 'preview' }).toolDiffDisplay, 'preview');
+    assert.equal(normalizeWebClientSettings({ toolDiffDisplay: 'compact' }).toolDiffDisplay, 'compact');
+    assert.equal(normalizeWebClientSettings({ toolDiffDisplay: 'bogus' }).toolDiffDisplay, 'compact');
+  });
+
   it('normalizes quick phrases with limit', () => {
     const normalized = normalizeWebClientSettings({
       quickPhrases: ['  а  ', '', 'б', 'в', 'г', 'д', 'е', 'ж'],

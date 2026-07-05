@@ -11,6 +11,7 @@ export const DEFAULT_WEB_SETTINGS = {
   syncToServer: false,
   theme: 'dark',
   compactFeed: false,
+  toolDiffDisplay: 'compact',
   quickPhrases: [],
   sendSound: false,
   approveSound: false,
@@ -257,6 +258,7 @@ export function normalizeWebSettings(parsed) {
     syncToServer: !!src.syncToServer,
     theme: src.theme === 'light' ? 'light' : 'dark',
     compactFeed: !!src.compactFeed,
+    toolDiffDisplay: src.toolDiffDisplay === 'preview' ? 'preview' : 'compact',
     quickPhrases: normalizeQuickPhrases(src.quickPhrases),
     sendSound: !!src.sendSound,
     approveSound: !!src.approveSound,
@@ -311,6 +313,7 @@ export async function pushWebSettingsToServer() {
           syncToServer: ctx.webSettings.syncToServer,
           theme: ctx.webSettings.theme,
           compactFeed: ctx.webSettings.compactFeed,
+          toolDiffDisplay: ctx.webSettings.toolDiffDisplay,
           quickPhrases: normalizeQuickPhrases(ctx.webSettings.quickPhrases),
           sendSound: ctx.webSettings.sendSound,
           approveSound: ctx.webSettings.approveSound,
@@ -435,6 +438,10 @@ export function syncSettingsForm() {
   }
   if (ctx.$settingCompactFeed) {
     ctx.$settingCompactFeed.checked = !!ctx.webSettings.compactFeed;
+  }
+  if (ctx.$settingToolDiffDisplay) {
+    ctx.$settingToolDiffDisplay.value =
+      ctx.webSettings.toolDiffDisplay === 'preview' ? 'preview' : 'compact';
   }
   if (ctx.$settingQuickPhrases) {
     ctx.$settingQuickPhrases.value = normalizeQuickPhrases(ctx.webSettings.quickPhrases).join('\n');
@@ -645,6 +652,11 @@ export function initSettingsPanel() {
   });
   ctx.$settingCompactFeed?.addEventListener('change', () => {
     ctx.webSettings.compactFeed = !!ctx.$settingCompactFeed.checked;
+    applyWebSettingsChange();
+  });
+  ctx.$settingToolDiffDisplay?.addEventListener('change', () => {
+    ctx.webSettings.toolDiffDisplay =
+      ctx.$settingToolDiffDisplay.value === 'preview' ? 'preview' : 'compact';
     applyWebSettingsChange();
   });
   ctx.$settingQuickPhrases?.addEventListener('input', () => {

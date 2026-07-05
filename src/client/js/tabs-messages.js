@@ -11,6 +11,67 @@ import {
 } from './code-highlight.js';
 export const MAX_ATTACHMENTS = 10;
 export const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
+const TOOL_DIFF_PREVIEW_LINES = 12;
+
+function toolDiffVisibleLines(diffLines) {
+  if (!diffLines?.length) return [];
+  return diffLines.filter((line) => line.text || line.kind === 'hunk' || line.kind === 'meta');
+}
+
+function resolveFeedMessage(el, fallback) {
+  const id = el?.dataset?.id;
+  if (!id) return fallback;
+  return (ctx.state.messages || []).find((m) => m.id === id) || fallback;
+}
+
+let toolDiffClickBound = false;
+
+function ensureToolDiffClickDelegation() {
+  if (toolDiffClickBound || !ctx.$messages) return;
+  toolDiffClickBound = true;
+  ctx.$messages.addEventListener('click', (e) => {
+    const btn = e.target.closest('.tool-diff-toggle, .tool-diff-more-btn');
+    if (!btn) return;
+    const el = btn.closest('.el-tool');
+    if (!el) return;
+    e.stopPropagation();
+    e.preventDefault();
+    handleToolDiffExpand(el);
+  });
+}
+
+function resyncExpandedToolDiffs() {
+  if (!ctx.$messages) return;
+  ctx.$messages.querySelectorAll('.el-tool').forEach((el) => {
+    if (el.dataset.diffExpanded !== '1' && el.dataset.diffPending !== '1') return;
+    const msg = resolveFeedMessage(el);
+    if (!msg) return;
+    if (el.dataset.diffPending === '1' && toolDiffHasBody(msg)) {
+      delete el.dataset.diffPending;
+      delete el.dataset.diffLoading;
+    }
+    syncToolDiffHost(el, msg);
+  });
+}
+
+function toolDiffDisplayMode() {
+  return ctx.webSettings?.toolDiffDisplay === 'preview' ? 'preview' : 'compact';
+}
+
+function toolMessageHasDiffStats(msg) {
+  return !!(msg.filename && (msg.additions != null || msg.deletions != null));
+}
+
+function toolDiffBodyKey(db, filenameFallback, mode, expanded) {
+  return JSON.stringify({
+    bk: db.blockKind,
+    c: db.code,
+    d: db.diffLines,
+    f: db.filename || filenameFallback,
+    m: mode,
+    e: expanded ? 1 : 0,
+  });
+}
 
 export function isNearMessagesBottom() {
   const threshold = 80;
@@ -583,6 +644,7 @@ export function applyMessageFilter() {
 }
 
 export function renderMessages() {
+  ensureToolDiffClickDelegation();
   if (ctx.state.messages.length === 0 && ctx.failedSends.length === 0) {
     const ui = socketState.getConnectionUiState();
     ctx.$emptyState.style.display = '';
@@ -665,6 +727,7 @@ export function renderMessages() {
   if (ctx.pendingHistoryAnchor) {
     restoreHistoryScrollIfNeeded();
   }
+  resyncExpandedToolDiffs();
   approve.checkMessagesForNotifications();
 }
 
@@ -792,6 +855,8 @@ export function messageRenderKey(msg) {
         filename: msg.filename,
         additions: msg.additions,
         deletions: msg.deletions,
+        toolCallId: msg.toolCallId,
+        flatIndex: msg.flatIndex,
         actions: msg.actions,
         diffBlock: msg.diffBlock,
         img: msg.images,
@@ -1043,6 +1108,64 @@ export function openCodeBlockFullscreen(wrapper) {
   closeBtn.focus();
 }
 
+/** Slim diff block for edit-tool rows (no duplicate filename bar). */
+function createToolDiffBlock(item, msg) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'code-block native-code-block tool-diff-block code-syntax';
+
+  const toolbar = document.createElement('div');
+  toolbar.className = 'code-block-toolbar code-block-toolbar--actions-only tool-diff-toolbar';
+  const expandBtn = document.createElement('button');
+  expandBtn.type = 'button';
+  expandBtn.className = 'code-block-fullscreen-btn';
+  expandBtn.setAttribute('aria-label', t('web.feed.fullscreen', 'Full screen'));
+  expandBtn.innerHTML =
+    '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>';
+  expandBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openCodeBlockFullscreen(wrapper);
+  });
+  toolbar.appendChild(expandBtn);
+  wrapper.appendChild(toolbar);
+
+  const viewport = document.createElement('div');
+  viewport.className = 'code-block-viewport tool-diff-viewport';
+
+  const body = document.createElement('div');
+  body.className = 'code-block-diff-plain';
+  const lines = toolDiffVisibleLines(item.diffLines);
+  if (item.blockKind === 'diff' && lines.length > 0) {
+    const lang =
+      item.language ||
+      detectCommandLanguage(item.filename || msg.filename || item.code || '');
+    for (const line of lines) {
+      const row = document.createElement('div');
+      const k = ['add', 'rem', 'ctx', 'meta', 'hunk'].includes(line.kind) ? line.kind : 'ctx';
+      row.className = 'code-block-diff-line code-block-diff-line--' + k;
+      if (lang && lang !== 'plaintext' && line.text) {
+        const code = document.createElement('code');
+        applyHighlightToCodeEl(code, line.text, lang);
+        row.appendChild(code);
+      } else {
+        row.textContent = line.text;
+      }
+      body.appendChild(row);
+    }
+  } else if (item.code?.trim()) {
+    const pre = document.createElement('pre');
+    const code = document.createElement('code');
+    const lang = detectCommandLanguage(item.code || '');
+    code.className = lang === 'plaintext' ? '' : `language-${lang}`;
+    applyHighlightToCodeEl(code, item.code || '', item.language || lang);
+    pre.appendChild(code);
+    body.appendChild(pre);
+    body.classList.add('code-block-diff-plain--raw');
+  }
+  viewport.appendChild(body);
+  wrapper.appendChild(viewport);
+  return wrapper;
+}
+
 /** Native code/diff from server `CodeBlockItem` (not mirrored Monaco HTML). */
 export function createNativeBlockFromItem(item, filenameFallback) {
   const wrapper = document.createElement('div');
@@ -1078,11 +1201,20 @@ export function createNativeBlockFromItem(item, filenameFallback) {
   const body = document.createElement('div');
   body.className = 'code-block-diff-plain';
   if (item.blockKind === 'diff' && item.diffLines && item.diffLines.length > 0) {
+    const lang =
+      item.language ||
+      detectCommandLanguage(item.filename || filenameFallback || item.code || '');
     for (const line of item.diffLines) {
       const row = document.createElement('div');
       const k = ['add', 'rem', 'ctx', 'meta', 'hunk'].includes(line.kind) ? line.kind : 'ctx';
       row.className = 'code-block-diff-line code-block-diff-line--' + k;
-      row.textContent = line.text;
+      if (lang && lang !== 'plaintext' && line.text) {
+        const code = document.createElement('code');
+        applyHighlightToCodeEl(code, line.text, lang);
+        row.appendChild(code);
+      } else {
+        row.textContent = line.text;
+      }
       body.appendChild(row);
     }
   } else {
@@ -1320,9 +1452,134 @@ export function createToolEl(msg) {
     el.appendChild(actionsRow);
   }
 
-  syncToolDiffHost(el, msg);
+  syncToolDiffToggle(el, msg);
   appendFeedImages(el, msg.images);
   return el;
+}
+
+function toolDiffHasBody(msg) {
+  const db = msg.diffBlock;
+  return (
+    db &&
+    ((db.diffLines && db.diffLines.length > 0) || (db.code && String(db.code).trim().length > 0))
+  );
+}
+
+function toolDiffLineCount(msg) {
+  const db = msg.diffBlock;
+  if (!db) return 0;
+  if (db.diffLines?.length) return toolDiffVisibleLines(db.diffLines).length;
+  const code = db.code?.trim();
+  return code ? code.split('\n').length : 0;
+}
+
+/** Cursor often ships a collapsed-card snippet while file stats show the real hunk size. */
+function toolDiffLooksPartial(msg) {
+  if (!toolDiffHasBody(msg)) return false;
+  const add = msg.additions ?? 0;
+  const del = msg.deletions ?? 0;
+  const statLines = add + del;
+  if (statLines < 4) return false;
+  const lines = toolDiffLineCount(msg);
+  return lines < Math.max(4, Math.ceil(statLines * 0.35));
+}
+
+function requestToolDiffFromCursor(el, live) {
+  if (el.dataset.diffLoading === '1') return;
+  el.dataset.diffLoading = '1';
+  el.dataset.diffPending = '1';
+  syncToolDiffHost(el, live);
+
+  const cmdId = socketState.newCommandId();
+  const onResult = (result) => {
+    if (result.commandId !== cmdId) return;
+    ctx.socket.off('command:result', onResult);
+    delete el.dataset.diffLoading;
+    if (!result.ok) {
+      el.dataset.diffError = '1';
+      el.dataset.diffExpanded = '0';
+      delete el.dataset.diffPending;
+      socketState.showToast(result.error || t('web.feed.toolDiffUnavailable', 'Diff not available'), 'error');
+    }
+    syncToolDiffHost(el, resolveFeedMessage(el, live));
+  };
+  ctx.socket.on('command:result', onResult);
+  ctx.socket.emit('command:expand_tool_diff', {
+    commandId: cmdId,
+    toolCallId: live.toolCallId,
+    flatIndex: live.flatIndex,
+  });
+}
+
+function handleToolDiffExpand(el, msg) {
+  const live = resolveFeedMessage(el, msg);
+  if (!live) return;
+
+  if (el.dataset.diffExpanded === '1') {
+    el.dataset.diffExpanded = '0';
+    delete el.dataset.diffError;
+    delete el.dataset.diffPending;
+    syncToolDiffHost(el, live);
+    return;
+  }
+
+  el.dataset.diffExpanded = '1';
+  delete el.dataset.diffError;
+
+  if (toolDiffHasBody(live) && !toolDiffLooksPartial(live)) {
+    syncToolDiffHost(el, live);
+    return;
+  }
+
+  requestToolDiffFromCursor(el, live);
+}
+
+function syncToolDiffToggle(el, msg) {
+  const line = el.querySelector('.tool-line');
+  if (!line) return;
+  const db = msg.diffBlock;
+  const hasBody =
+    db &&
+    ((db.diffLines && db.diffLines.length > 0) || (db.code && String(db.code).trim().length > 0));
+  const partial = toolDiffLooksPartial(msg);
+  const mode = toolDiffDisplayMode();
+  const showToggle =
+    (mode === 'compact' || partial) && (hasBody || toolMessageHasDiffStats(msg));
+  let btn = line.querySelector('.tool-diff-toggle');
+  if (!showToggle) {
+    btn?.remove();
+    return;
+  }
+  if (!btn) {
+    btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tool-diff-toggle';
+    btn.setAttribute('aria-label', t('web.feed.toolDiffToggle', 'Toggle diff'));
+    btn.innerHTML =
+      '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>';
+    line.appendChild(btn);
+  }
+  const expanded = el.dataset.diffExpanded === '1';
+  btn.classList.toggle('tool-diff-toggle--open', expanded);
+  btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+}
+
+function clampToolDiffPreview(block, el, msg, totalLines) {
+  const body = block.querySelector('.code-block-diff-plain');
+  if (!body) return;
+  const rows = [...body.querySelectorAll('.code-block-diff-line')];
+  if (rows.length <= TOOL_DIFF_PREVIEW_LINES) return;
+  rows.slice(TOOL_DIFF_PREVIEW_LINES).forEach((row) => {
+    row.classList.add('tool-diff-line--preview-hidden');
+  });
+  const hidden = rows.length - TOOL_DIFF_PREVIEW_LINES;
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'tool-diff-more-btn';
+  more.textContent = tp('web.feed.toolDiffMoreCount', 'Show {count} more lines', {
+    count: String(hidden),
+  });
+  block.appendChild(more);
 }
 
 /** Diff edit tool: native block from `diffBlock` (structured lines). */
@@ -1332,8 +1589,40 @@ export function syncToolDiffHost(el, msg) {
     db &&
     ((db.diffLines && db.diffLines.length > 0) || (db.code && String(db.code).trim().length > 0));
   let host = el.querySelector('.tool-diff-host');
+  const mode = toolDiffDisplayMode();
+  const expanded = el.dataset.diffExpanded === '1';
+
+  syncToolDiffToggle(el, msg);
+
+  if (el.dataset.diffLoading === '1' && !toolDiffHasBody(msg)) {
+    if (!host) {
+      host = document.createElement('div');
+      host.className = 'tool-diff-host tool-diff-host--loading';
+      el.appendChild(host);
+    } else {
+      host.className = 'tool-diff-host tool-diff-host--loading';
+      host.innerHTML = '';
+    }
+    host.textContent = t('web.feed.toolDiffLoading', 'Loading diff…');
+    return;
+  }
 
   if (!hasBody) {
+    if (host) {
+      delete host._nativeDiffKey;
+      host.remove();
+    }
+    if (toolMessageHasDiffStats(msg) && el.dataset.diffExpanded === '1') {
+      const stub = document.createElement('div');
+      stub.className = 'tool-diff-host tool-diff-host--stub';
+      stub.textContent = t('web.feed.toolDiffUnavailable', 'Diff not available');
+      el.appendChild(stub);
+    }
+    return;
+  }
+
+  const partial = toolDiffLooksPartial(msg);
+  if (!expanded && (mode === 'compact' || (mode === 'preview' && partial))) {
     if (host) {
       delete host._nativeDiffKey;
       host.remove();
@@ -1341,12 +1630,17 @@ export function syncToolDiffHost(el, msg) {
     return;
   }
 
-  const key = JSON.stringify({
-    bk: db.blockKind,
-    c: db.code,
-    d: db.diffLines,
-    f: db.filename || msg.filename,
-  });
+  if (el.dataset.diffError === '1' && !hasBody) {
+    if (!host) {
+      host = document.createElement('div');
+      host.className = 'tool-diff-host tool-diff-host--stub';
+      el.appendChild(host);
+    }
+    host.textContent = t('web.feed.toolDiffUnavailable', 'Diff not available');
+    return;
+  }
+
+  const key = toolDiffBodyKey(db, msg.filename, mode, expanded);
   if (!host) {
     host = document.createElement('div');
     host.className = 'tool-diff-host';
@@ -1354,11 +1648,22 @@ export function syncToolDiffHost(el, msg) {
   }
   if (host._nativeDiffKey === key) return;
   host._nativeDiffKey = key;
+  const previewClamp = mode === 'preview' && !expanded && !partial;
+  host.className =
+    'tool-diff-host'
+    + (previewClamp ? ' tool-diff-host--preview' : ' tool-diff-host--expanded');
   host.innerHTML = '';
-  host.appendChild(createNativeBlockFromItem(db, msg.filename));
+  const block = createToolDiffBlock(db, msg);
+  if (previewClamp) {
+    clampToolDiffPreview(block, el, msg);
+  }
+  host.appendChild(block);
 }
 
 export function updateToolEl(el, msg) {
+  const expanded = el.dataset.diffExpanded === '1';
+  const loading = el.dataset.diffLoading === '1';
+
   const fresh = createToolEl(msg);
   const newLine = fresh.querySelector('.tool-line');
   const oldLine = el.querySelector('.tool-line');
@@ -1376,6 +1681,8 @@ export function updateToolEl(el, msg) {
     oldActions.remove();
   }
 
+  if (expanded) el.dataset.diffExpanded = '1';
+  if (loading) el.dataset.diffLoading = '1';
   syncToolDiffHost(el, msg);
   syncFeedImages(el, msg.images);
 }

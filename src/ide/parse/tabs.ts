@@ -488,10 +488,66 @@ export function extractionFunction(
       return { blockKind: 'code', filename, language, code };
     }
 
+    function parseUiDefaultDiffRoot(diffRoot: Element): { kind: DiffLineKind; text: string }[] {
+      const diffLines: { kind: DiffLineKind; text: string }[] = [];
+      for (const lineEl of diffRoot.querySelectorAll('.ui-default-diff__line')) {
+        const contentEl = lineEl.querySelector('.ui-default-diff__line-content');
+        if (!contentEl) continue;
+        const text = (contentEl.textContent || '').replace(/^\n+/, '').replace(/\u00a0/g, ' ').replace(/\s+$/, '');
+        const dataType = lineEl.getAttribute('data-type');
+        let kind: DiffLineKind = 'ctx';
+        if (dataType === 'removed') kind = 'rem';
+        else if (dataType === 'added') kind = 'add';
+        if (!text && kind === 'ctx') continue;
+        diffLines.push({ kind, text });
+      }
+      return diffLines;
+    }
+
+    function buildUiDefaultDiffBlock(
+      scope: Element,
+      diffLines: { kind: DiffLineKind; text: string }[],
+    ): CodeBlockItem | undefined {
+      if (diffLines.length === 0) return undefined;
+      const filenameEl = scope.querySelector(
+        '.ui-edit-tool-call__filename, .composer-code-block-filename, .ui-code-block-filename',
+      );
+      const filename = filenameEl ? (filenameEl.textContent || '').trim() || undefined : undefined;
+      let language: string | undefined;
+      if (filename) {
+        const ext = filename.split('.').pop()?.toLowerCase();
+        if (ext === 'ts' || ext === 'tsx') language = 'typescript';
+        else if (ext === 'js' || ext === 'jsx' || ext === 'mjs' || ext === 'cjs') language = 'javascript';
+        else if (ext === 'json') language = 'json';
+        else if (ext === 'md') language = 'markdown';
+        else if (ext === 'css') language = 'css';
+        else if (ext === 'py') language = 'python';
+      }
+      const code = diffLines.map(function (d) {
+        return d.text;
+      }).join('\n');
+      return { blockKind: 'diff', filename, language, code, diffLines };
+    }
+
+    function extractUiDefaultDiffFromScope(scope: Element): CodeBlockItem | undefined {
+      const searchRoot = scope.querySelector('.ui-tool-call-card') || scope;
+      let diffRoot: Element | null = null;
+      let bestCount = 0;
+      for (const candidate of searchRoot.querySelectorAll('.ui-default-diff')) {
+        const n = candidate.querySelectorAll('.ui-default-diff__line').length;
+        if (n > bestCount) {
+          bestCount = n;
+          diffRoot = candidate;
+        }
+      }
+      if (!diffRoot) return undefined;
+      return buildUiDefaultDiffBlock(scope, parseUiDefaultDiffRoot(diffRoot));
+    }
+
     function extractDiffBlockFromScope(scope: Element): CodeBlockItem | undefined {
       const block = scope.querySelector('.composer-code-block-container, .composer-message-codeblock');
-      if (!block) return undefined;
-      return extractCodeBlockItem(block);
+      if (block) return extractCodeBlockItem(block);
+      return extractUiDefaultDiffFromScope(scope);
     }
 
     const isMenuTrigger = (btn: Element): boolean => {

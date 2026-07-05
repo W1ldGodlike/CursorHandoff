@@ -235,6 +235,14 @@
             <span class="settings-row-label" data-i18n="web.settings.feed.compact">Compact feed</span>
             <input type="checkbox" id="setting-compact-feed">
           </label>
+          <label class="settings-row">
+            <span class="settings-row-label" data-i18n="web.settings.feed.toolDiff">File edits</span>
+            <select id="setting-tool-diff-display" class="settings-select">
+              <option value="compact" data-i18n="web.settings.feed.toolDiffCompact">Compact</option>
+              <option value="preview" data-i18n="web.settings.feed.toolDiffPreview">With preview</option>
+            </select>
+          </label>
+          <p class="settings-row-hint" data-i18n="web.settings.feed.toolDiffHint">Compact: filename and +/- only — tap ▼ for the full diff. With preview: a few diff lines shown right away; tap for the rest.</p>
           <label class="settings-row settings-row-toggle">
             <span class="settings-row-label" data-i18n="web.settings.feed.showTimes">Message timestamps</span>
             <input type="checkbox" id="setting-show-message-times">

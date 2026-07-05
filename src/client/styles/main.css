@@ -1067,7 +1067,117 @@ header {
 }
 
 .el-tool .tool-diff-host {
-  margin-top: 10px;
+  margin-top: 6px;
+}
+
+.el-tool .tool-diff-host .tool-diff-block {
+  margin: 0;
+  border-radius: 6px;
+  background: var(--bg-code);
+}
+
+/* Dark feed: no extra black slab — diff lines sit on the same surface as tool rows */
+html:not([data-theme="light"]) .el-tool .tool-diff-host .tool-diff-block {
+  background: transparent;
+  border: none;
+}
+
+html:not([data-theme="light"]) .el-tool .tool-diff-host .tool-diff-toolbar {
+  background: transparent;
+  border-bottom: none;
+}
+
+html:not([data-theme="light"]) .el-tool .tool-diff-host .code-block-diff-plain {
+  background: transparent;
+}
+
+.el-tool .tool-diff-host .tool-diff-toolbar {
+  min-height: 32px;
+  padding: 0 2px 0 4px;
+}
+
+.el-tool .tool-diff-host .tool-diff-viewport {
+  max-height: min(62vh, 520px);
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+.el-tool .tool-diff-host--preview .tool-diff-viewport {
+  max-height: calc(var(--cb-font) * var(--cb-lh) * 12 + 16px);
+}
+
+.el-tool .tool-diff-host--expanded .tool-diff-viewport {
+  max-height: min(62vh, 520px);
+}
+
+.tool-diff-host--loading {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 8px 10px;
+}
+
+.tool-diff-toggle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  padding: 2px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.tool-diff-toggle--open {
+  transform: rotate(180deg);
+  color: var(--text-secondary);
+}
+
+.tool-diff-host--stub {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 6px 8px;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.tool-diff-host--preview .tool-diff-line--preview-hidden {
+  display: none;
+}
+
+.tool-diff-more-btn {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.code-block-diff-line code {
+  font-family: var(--font-mono);
+  font-size: inherit;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  white-space: pre;
+}
+
+.code-block-diff-line code .tok-keyword,
+.code-block-diff-line code .tok-string,
+.code-block-diff-line code .tok-comment,
+.code-block-diff-line code .tok-variable,
+.code-block-diff-line code .tok-type,
+.code-block-diff-line code .tok-number,
+.code-block-diff-line code .tok-punctuation {
+  background: transparent;
 }
 
 .assistant-bubble .native-code-block {

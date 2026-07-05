@@ -3,12 +3,15 @@ import { dirname, join } from 'path';
 import { getDataDir } from '../core/paths.js';
 import { normalizeTimezoneOffset } from '../state/timezone-offset.js';
 
+export type ToolDiffDisplay = 'compact' | 'preview';
+
 export interface WebClientSettings {
   showMessageTimes?: boolean;
   timezone?: string;
   syncToServer?: boolean;
   theme?: 'dark' | 'light';
   compactFeed?: boolean;
+  toolDiffDisplay?: ToolDiffDisplay;
   quickPhrases?: string[];
   sendSound?: boolean;
   approveSound?: boolean;
@@ -26,6 +29,7 @@ const DEFAULT_SETTINGS: WebClientSettings = {
   syncToServer: false,
   theme: 'dark',
   compactFeed: false,
+  toolDiffDisplay: 'compact' as ToolDiffDisplay,
   quickPhrases: [] as string[],
   sendSound: false,
   approveSound: false,
@@ -49,6 +53,7 @@ export function normalizeWebClientSettings(raw: unknown): WebClientSettings {
     syncToServer: !!o.syncToServer,
     theme: o.theme === 'light' ? 'light' : 'dark',
     compactFeed: !!o.compactFeed,
+    toolDiffDisplay: o.toolDiffDisplay === 'preview' ? 'preview' : 'compact',
     quickPhrases,
     sendSound: !!o.sendSound,
     approveSound: !!o.approveSound,

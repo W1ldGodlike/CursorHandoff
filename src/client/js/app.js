@@ -138,6 +138,7 @@ ctx.$settingShowMessageTimes = document.getElementById('setting-show-message-tim
 ctx.$settingSyncToServer = document.getElementById('setting-sync-to-server');
 ctx.$settingTheme = document.getElementById('setting-theme');
 ctx.$settingCompactFeed = document.getElementById('setting-compact-feed');
+ctx.$settingToolDiffDisplay = document.getElementById('setting-tool-diff-display');
 ctx.$settingQuickPhrases = document.getElementById('setting-quick-phrases');
 ctx.$settingSendSound = document.getElementById('setting-send-sound');
 ctx.$settingApproveSound = document.getElementById('setting-approve-sound');

@@ -404,6 +404,9 @@ export interface CommandPayload {
   questionnaireTarget?: string;
   /** Web filled all answers locally; allow Continue even when Cursor stepper still shows disabled. */
   questionnaireForceContinue?: boolean;
+  /** expand_tool_diff — target edit-tool row in Cursor */
+  toolCallId?: string;
+  flatIndex?: number;
 }
 
 export interface CommandResult {

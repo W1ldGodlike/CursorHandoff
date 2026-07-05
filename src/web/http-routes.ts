@@ -11,6 +11,7 @@ import { getServerBuildInfo } from '../core/build-meta.js';
 import { getCursorUpgradeHealthPayload } from '../core/cursor-upgrade-advisory.js';
 import { getDataDir } from '../core/paths.js';
 import { readWebTunnelUrl } from './tunnel.js';
+import { expandToolDiffInCursor } from '../ide/parse/expand-tool-diff.js';
 import type { CommandExecutor } from '../ide/actions/navigation.js';
 import type { CDPBridge } from '../ide/cdp-session.js';
 import type { WindowMonitor } from '../state/windows.js';
@@ -1253,6 +1254,63 @@ export class Relay {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           logError('RELAY_CMD_FAIL', `refresh_state failed: ${msg}`, relayCtx('refresh_state', { itemId: payload.commandId }));
+          emitCommandResult(socket, { commandId: payload.commandId, ok: false, error: msg });
+        }
+      });
+
+      socket.on('command:expand_tool_diff', async (payload: CommandPayload) => {
+        if (!payload.commandId) {
+          emitCommandResult(socket, {
+            commandId: 'unknown',
+            ok: false,
+            error: 'Missing commandId',
+          } satisfies CommandResult);
+          return;
+        }
+        const client = this.cdpBridge.getClient();
+        if (!client?.isConnected()) {
+          emitCommandResult(socket, {
+            commandId: payload.commandId,
+            ok: false,
+            error: t('web.status.cursorOffline', 'Cursor offline'),
+          } satisfies CommandResult);
+          return;
+        }
+        logRelayCmd('expand_tool_diff', socket.id, {
+          itemId: payload.commandId,
+          hint: socket.id,
+        });
+        try {
+          if (
+            payload.toolCallId != null
+            && this.stateManager.hasExpandedToolDiff(payload.toolCallId, payload.flatIndex)
+          ) {
+            emitCommandResult(socket, { commandId: payload.commandId, ok: true });
+            return;
+          }
+          const expanded = await expandToolDiffInCursor(client, {
+            toolCallId: payload.toolCallId,
+            flatIndex: payload.flatIndex,
+          });
+          if (!expanded.ok) {
+            emitCommandResult(socket, {
+              commandId: payload.commandId,
+              ok: false,
+              error: expanded.reason ?? 'expand_failed',
+            } satisfies CommandResult);
+            return;
+          }
+          if (expanded.diffBlock) {
+            this.stateManager.patchExpandedToolDiff(
+              payload.toolCallId,
+              payload.flatIndex,
+              expanded.diffBlock,
+            );
+          }
+          emitCommandResult(socket, { commandId: payload.commandId, ok: true });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          logError('RELAY_CMD_FAIL', `expand_tool_diff failed: ${msg}`, relayCtx('expand_tool_diff', { itemId: payload.commandId }));
           emitCommandResult(socket, { commandId: payload.commandId, ok: false, error: msg });
         }
       });
