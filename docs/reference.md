@@ -145,7 +145,7 @@ The sidebar **Status** tree is read-mostly (server, CDP, agent, clients, windows
 | `web-tunnel-url.json` | Active Cloudflare quick tunnel URL |
 | `cloudflared-quick.pid` / `.log` | cloudflared process metadata |
 | `webapp-sessions.json` | Web sessions (30-day TTL) |
-| `web-settings.json` | Synced web UI preferences |
+| `web-settings.json` | Synced web UI preferences (`theme`, `compactFeed`, `toolDiffDisplay`: `compact` \| `preview`, …) |
 | `open-project.json` | One-shot folder open from Telegram or web (`command:open_project`) |
 | `file-relay/` | File relay bootstrap metadata |
 | `cursor-wake.log` | CursorWake tray log (`code=WAKE_*` event tails) |
@@ -179,6 +179,16 @@ The sidebar **Status** tree is read-mostly (server, CDP, agent, clients, windows
 | `command:close_project` | client → server | `{ commandId, projectPath }` | `command:result` — CDP `closeTarget` for that window |
 
 Implementation: `src/workspace/project-web.ts`, wired in `src/web/http-routes.ts`. Telegram `/projects` and `/open_project` use the same open path. After **close**, snapshots for that CDP target are removed and the live window list is refreshed so `isOpen` in the picker stays accurate.
+
+### Web tool diff expand
+
+When a web client shows an edit-tool row whose `diffBlock` looks partial (stats ≫ visible lines), tapping ▼ emits:
+
+| Event | Direction | Payload | Result |
+|-------|-----------|---------|--------|
+| `command:expand_tool_diff` | client → server | `{ commandId, toolCallId?, flatIndex? }` | `command:result` then `state:patch` with full `diffBlock`; cached in broadcast state |
+
+Parser: `src/ide/parse/ui-default-diff.ts`, `expand-tool-diff.ts` (one-shot scroll through Cursor’s virtualized diff viewport). Poll extraction does **not** scroll. Telegram unchanged — stats line only. User-facing: [guide § Edit tool diffs](guide.md#edit-tool-diffs-web).
 
 ### Tool approval `selectorPath` (CDP)
 

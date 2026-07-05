@@ -172,6 +172,17 @@ You get a live chat feed, approval cards (optional approve sound in ⚙, default
 
 Each card gets its own button row on web and Telegram. With several Confirm search or Delete cards open, buttons are scoped to that card’s query or filename — tapping **Continue** on the bottom card does not approve the top one.
 
+### Edit tool diffs (web)
+
+When the agent edits files, Cursor shows red/green (and context) diff lines on tool rows. Handoff parses `ui-default-diff` into `diffBlock` on each edit-tool message. **Telegram** keeps the stats line only (filename + `+/-`). **Web** renders the hunk under ⚙ **Feed** → **File edits**:
+
+| Setting | Collapsed | Expand |
+|---------|-----------|--------|
+| **Compact** (default) | Filename and `+/-` only | ▼ shows the full diff (CDP scroll when the hunk is partial) |
+| **With preview** | First **4** diff lines | ▼ toggles the full hunk; ▼ again collapses back to 4 lines |
+
+Expanded hunks are cached on the server so later polls do not shrink the diff. Syntax highlighting follows the file extension when known.
+
 **Generated images:** when Cursor shows a completed **Generated image** tool row with an inline preview, Handoff collects the image over CDP, stores it under `<data-root>/feed-images/`, and attaches `images[]` on the message. The **web client** renders it below the tool line (`GET /api/feed-image/:id`). **Telegram** sends the same sidecar bytes with `sendPhoto` / `sendDocument` / album on state diff (dedup `feed-img:{composerId}:{sidecarId}`). Manual agent files still use [file relay](telegram.md#file-relay) outbox — not this path.
 
 ---

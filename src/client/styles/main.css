@@ -1103,7 +1103,8 @@ html:not([data-theme="light"]) .el-tool .tool-diff-host .code-block-diff-plain {
 }
 
 .el-tool .tool-diff-host--preview .tool-diff-viewport {
-  max-height: calc(var(--cb-font) * var(--cb-lh) * 12 + 16px);
+  max-height: calc(var(--cb-font) * var(--cb-lh) * var(--tool-diff-preview-lines, 4) + 16px);
+  overflow-y: hidden;
 }
 
 .el-tool .tool-diff-host--expanded .tool-diff-viewport {
@@ -1142,23 +1143,6 @@ html:not([data-theme="light"]) .el-tool .tool-diff-host .code-block-diff-plain {
   padding: 6px 8px;
   border: 1px dashed var(--border-color);
   border-radius: var(--radius-sm);
-}
-
-.tool-diff-host--preview .tool-diff-line--preview-hidden {
-  display: none;
-}
-
-.tool-diff-more-btn {
-  display: block;
-  width: 100%;
-  margin-top: 6px;
-  padding: 6px 8px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
 }
 
 .code-block-diff-line code {

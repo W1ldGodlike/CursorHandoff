@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Web tool diff (edit files)** — Parser reads Cursor `ui-default-diff` lines (`add` / `rem` / `ctx`) into `diffBlock`. Web feed: **Compact** (filename + +/-, expand ▼ for full diff) or **With preview** (first lines visible, **Show more**); setting under ⚙ Feed → **File edits**. Syntax highlight on diff lines by file extension. Telegram unchanged (stats line only).
+- **Web tool diff (edit files)** — Parser reads Cursor `ui-default-diff` lines (`add` / `rem` / `ctx`) into `diffBlock`. Web feed: **Compact** (filename + +/-, ▼ for full diff) or **With preview** (4 collapsed lines, ▼ toggles the full hunk); setting under ⚙ Feed → **File edits**. Partial hunks fetch via CDP `expand_tool_diff` on first ▼; expanded hunks are cached across polls. Syntax highlight on diff lines by file extension. Telegram unchanged (stats line only).
 - **Generated image preview (Telegram)** — When a completed **Generated image** tool row has `images[]` sidecars, Handoff sends `sendPhoto` / `sendDocument` / album to the forum thread on state diff. Dedup via `messageTracker` keys `feed-img:{composerId}:{sidecarId}` (`feed-image-outbound.ts`).
 
 ### Fixed
@@ -18,11 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Web tool diff expand** — Re-sync after `state:patch`; ▼ in compact skips CDP only when the hunk looks complete (not +61 with 2 DOM lines).
 - **Web tool diff parser** — Edit-tool diffs live in a scrollable `ui-scroll-area`; extraction now scrolls the viewport and merges lines instead of reading only the ~30 visible rows.
 - **Web tool diff scroll** — Poll no longer scrolls Cursor diffs; one-shot scroll + cache on web ▼ only, merge keeps the richer hunk.
+- **Web tool diff preview mode** — Partial hunks no longer hide the inline preview (looked like compact). Chevron stays visible while expanded so ▼ collapses again after CDP fetch.
+- **Web tool diff preview toggle** — Removed bottom «Show N more»; ▼ in the tool row expands and collapses (preview clamp via CSS only).
+- **Web tool diff preview clamp** — Collapsed preview always shows 4 lines (partial hunks too); expand/collapse no longer jumps from ~4 to 12.
 - **Generate image approval buttons (Telegram)** — Inline **Run** / **Skip** on **Generate image** cards hashed shell selectors (`button.ui-shell-tool-call__run-btn`) instead of magic paths `generate-image:{toolCallId}:run|skip`, so CDP could not find the card buttons. `stableApprovalSelector` now preserves generate-image paths (same as web `resolveClickSelector`).
 - **Generated image preview quality (web)** — CDP feed-image collect used Cursor UI display size (`clientWidth` / `clientHeight`) when re-encoding via canvas, so sidecars were saved as tiny thumbnails and looked blocky when scaled in the web feed. Collect now uses `naturalWidth` / `naturalHeight` (cap 2048px); web preview max size raised to 512px (`feed-image-extract.ts`, `main.css`).
 
 ### Documentation
 
+- **Web tool diff** — [guide.md](docs/guide.md#edit-tool-diffs-web), [reference.md](docs/reference.md#web-tool-diff-expand): compact vs preview, chevron toggle, partial hunk CDP expand.
 - **Telegram bridge** — `docs/telegram.md`, `docs/guide.md`: generated-image `sendPhoto` on diff; Generate image approval buttons.
 - **Reference & architecture** — `docs/reference.md`, `docs/architecture.md`: `feed-image-outbound.ts` pipeline and dedup keys.
 - **README** — Telegram feature row mentions automatic generated-image delivery.

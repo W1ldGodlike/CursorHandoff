@@ -11,7 +11,7 @@ import {
 } from './code-highlight.js';
 export const MAX_ATTACHMENTS = 10;
 export const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
-const TOOL_DIFF_PREVIEW_LINES = 12;
+const TOOL_DIFF_PREVIEW_LINES = 4;
 
 function toolDiffVisibleLines(diffLines) {
   if (!diffLines?.length) return [];
@@ -30,7 +30,7 @@ function ensureToolDiffClickDelegation() {
   if (toolDiffClickBound || !ctx.$messages) return;
   toolDiffClickBound = true;
   ctx.$messages.addEventListener('click', (e) => {
-    const btn = e.target.closest('.tool-diff-toggle, .tool-diff-more-btn');
+    const btn = e.target.closest('.tool-diff-toggle');
     if (!btn) return;
     const el = btn.closest('.el-tool');
     if (!el) return;
@@ -40,10 +40,9 @@ function ensureToolDiffClickDelegation() {
   });
 }
 
-function resyncExpandedToolDiffs() {
+function resyncAllToolDiffHosts() {
   if (!ctx.$messages) return;
   ctx.$messages.querySelectorAll('.el-tool').forEach((el) => {
-    if (el.dataset.diffExpanded !== '1' && el.dataset.diffPending !== '1') return;
     const msg = resolveFeedMessage(el);
     if (!msg) return;
     if (el.dataset.diffPending === '1' && toolDiffHasBody(msg)) {
@@ -727,7 +726,7 @@ export function renderMessages() {
   if (ctx.pendingHistoryAnchor) {
     restoreHistoryScrollIfNeeded();
   }
-  resyncExpandedToolDiffs();
+  resyncAllToolDiffHosts();
   approve.checkMessagesForNotifications();
 }
 
@@ -1465,6 +1464,22 @@ function toolDiffHasBody(msg) {
   );
 }
 
+function toolDiffExceedsPreview(msg) {
+  return toolDiffLineCount(msg) > TOOL_DIFF_PREVIEW_LINES;
+}
+
+/** Chevron: compact always; preview when partial, expanded, or hunk longer than clamp. */
+function toolDiffShowChevron(msg, mode, expanded) {
+  const hasBody = toolDiffHasBody(msg);
+  const hasStats = toolMessageHasDiffStats(msg);
+  if (!hasBody && !hasStats) return false;
+  if (mode === 'compact') return true;
+  if (expanded) return true;
+  if (toolDiffLooksPartial(msg)) return true;
+  if (hasBody && toolDiffExceedsPreview(msg)) return true;
+  return hasStats && !hasBody;
+}
+
 function toolDiffLineCount(msg) {
   const db = msg.diffBlock;
   if (!db) return 0;
@@ -1537,14 +1552,9 @@ function handleToolDiffExpand(el, msg) {
 function syncToolDiffToggle(el, msg) {
   const line = el.querySelector('.tool-line');
   if (!line) return;
-  const db = msg.diffBlock;
-  const hasBody =
-    db &&
-    ((db.diffLines && db.diffLines.length > 0) || (db.code && String(db.code).trim().length > 0));
-  const partial = toolDiffLooksPartial(msg);
   const mode = toolDiffDisplayMode();
-  const showToggle =
-    (mode === 'compact' || partial) && (hasBody || toolMessageHasDiffStats(msg));
+  const expanded = el.dataset.diffExpanded === '1';
+  const showToggle = toolDiffShowChevron(msg, mode, expanded);
   let btn = line.querySelector('.tool-diff-toggle');
   if (!showToggle) {
     btn?.remove();
@@ -1559,28 +1569,10 @@ function syncToolDiffToggle(el, msg) {
       '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>';
     line.appendChild(btn);
   }
-  const expanded = el.dataset.diffExpanded === '1';
   btn.classList.toggle('tool-diff-toggle--open', expanded);
   btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
 }
 
-function clampToolDiffPreview(block, el, msg, totalLines) {
-  const body = block.querySelector('.code-block-diff-plain');
-  if (!body) return;
-  const rows = [...body.querySelectorAll('.code-block-diff-line')];
-  if (rows.length <= TOOL_DIFF_PREVIEW_LINES) return;
-  rows.slice(TOOL_DIFF_PREVIEW_LINES).forEach((row) => {
-    row.classList.add('tool-diff-line--preview-hidden');
-  });
-  const hidden = rows.length - TOOL_DIFF_PREVIEW_LINES;
-  const more = document.createElement('button');
-  more.type = 'button';
-  more.className = 'tool-diff-more-btn';
-  more.textContent = tp('web.feed.toolDiffMoreCount', 'Show {count} more lines', {
-    count: String(hidden),
-  });
-  block.appendChild(more);
-}
 
 /** Diff edit tool: native block from `diffBlock` (structured lines). */
 export function syncToolDiffHost(el, msg) {
@@ -1621,8 +1613,7 @@ export function syncToolDiffHost(el, msg) {
     return;
   }
 
-  const partial = toolDiffLooksPartial(msg);
-  if (!expanded && (mode === 'compact' || (mode === 'preview' && partial))) {
+  if (!expanded && mode === 'compact') {
     if (host) {
       delete host._nativeDiffKey;
       host.remove();
@@ -1648,15 +1639,17 @@ export function syncToolDiffHost(el, msg) {
   }
   if (host._nativeDiffKey === key) return;
   host._nativeDiffKey = key;
-  const previewClamp = mode === 'preview' && !expanded && !partial;
+  const previewClamp = mode === 'preview' && !expanded;
   host.className =
     'tool-diff-host'
     + (previewClamp ? ' tool-diff-host--preview' : ' tool-diff-host--expanded');
+  if (previewClamp) {
+    host.style.setProperty('--tool-diff-preview-lines', String(TOOL_DIFF_PREVIEW_LINES));
+  } else {
+    host.style.removeProperty('--tool-diff-preview-lines');
+  }
   host.innerHTML = '';
   const block = createToolDiffBlock(db, msg);
-  if (previewClamp) {
-    clampToolDiffPreview(block, el, msg);
-  }
   host.appendChild(block);
 }
 
