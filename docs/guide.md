@@ -172,7 +172,7 @@ You get a live chat feed, approval cards (optional approve sound in ⚙, default
 
 Each card gets its own button row on web and Telegram. With several Confirm search or Delete cards open, buttons are scoped to that card’s query or filename — tapping **Continue** on the bottom card does not approve the top one.
 
-**Generated images (web):** when Cursor shows a completed **Generated image** tool row with an inline preview, Handoff collects the image over CDP, stores it under `<data-root>/feed-images/`, and renders it in the web feed below the tool line (`GET /api/feed-image/:id`). Telegram photo delivery for generated images is not mirrored yet — use the web client or Cursor IDE for previews.
+**Generated images:** when Cursor shows a completed **Generated image** tool row with an inline preview, Handoff collects the image over CDP, stores it under `<data-root>/feed-images/`, and attaches `images[]` on the message. The **web client** renders it below the tool line (`GET /api/feed-image/:id`). **Telegram** sends the same sidecar bytes with `sendPhoto` / `sendDocument` / album on state diff (dedup `feed-img:{composerId}:{sidecarId}`). Manual agent files still use [file relay](telegram.md#file-relay) outbox — not this path.
 
 ---
 

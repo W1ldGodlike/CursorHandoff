@@ -19,6 +19,7 @@ import { readPlanFile } from '../../web/plans.js';
 import { tgKeyboard, type TgKeyboard } from '../types.js';
 import { isConfirmSearchSelector } from '../../ide/parse/confirm-search-selectors.js';
 import { isDeleteFileSelector } from '../../ide/parse/delete-file-selectors.js';
+import { isGenerateImageSelector } from '../../ide/parse/generate-image-selectors.js';
 import { t } from '../../i18n/t.js';
 import { telegramBashPreBlock } from './pre-wrap.js';
 
@@ -46,7 +47,13 @@ const SHELL_APPROVAL_SELECTORS: Record<string, string> = {
 
 /** Snapshot CSS paths go stale; shell approvals use stable class selectors. */
 export function stableApprovalSelector(type: string, selectorPath: string): string {
-  if (isConfirmSearchSelector(selectorPath) || isDeleteFileSelector(selectorPath)) return selectorPath;
+  if (
+    isConfirmSearchSelector(selectorPath)
+    || isDeleteFileSelector(selectorPath)
+    || isGenerateImageSelector(selectorPath)
+  ) {
+    return selectorPath;
+  }
   const stable = SHELL_APPROVAL_SELECTORS[type];
   if (!stable) return selectorPath;
   if (!selectorPath || selectorPath.includes('#bubble') || selectorPath.includes('nth-of-type')) {
@@ -333,7 +340,9 @@ function formatRunCommand(
         continue;
       }
       const prefix = action.type === 'run' ? 'run' : action.type === 'skip' ? 'skp' : 'alw';
-      const label = isConfirmSearchSelector(action.selectorPath) || isDeleteFileSelector(action.selectorPath)
+      const label = isConfirmSearchSelector(action.selectorPath)
+        || isDeleteFileSelector(action.selectorPath)
+        || isGenerateImageSelector(action.selectorPath)
         ? action.label
         : action.type === 'run' ? t('tg.fmt.run', '▶ Run')
         : action.type === 'skip' ? t('tg.fmt.skip', '⏭ Skip')

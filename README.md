@@ -110,7 +110,7 @@ Official docs: [Cloud Agents](https://cursor.com/docs/cloud-agent) · [Cursor fo
 | Area | What you get |
 |------|----------------|
 | **Web client** | Live chat feed, tool approval cards (shell, Confirm search, Delete file, **Generate image**; optional approve sound), **generated image previews**, plan widgets (View Plan / Build), code & diff blocks, file attachments (images paste; other files via path; send spinner while uploading), queue & `$` force-send, **project picker** (header + ⋮ menu: open/switch/close projects) |
-| **Telegram** | Forum topic per tab, slash commands, inbound files (images, video, voice, documents), outbound [file relay](docs/telegram.md) from `.cursor-handoff/outbox/` |
+| **Telegram** | Forum topic per tab, slash commands, inbound files (images, video, voice, documents), outbound [file relay](docs/telegram.md) from `.cursor-handoff/outbox/`, **automatic `sendPhoto` for agent-generated images** |
 | **Handoff settings** | One panel: network bind, web password, Telegram setup, add-ons — UI in **English** or **Russian** |
 | **Sidebar diagnostics** | **Test CDP** / **Test Telegram bot** (no server required), **Restart server** (owner), version and tunnel status |
 | **Handoff log** | Merged `<data-root>/handoff.log` — server visor combines server, extension, and Wake lines (`[server\|ext\|wake]` + local time + JSON); open from sidebar |

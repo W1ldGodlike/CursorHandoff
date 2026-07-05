@@ -5,9 +5,14 @@ import {
   formatElement,
   formatActivity,
   formatQuestionnaire,
+  stableApprovalSelector,
   thoughtAppearsInProgress,
   activityRedundantWithInProgressStepSummary,
 } from '../../src/telegram/format/html.js';
+import {
+  generateImageRunPath,
+  generateImageSkipPath,
+} from '../../src/ide/parse/generate-image-selectors.js';
 import type {
   ChatElement,
   ThoughtBlock,
@@ -190,6 +195,32 @@ describe('formatElement', () => {
     assert.ok(keyboard);
   });
 
+  it('preserves generate-image selector paths in run_command keyboard hashes', () => {
+    const runPath = generateImageRunPath('tool-gen-1');
+    const skipPath = generateImageSkipPath('tool-gen-1');
+    const hashed: string[] = [];
+    const captureHash = (sp: string) => {
+      hashed.push(sp);
+      return 'deadbeef';
+    };
+    const msg: RunCommand = {
+      type: 'run_command', id: 'rc-gen-img', flatIndex: 0, toolCallId: 'tool-gen-1',
+      description: 'Generate image', candidates: '',
+      command: 'A dense poster about CursorHandoff',
+      actions: [
+        { label: 'Skip', type: 'skip', selectorPath: skipPath },
+        { label: 'Generate', type: 'run', selectorPath: runPath },
+      ],
+    };
+    const { keyboard } = formatElement(msg, captureHash);
+    assert.ok(keyboard);
+    assert.deepEqual(hashed, [skipPath, runPath]);
+    const json = JSON.stringify(keyboard);
+    assert.match(json, /deadbeef/);
+    assert.match(json, /Generate/);
+    assert.ok(!json.includes('ui-shell-tool-call__run-btn'));
+  });
+
   it('formats run_command with command text and buttons', () => {
     const msg: RunCommand = {
       type: 'run_command', id: 'rc123456', flatIndex: 0, toolCallId: 'tc-run',
@@ -242,6 +273,22 @@ describe('formatElement', () => {
     assert.match(html, /🔵/);
     assert.match(html, /⚪/);
     assert.ok(keyboard);
+  });
+});
+
+describe('stableApprovalSelector', () => {
+  it('keeps generate-image magic paths (same as web resolveClickSelector)', () => {
+    const run = generateImageRunPath('tool-abc');
+    const skip = generateImageSkipPath('tool-abc');
+    assert.equal(stableApprovalSelector('run', run), run);
+    assert.equal(stableApprovalSelector('skip', skip), skip);
+  });
+
+  it('still maps ephemeral shell paths to stable class selectors', () => {
+    assert.equal(
+      stableApprovalSelector('run', '#bubble:nth-of-type(3) button'),
+      'button.ui-shell-tool-call__run-btn',
+    );
   });
 });
 

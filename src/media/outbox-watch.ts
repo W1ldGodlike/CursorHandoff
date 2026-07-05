@@ -168,7 +168,7 @@ function resolveBatchCaption(files: string[]): string | undefined {
   return undefined;
 }
 
-async function sendOutboxGroup(
+export async function sendTelegramMediaGroup(
   api: TelegramApiClient,
   chatId: number,
   threadId: number,
@@ -196,6 +196,16 @@ async function sendOutboxGroup(
     caption: idx === 0 ? caption : undefined,
   }));
   await api.sendMediaGroup(chatId, media, { message_thread_id: threadId });
+}
+
+async function sendOutboxGroup(
+  api: TelegramApiClient,
+  chatId: number,
+  threadId: number,
+  group: OutboxSendItem[],
+  caption?: string,
+): Promise<void> {
+  await sendTelegramMediaGroup(api, chatId, threadId, group, caption);
 }
 
 async function sendBatch(

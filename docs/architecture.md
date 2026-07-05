@@ -47,7 +47,7 @@ flowchart LR
 
 - **Session** — discover workbench targets on `:9222`, keep the WebSocket alive, hop between Cursor windows.
 - **Parse** — `tabs.ts`, `messages.ts`, `composer.ts`, `plan-widget.ts` evaluate DOM via `Runtime.callFunction`, keyed on `[data-message-index]` (Cursor 3.8+). Tool approvals are merged in `approval-merge.ts` from `pendingApprovals` via `shell-approval-merge.ts`, `confirm-search-merge.ts`, `delete-file-merge.ts`, and `generate-image-merge.ts` (shell Run/Skip, Confirm search, Delete file, Generate image).
-- **Feed images** — After each extraction, `feed-image-extract.ts` runs `FEED_IMAGE_COLLECT_EXPR` in the Cursor page, saves bytes to `<data-root>/feed-images/`, and attaches `FeedImageRef[]` on messages. Home window: `DOMExtractor` postProcess from `main.ts`; other windows: `WindowMonitor.extractFromClient`. Web serves sidecars at `GET /api/feed-image/:id`.
+- **Feed images** — After each extraction, `feed-image-extract.ts` runs `FEED_IMAGE_COLLECT_EXPR` in the Cursor page, saves bytes to `<data-root>/feed-images/`, and attaches `FeedImageRef[]` on messages. Home window: `DOMExtractor` postProcess from `main.ts`; other windows: `WindowMonitor.extractFromClient`. Web serves sidecars at `GET /api/feed-image/:id`. Telegram outbound: `feed-image-outbound.ts` sends ready sidecars with `sendPhoto` on poll-loop diff (shared album helper from `outbox-watch.ts`).
 - **Actions** — `navigation.ts`, `composer.ts`, `approval.ts`, `agent-controls.ts` turn remote intents into CDP input. The ProseMirror composer needs the Input domain; assigning `.value` on DOM nodes is not enough.
 
 ### State (`src/state/`)
@@ -92,7 +92,7 @@ flowchart TD
   SUB -->|no| QUEUE --> AGENT
 ```
 
-**Outbound path:** per-window snapshots → HTML in `format/html.ts` → `editMessageText` with 4096-char chunking; approvals and plans get inline keyboards.
+**Outbound path:** per-window snapshots → HTML in `format/html.ts` → `editMessageText` with 4096-char chunking; approvals and plans get inline keyboards. Completed **Generated image** sidecars → `feed-image-outbound.ts` (`sendPhoto` / album, dedup via `messageTracker`).
 
 **Commands:** `commands/registry.ts` — bridge lifecycle (`/bridge`, `/bridge_all`, `/unbridge`, `/merge_threads`, `/flush`) plus chat and diagnostics helpers.
 

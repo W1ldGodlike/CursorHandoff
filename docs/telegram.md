@@ -132,7 +132,7 @@ When the agent waits for approval (`waiting_approval`), Handoff posts inline but
 | Delete file | **Accept** / **Reject** | Scoped per filename; buttons clear after accept or when the card leaves pending |
 | Generate image | **Run** / **Skip** | Prompt on the feed message; scoped per `toolCallId` |
 
-**Generated image previews:** the web client shows inline previews for completed **Generated image** tools (`/api/feed-image/:id`). Telegram still posts the tool line only — automatic `sendPhoto` for agent-generated images is planned separately.
+**Generated image previews:** completed **Generated image** tools get sidecars under `<data-root>/feed-images/` (same CDP collect as web). The web client shows inline previews (`GET /api/feed-image/:id`). Telegram posts the tool line in HTML, then **`sendPhoto` / `sendDocument` / album** for ready sidecars on the next poll (`feed-image-outbound.ts`; dedup `feed-img:{composerId}:{sidecarId}`). Not the same as [file relay](#file-relay) outbox — automatic on agent generation only.
 
 Tap a button → CDP clicks the matching control in Cursor → cards refresh on the next state poll.
 
@@ -275,6 +275,10 @@ This is **not** a crash. Typical after opening/switching projects from web or `/
 ## File relay
 
 ### Cursor → Telegram
+
+**Agent-generated images:** when the agent completes a **Generated image** tool row, Handoff uploads the sidecar from `<data-root>/feed-images/` with `sendPhoto` (automatic — no outbox skill). The HTML tool line still posts as usual.
+
+**Manual file relay** (screenshots, exports, anything the agent copies for you):
 
 1. In the project thread, run **`/setup_tg_send`** once per workspace.
 2. Ask the agent to place deliverables only in **`.cursor-handoff/outbox/`** (short Latin filenames). **Copy** files in — do not move; outbox TTL is 1 hour by file `mtime`.

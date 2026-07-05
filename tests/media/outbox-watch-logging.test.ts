@@ -1690,9 +1690,9 @@ describe('media outbox-watch logging', () => {
     assert.match(body, /Could not send file[\s\S]*\.catch\(\(\) => \{\}\)/);
   });
 
-  it('sendOutboxGroup album caption only on idx zero in source', () => {
+  it('sendTelegramMediaGroup album caption only on idx zero in source', () => {
     const src = readFileSync(new URL('../../src/media/outbox-watch.ts', import.meta.url), 'utf-8');
-    const body = src.slice(src.indexOf('async function sendOutboxGroup'), src.indexOf('async function sendBatch'));
+    const body = src.slice(src.indexOf('export async function sendTelegramMediaGroup'), src.indexOf('async function sendOutboxGroup'));
     assert.match(body, /caption: idx === 0 \? caption : undefined/);
   });
 

@@ -53,6 +53,7 @@ import {
   shouldSendChatElement,
   shouldSendComposerQueue,
 } from '../ui/notify-mode.js';
+import { syncFeedImagesToThread } from '../feed-image-outbound.js';
 import { AGENT_ACTIVITY_STALE_MS } from '../../ide/activity-stale.js';
 import type { TelegramApiClient, BotContext } from '../types.js';
 import type { CommandDeps, RegisterDeps } from '../commands/registry.js';
@@ -1403,6 +1404,14 @@ export abstract class BaseTelegramTransport implements Transport {
         await this.sendNewMessage(threadId, element, formatted, contentHash, stableComposer);
       }
     }
+
+    await syncFeedImagesToThread(this.api, this.chatId, this.messageTracker, {
+      threadId,
+      composerId: stableComposer,
+      messages: tail,
+      notifyMode,
+      agentIdle,
+    });
 
     await this.processQuestionnaireForThread(threadId, snapshot.questionnaire ?? null);
   }

@@ -208,6 +208,8 @@ Sources: `confirm-search-merge.ts`, `delete-file-merge.ts`, `generate-image-merg
 
 Files live under `<data-root>/feed-images/`. Populated by `enrichStateWithFeedImages` after each CDP extraction when Cursor shows inline previews on **Generated image** tool rows.
 
+**Telegram delivery:** `src/telegram/feed-image-outbound.ts` — on poll-loop diff, when a completed **Generated image** tool message has ready sidecars, sends `sendPhoto` / `sendDocument` / album to the mapped forum thread. Dedup keys: `feed-img:{composerId}:{sidecarId}`. Distinct from workspace [file relay](../telegram.md#file-relay) outbox (agent-initiated copies).
+
 ---
 
 ## Health endpoint

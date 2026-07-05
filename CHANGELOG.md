@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Generated image preview (Telegram)** — When a completed **Generated image** tool row has `images[]` sidecars, Handoff sends `sendPhoto` / `sendDocument` / album to the forum thread on state diff. Dedup via `messageTracker` keys `feed-img:{composerId}:{sidecarId}` (`feed-image-outbound.ts`).
+
+### Fixed
+
+- **Generate image approval buttons (Telegram)** — Inline **Run** / **Skip** on **Generate image** cards hashed shell selectors (`button.ui-shell-tool-call__run-btn`) instead of magic paths `generate-image:{toolCallId}:run|skip`, so CDP could not find the card buttons. `stableApprovalSelector` now preserves generate-image paths (same as web `resolveClickSelector`).
+- **Generated image preview quality (web)** — CDP feed-image collect used Cursor UI display size (`clientWidth` / `clientHeight`) when re-encoding via canvas, so sidecars were saved as tiny thumbnails and looked blocky when scaled in the web feed. Collect now uses `naturalWidth` / `naturalHeight` (cap 2048px); web preview max size raised to 512px (`feed-image-extract.ts`, `main.css`).
+
+### Documentation
+
+- **Telegram bridge** — `docs/telegram.md`, `docs/guide.md`: generated-image `sendPhoto` on diff; Generate image approval buttons.
+- **Reference & architecture** — `docs/reference.md`, `docs/architecture.md`: `feed-image-outbound.ts` pipeline and dedup keys.
+- **README** — Telegram feature row mentions automatic generated-image delivery.
+
 ## [1.5.0] - 2026-07-04
 
 ![CursorHandoff brand concept](https://github.com/W1ldGodlike/CursorHandoff/releases/download/v1.5.0/handoff-release-hero.png)
