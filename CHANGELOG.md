@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-05
+
+![CursorHandoff brand concept](https://github.com/W1ldGodlike/CursorHandoff/releases/download/v1.6.0/handoff-release-hero.png)
+
+
 ### Added
 
 - **Web tool diff (edit files)** — Parser reads Cursor `ui-default-diff` lines (`add` / `rem` / `ctx`) into `diffBlock`. Web feed: **Compact** (filename + +/-, ▼ for full diff) or **With preview** (4 collapsed lines, ▼ toggles the full hunk); setting under ⚙ Feed → **File edits**. Partial hunks fetch via CDP `expand_tool_diff` on first ▼; expanded hunks are cached across polls. Syntax highlight on diff lines by file extension. Telegram unchanged (stats line only).

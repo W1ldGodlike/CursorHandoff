@@ -8,7 +8,7 @@
 
 # CursorHandoff
 
-[![Version](https://img.shields.io/badge/version-1.5.0-blue)](https://github.com/W1ldGodlike/CursorHandoff/releases)
+[![Version](https://img.shields.io/badge/version-1.6.0-blue)](https://github.com/W1ldGodlike/CursorHandoff/releases)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-orange)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#requirements)
 [![Cursor](https://img.shields.io/badge/Cursor-CDP%20%3A9222-000?style=flat&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSIjZmZmIj48cGF0aCBkPSJNMTIgMkM2LjQ4IDIgMiA2LjQ4IDIgMTJzNC40OCAxMCAxMCAxMCAxMC00LjQ4IDEwLTEwUzE3LjUyIDIgMTIgMnoiLz48L3N2Zz4=)](#requirements)
@@ -170,8 +170,8 @@ Both packages share the same extension ID (`cursor-handoff.cursor-handoff`). Pic
 
 | Package | File | Size | Best for |
 |---------|------|------|----------|
-| **Standard** | `cursor-handoff-1.5.0.vsix` | ~2 MB | Smaller download; Wake & cloudflared via **Download & install** in Handoff settings (GitHub / Cloudflare CDN) |
-| **Complete** | `cursor-handoff-1.5.0-complete.vsix` | ~43 MB | **Bundled add-ons** — `CursorWake.exe` + `cloudflared.exe` (Windows) already inside the VSIX; install from Handoff settings with **no separate download** |
+| **Standard** | `cursor-handoff-1.6.0.vsix` | ~2 MB | Smaller download; Wake & cloudflared via **Download & install** in Handoff settings (GitHub / Cloudflare CDN) |
+| **Complete** | `cursor-handoff-1.6.0-complete.vsix` | ~43 MB | **Bundled add-ons** — `CursorWake.exe` + `cloudflared.exe` (Windows) already inside the VSIX; install from Handoff settings with **no separate download** |
 
 Complete does not mean “works without internet” — Telegram, tunnels, and Cursor still need network. It only ships the add-on binaries in the VSIX so Handoff settings does not fetch them from GitHub or Cloudflare CDN.
 
@@ -184,9 +184,9 @@ Complete does not mean “works without internet” — Telegram, tunnels, and C
 **CLI:**
 
 ```bash
-cursor --install-extension cursor-handoff-1.5.0.vsix
+cursor --install-extension cursor-handoff-1.6.0.vsix
 # or Complete:
-cursor --install-extension cursor-handoff-1.5.0-complete.vsix
+cursor --install-extension cursor-handoff-1.6.0-complete.vsix
 ```
 
 VS Code users may substitute `code` for `cursor`.
@@ -283,8 +283,8 @@ When `cursorHandoff.dataDir` is empty, the extension walks **workspace folders**
 | CursorWake install (Windows) | `%LOCALAPPDATA%\CursorWake\` |
 | cloudflared (user install) | Windows: `%LOCALAPPDATA%\cloudflared\` · macOS/Linux: `~/.local/bin/cloudflared` (or Homebrew / system path) |
 
-**Installed VSIX example (Windows, Cursor):** `%USERPROFILE%\.cursor\extensions\cursor-handoff.cursor-handoff-1.5.0\data\`  
-VS Code: `~/.vscode/extensions/cursor-handoff.cursor-handoff-1.5.0/data/`
+**Installed VSIX example (Windows, Cursor):** `%USERPROFILE%\.cursor\extensions\cursor-handoff.cursor-handoff-1.6.0\data\`  
+VS Code: `~/.vscode/extensions/cursor-handoff.cursor-handoff-1.6.0/data/`
 
 **Global storage fallback** (only when no `cursor-handoff` package root is found):
 

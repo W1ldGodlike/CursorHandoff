@@ -38,7 +38,7 @@ Visit `http://localhost:9222/json`. You should see a JSON list of debug targets.
 
 ## Install the extension
 
-**Recommended:** download `cursor-handoff-1.5.0.vsix` from [GitHub Releases](https://github.com/W1ldGodlike/CursorHandoff/releases).
+**Recommended:** download `cursor-handoff-1.6.0.vsix` from [GitHub Releases](https://github.com/W1ldGodlike/CursorHandoff/releases).
 
 **From source:**
 
@@ -52,7 +52,7 @@ npm run package
 Install the VSIX:
 
 ```bash
-cursor --install-extension releases/cursor-handoff-1.5.0.vsix
+cursor --install-extension releases/cursor-handoff-1.6.0.vsix
 ```
 
 Or **Extensions: Install from VSIX…** in the Command Palette.
