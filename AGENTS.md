@@ -10,7 +10,7 @@ Entry point for AI coding agents working in this repository.
 
 The server reads Cursor state over CDP (`--remote-debugging-port=9222`), serves a mobile **web client**, and mirrors chat to Telegram forum topics. Phone and Telegram can drive the same agent: tabs, composer, approvals, mode/model, **project open/switch/close**, and plan widgets. It does not host models or run agents in the cloud.
 
-**Cursor compatibility:** minimum Cursor **3.8**; last verified **3.9.16** — see [docs/development.md](docs/development.md#cursor-compatibility). After a Cursor IDE update, run the DOM probe playbook (local tooling below) before assuming selectors still work.
+**Cursor compatibility:** minimum Cursor **3.8**; last verified **3.10.20** — see [docs/development.md](docs/development.md#cursor-compatibility). After a Cursor IDE update, run the DOM probe playbook (local tooling below) before assuming selectors still work.
 
 ## Repository layout
 

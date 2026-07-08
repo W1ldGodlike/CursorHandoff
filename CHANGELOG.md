@@ -12,6 +12,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ![CursorHandoff brand concept](https://github.com/W1ldGodlike/CursorHandoff/releases/download/v1.6.1/handoff-release-hero.png)
 
 
+### Fixed
+
+- **Cursor 3.10 virtualized transcript mirror** — Parser no longer relies only on flat-index wrappers. It now reads nested `virtualized-composer-messages-row` content, resolves row kind from `data-react-transcript-row-kind`, and restores assistant/tool/thought extraction in web and Telegram mirrors.
+- **Edit tool rows in web/TG** — `Edit <file> +N -M` cards are extracted from virtualized tool cards, deduped by stable file ids, and preserved when wrappers are nested. This fixes missing edit rows and repeated duplicates during live polling.
+- **Thought summary noise on Cursor 3.10** — Step-group parsing strips injected CSS/style fragments from summary nodes and normalizes duplicate fragments, so activity lines no longer show raw selector blocks.
+- **Mirror continuity around nested tool cards** — Parent wrappers are no longer prematurely skipped when they contain nested virtualized tool cards; nearby human/assistant lines remain visible in order.
+
+### Changed
+
+- **Web edit row presentation** — compact edit rows now show extension badges (for example `TS`, `JS`, `PY`) with filename and `+/-` stats, matching Cursor card semantics while keeping web feed density.
+- **Diff expand targeting** — one-shot `expand_tool_diff` lookup supports stable `edit-file-*` tool ids by filename in addition to `data-tool-call-id`, improving expand reliability on Cursor 3.10 card layouts.
+
+### Compatibility
+
+- **Pinned tested Cursor version** — package/release metadata now pins `testedCursorVersion` to **3.10.20** (`scripts/build/cursor-compat.json`), and release artifacts are built and published with that compatibility marker.
+
 ## [1.6.0] - 2026-07-05
 
 ![CursorHandoff brand concept](https://github.com/W1ldGodlike/CursorHandoff/releases/download/v1.6.0/handoff-release-hero.png)
