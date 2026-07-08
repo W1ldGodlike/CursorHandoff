@@ -74,7 +74,9 @@ export function extractionFunction(
       try {
         const el = document.querySelector(sel);
         if (!el) continue;
-        const count = el.querySelectorAll(MSG_WRAPPER_SEL).length;
+        const count =
+          el.querySelectorAll(MSG_WRAPPER_SEL).length
+          + el.querySelectorAll('.virtualized-composer-messages-row').length;
         if (count > bestCount) {
           best = el;
           bestCount = count;
@@ -108,9 +110,21 @@ export function extractionFunction(
 
     for (const el of Array.from(scope.querySelectorAll('span, div, a'))) {
       const t = (el.textContent || '').trim();
+      if (!t) continue;
       if (additions === undefined && /^\+\d+$/.test(t)) additions = parseInt(t.slice(1), 10);
       if (deletions === undefined && /^-\d+$/.test(t)) deletions = parseInt(t.slice(1), 10);
       if (additions !== undefined && deletions !== undefined) break;
+    }
+    if (additions === undefined || deletions === undefined) {
+      const blob = (scope.textContent || '').replace(/\s+/g, ' ');
+      if (additions === undefined) {
+        const addM = blob.match(/\+(\d+)/);
+        if (addM) additions = parseInt(addM[1], 10);
+      }
+      if (deletions === undefined) {
+        const delM = blob.match(/-(\d+)/);
+        if (delM) deletions = parseInt(delM[1], 10);
+      }
     }
     return { additions, deletions };
   }
@@ -143,6 +157,55 @@ export function extractionFunction(
     if (!container) return null;
 
     const flatIndexEls = container.querySelectorAll(MSG_WRAPPER_SEL);
+
+    const messageWrappers: Element[] = [];
+    const wrapperSeen = new Set<Element>();
+    for (const el of Array.from(flatIndexEls)) {
+      wrapperSeen.add(el);
+      messageWrappers.push(el);
+    }
+    for (const row of Array.from(container.querySelectorAll('.virtualized-composer-messages-row'))) {
+      if (wrapperSeen.has(row)) continue;
+      wrapperSeen.add(row);
+      messageWrappers.push(row);
+    }
+
+    messageWrappers.sort((a, b) => {
+      if (a === b) return 0;
+      const pos = a.compareDocumentPosition(b);
+      if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+      if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      return 0;
+    });
+
+    let nextSyntheticFlatIndex = 0;
+
+    function flatIndexFor(wrapper: Element): number {
+      const raw = wrapper.getAttribute('data-flat-index') || wrapper.getAttribute('data-message-index');
+      if (raw) {
+        const fi = parseInt(raw, 10);
+        nextSyntheticFlatIndex = Math.max(nextSyntheticFlatIndex, fi + 1);
+        return fi;
+      }
+      const fi = nextSyntheticFlatIndex++;
+      return fi;
+    }
+
+    function resolveMessageKind(el: Element): string | null {
+      const kind = el.getAttribute('data-message-kind');
+      if (kind) return kind;
+      const rowKind =
+        el.getAttribute('data-react-transcript-row-kind')
+        || el.closest('[data-react-transcript-row-kind]')?.getAttribute('data-react-transcript-row-kind')
+        || '';
+      if (/assistant/i.test(rowKind)) return 'assistant';
+      if (/tool/i.test(rowKind)) return 'tool';
+      if (/thinking/i.test(rowKind)) return 'thinking';
+      return null;
+    }
+
+    const parsedMessageIds = new Set<string>();
+    const editToolsByFile = new Map<string, number>();
     let containerComposerId =
       container.getAttribute('data-composer-id') ||
       container.closest('[data-composer-id]')?.getAttribute('data-composer-id') ||
@@ -203,6 +266,47 @@ export function extractionFunction(
       return false;
     }
 
+    function sanitizeThoughtFragment(text: string): string {
+      let t = text.replace(/\s+/g, ' ').trim();
+      if (!t) return '';
+      t = t.replace(/\[data-[\w-]+(?:="[^"]*")?\]\s*\{[^}]*\}/gi, '');
+      t = t.replace(/@container\s*\([^)]*\)\s*\{[^}]*\}/gi, '');
+      return t.replace(/\s+/g, ' ').trim();
+    }
+
+    function collapseDuplicateThoughtPhrase(text: string): string {
+      const t = sanitizeThoughtFragment(text);
+      if (!t) return '';
+      for (let len = Math.floor(t.length / 2); len >= 8; len--) {
+        const head = t.slice(0, len).trim();
+        const rest = t.slice(len).trim();
+        if (!head || !rest) continue;
+        if (rest === head || rest.startsWith(head)) return head;
+      }
+      return t;
+    }
+
+    function thoughtTextFromNode(el: Element): string {
+      const clone = el.cloneNode(true) as Element;
+      clone.querySelectorAll('style, script').forEach((n) => n.remove());
+      clone.querySelectorAll('[data-summary-variant="expanded"]').forEach((n) => n.remove());
+      return collapseDuplicateThoughtPhrase(clone.textContent || '');
+    }
+
+    function activitySummaryText(headerEl: Element): string {
+      const summaries = Array.from(headerEl.querySelectorAll('[data-activity-group-summary-id]'));
+      if (summaries.length === 0) return '';
+      const parts: string[] = [];
+      const seen = new Set<string>();
+      for (const sum of summaries) {
+        const t = thoughtTextFromNode(sum);
+        if (!t || seen.has(t)) continue;
+        seen.add(t);
+        parts.push(t);
+      }
+      return parts.join(', ');
+    }
+
     function parseThoughtSpansFromHeader(headerEl: Element | null): {
       action: string;
       detail: string;
@@ -215,7 +319,7 @@ export function extractionFunction(
       let duration = '';
       for (const s of Array.from(headerSpans)) {
         if (s.classList.contains('cursor-icon') || s.classList.contains('ui-icon')) continue;
-        const t = (s.textContent || '').trim();
+        const t = thoughtTextFromNode(s);
         if (!t) continue;
         const d = durationFromThoughtText(t);
         if (d && !duration) duration = d;
@@ -231,11 +335,16 @@ export function extractionFunction(
           detail = detail || t;
         }
       }
+      const summary = activitySummaryText(headerEl);
+      if (summary) detail = summary;
       if (!duration) {
-        const fullHeader = (headerEl.textContent || '').replace(/\s+/g, ' ').trim();
-        duration = durationFromThoughtText(fullHeader);
+        duration = durationFromThoughtText(thoughtTextFromNode(headerEl));
       }
-      return { action, detail, duration };
+      return {
+        action: collapseDuplicateThoughtPhrase(action),
+        detail: collapseDuplicateThoughtPhrase(detail),
+        duration,
+      };
     }
 
     type RawElRef = {
@@ -595,10 +704,53 @@ export function extractionFunction(
       return `confirm-search:${toolCallId}${seg}:auto-search-toggle`;
     }
 
+    function editBasename(filename: string): string {
+      return filename.split(/[/\\]/).pop() || filename;
+    }
+
+    function editFileMessageId(filename: string): string {
+      return `edit-file-${editBasename(filename)}`;
+    }
+
+    function findEditToolCard(root: Element): Element | null {
+      if (
+        root.matches('.ui-tool-call-card')
+        && root.querySelector('.ui-edit-tool-call__filename, .ui-edit-tool-call')
+      ) {
+        return root;
+      }
+      for (const card of Array.from(root.querySelectorAll('.ui-tool-call-card'))) {
+        if (card.querySelector('.ui-edit-tool-call__filename') || card.classList.contains('ui-edit-tool-call')) {
+          return card;
+        }
+      }
+      return null;
+    }
+
+    function mergeEditToolElement(
+      prev: ChatElement,
+      next: ChatElement,
+    ): ChatElement {
+      if (prev.type !== 'tool' || next.type !== 'tool') return next;
+      const prevLines = prev.diffBlock?.diffLines?.length ?? 0;
+      const nextLines = next.diffBlock?.diffLines?.length ?? 0;
+      const richer = nextLines >= prevLines ? next : prev;
+      const other = richer === next ? prev : next;
+      return {
+        ...richer,
+        filename: richer.filename || other.filename,
+        additions: richer.additions ?? other.additions,
+        deletions: richer.deletions ?? other.deletions,
+        diffBlock: (nextLines >= prevLines ? next.diffBlock : prev.diffBlock) || richer.diffBlock,
+      };
+    }
+
     function resolveToolCallId(root: Element, flatIndex: number): string {
       const bubble = root.querySelector('[data-tool-call-id]') || root.closest('[data-tool-call-id]');
       const fromBubble = bubble?.getAttribute('data-tool-call-id');
       if (fromBubble) return fromBubble;
+      const editFn = root.querySelector('.ui-edit-tool-call__filename')?.textContent?.trim();
+      if (editFn) return editFileMessageId(editFn);
       const msgId = root.querySelector('[data-message-id]')?.getAttribute('data-message-id');
       if (msgId) return msgId;
       return `tool-${flatIndex}`;
@@ -1532,6 +1684,38 @@ export function extractionFunction(
         };
       }
 
+      const editCard = findEditToolCard(toolRoot);
+      if (editCard) {
+        const header = editCard.querySelector('.ui-tool-call-card__header');
+        const statsScope = header || editCard;
+        let filename =
+          (editCard.querySelector('.ui-edit-tool-call__filename')?.textContent || '').trim() || undefined;
+        if (!filename) {
+          const title = header?.getAttribute('title')?.trim();
+          if (title) filename = editBasename(title);
+        } else {
+          filename = editBasename(filename);
+        }
+        const diffStats = tryParseDiffStatsFromWrapper(statsScope);
+        const diffBlock = extractDiffBlockFromScope(editCard);
+        return {
+          element: {
+            type: 'tool' as const,
+            id: messageId,
+            flatIndex,
+            toolCallId: filename ? editFileMessageId(filename) : toolCallId,
+            status: toolStatus,
+            action: 'Edit',
+            details: '',
+            filename,
+            additions: diffStats.additions,
+            deletions: diffStats.deletions,
+            ...(diffBlock ? { diffBlock } : {}),
+          },
+          parsedAs: 'tool:edit-card',
+        };
+      }
+
       const runContainer =
         toolRoot.querySelector('.composer-terminal-tool-call-block-container') ||
         toolRoot.querySelector('.composer-tool-call-container.composer-terminal-compact-mode');
@@ -1933,13 +2117,17 @@ export function extractionFunction(
       };
     }
 
-    for (const wrapper of Array.from(flatIndexEls)) {
-      const flatIndex = parseWrapperIndex(wrapper);
+    for (const wrapper of messageWrappers) {
+      const flatIndex = flatIndexFor(wrapper);
 
-      const msgEl = wrapper.querySelector('[data-message-role]') || wrapper;
+      const msgEl = wrapper.querySelector('[data-message-role]') || wrapper.querySelector('[data-message-id]') || wrapper;
       const role = msgEl.getAttribute('data-message-role');
-      const kind = msgEl.getAttribute('data-message-kind');
+      const kind = resolveMessageKind(msgEl as Element);
       const messageId = msgEl.getAttribute('data-message-id') || `fi-${flatIndex}`;
+
+      if (msgEl.getAttribute('data-message-id') && parsedMessageIds.has(messageId)) {
+        continue;
+      }
 
       const rawEl = {
         flatIndex,
@@ -2030,8 +2218,10 @@ export function extractionFunction(
           duration: parsed.duration,
           action: parsed.action || undefined,
           detail: parsed.detail || undefined,
+          thoughtKind: 'step_summary' as const,
         });
         rawEl.parsedAs = 'thought';
+        if (messageId) parsedMessageIds.add(messageId);
         continue;
       }
 
@@ -2129,12 +2319,56 @@ export function extractionFunction(
           ...(imageCount > 0 ? { imageCount } : {}),
         });
         rawEl.parsedAs = 'human';
+        parsedMessageIds.add(messageId);
         continue;
       }
 
+      const toolCard = wrapper.querySelector('.ui-tool-call-card, .composer-tool-call-container');
+
+      // --- Tool call (before assistant — tool cards may contain ui-markdown) ---
+      if (toolCard && (role === 'ai' || !role)) {
+        const owningVirt = toolCard.closest('.virtualized-composer-messages-row');
+        if (owningVirt && owningVirt !== wrapper) {
+          // Nested virtualized row owns this card; do not treat parent wrapper as tool.
+        } else {
+          const editFn = wrapper.querySelector('.ui-edit-tool-call__filename')?.textContent?.trim();
+          const toolMessageId =
+            msgEl.getAttribute('data-message-id')
+            || (editFn ? editFileMessageId(editFn) : messageId);
+          const parsedTool = extractAiTool(wrapper, flatIndex, toolMessageId, rawEl);
+          if (parsedTool) {
+            const fn =
+              parsedTool.element.type === 'tool'
+                ? parsedTool.element.filename?.trim()
+                : '';
+            if (fn && parsedTool.parsedAs === 'tool:edit-card') {
+              const prevIdx = editToolsByFile.get(fn);
+              if (prevIdx !== undefined) {
+                elements[prevIdx] = mergeEditToolElement(elements[prevIdx], parsedTool.element);
+              } else {
+                editToolsByFile.set(fn, elements.length);
+                elements.push(parsedTool.element);
+              }
+            } else {
+              const existingIdx = elements.findIndex((e) => e.id === toolMessageId);
+              if (existingIdx >= 0 && parsedTool.element.type === 'tool' && elements[existingIdx].type === 'tool') {
+                elements[existingIdx] = mergeEditToolElement(elements[existingIdx], parsedTool.element);
+              } else {
+                elements.push(parsedTool.element);
+              }
+            }
+            rawEl.parsedAs = parsedTool.parsedAs;
+            parsedMessageIds.add(toolMessageId);
+          }
+          continue;
+        }
+      }
+
       // --- AI assistant message ---
-      if (role === 'ai' && kind === 'assistant') {
-        const markdownRoot = wrapper.querySelector('.markdown-root');
+      const assistantMarkdown =
+        wrapper.querySelector('.markdown-root, .ui-markdown, .agent-transcript-row-markdown');
+      if (role === 'ai' && (kind === 'assistant' || (!kind && assistantMarkdown))) {
+        const markdownRoot = assistantMarkdown;
         const text = (markdownRoot?.textContent || wrapper.textContent || '').trim();
         const html = markdownRoot?.innerHTML || '';
 
@@ -2152,16 +2386,7 @@ export function extractionFunction(
           codeBlocks,
         });
         rawEl.parsedAs = 'assistant';
-        continue;
-      }
-
-      // --- Tool call ---
-      if (role === 'ai' && kind === 'tool') {
-        const parsedTool = extractAiTool(msgEl as Element, flatIndex, messageId, rawEl);
-        if (parsedTool) {
-          elements.push(parsedTool.element);
-          rawEl.parsedAs = parsedTool.parsedAs;
-        }
+        parsedMessageIds.add(messageId);
         continue;
       }
 
@@ -2180,54 +2405,61 @@ export function extractionFunction(
           thoughtKind: 'thinking_step' as const,
         });
         rawEl.parsedAs = 'thought:thinking';
+        parsedMessageIds.add(messageId);
         continue;
+      }
+
+      // --- Step-group in virtualized row (no message-role) ---
+      if (!role && wrapper.classList.contains('virtualized-composer-messages-row')) {
+        const stepGroup = wrapper.querySelector('.ui-collapsible.ui-step-group-collapsible');
+        if (stepGroup) {
+          const hdr = stepGroup.querySelector('.ui-collapsible-header');
+          const parsed = parseThoughtSpansFromHeader(hdr);
+          if (parsed.action || parsed.detail || parsed.duration) {
+            elements.push({
+              type: 'thought' as const,
+              id: messageId,
+              flatIndex,
+              duration: parsed.duration,
+              action: parsed.action || undefined,
+              detail: parsed.detail || undefined,
+              thoughtKind: 'step_summary' as const,
+            });
+            rawEl.parsedAs = 'thought:virtualized';
+            parsedMessageIds.add(messageId);
+            continue;
+          }
+        }
+        const planContainer = wrapper.querySelector('.composer-create-plan-container');
+        if (planContainer) {
+          const parsedPlan = extractAiTool(wrapper, flatIndex, messageId, rawEl);
+          if (parsedPlan?.element.type === 'plan') {
+            elements.push(parsedPlan.element);
+            rawEl.parsedAs = 'plan:virtualized';
+            parsedMessageIds.add(messageId);
+            continue;
+          }
+        }
       }
 
       // --- Fallback: step-group inside message-group wrapper ---
       if (!role && wrapper.querySelector('.composer-message-group')) {
         const collapseEl = wrapper.querySelector('.ui-collapsible-header');
         if (collapseEl) {
-          const spans = collapseEl.querySelectorAll(':scope > span');
-          let action = '';
-          let detail = '';
-          let duration = '';
-          const durationFromTextFb = (raw: string): string => {
-            const t = raw.trim();
-            const forM = t.match(/\bfor\s+([\d.]+\s*s(?:ec(?:onds?)?)?)\b/i);
-            if (forM) return forM[1].replace(/\s+/g, '');
-            const bareM = t.match(/^([\d.]+\s*s(?:ec(?:onds?)?)?)$/i);
-            if (bareM) return bareM[1].replace(/\s+/g, '');
-            return '';
-          };
-          const isDurationOnlySpanFb = (raw: string): boolean => {
-            const t = raw.trim();
-            if (/^for\s+/i.test(t)) return false;
-            return !!durationFromTextFb(t) && t.length <= 20;
-          };
-          for (const s of Array.from(spans)) {
-            if (s.classList.contains('cursor-icon') || s.classList.contains('ui-icon')) continue;
-            const t = (s.textContent || '').trim();
-            if (!t) continue;
-            const d = durationFromTextFb(t);
-            if (d && !duration) duration = d;
-            if (isDurationOnlySpanFb(t)) continue;
-            if (!action) { action = t; continue; }
-            if (t.startsWith('for ')) { duration = duration || t.replace(/^for\s+/i, '').trim(); detail = t; }
-            else { detail = detail || t; }
+          const parsed = parseThoughtSpansFromHeader(collapseEl);
+          const { action, detail, duration } = parsed;
+          if (action || detail || duration) {
+            elements.push({
+              type: 'thought' as const,
+              id: `thought-${flatIndex}`,
+              flatIndex,
+              duration,
+              action: action || undefined,
+              detail: detail || undefined,
+              thoughtKind: 'step_summary' as const,
+            });
+            rawEl.parsedAs = 'thought:fallback';
           }
-          if (!duration) {
-            const fullHeader = (collapseEl.textContent || '').replace(/\s+/g, ' ').trim();
-            duration = durationFromTextFb(fullHeader);
-          }
-          elements.push({
-            type: 'thought' as const,
-            id: `thought-${flatIndex}`,
-            flatIndex,
-            duration,
-            action: action || undefined,
-            detail: detail || undefined,
-          });
-          rawEl.parsedAs = 'thought:fallback';
         }
       }
     }
@@ -2237,6 +2469,7 @@ export function extractionFunction(
     const allIndicators = container.querySelectorAll('.loading-indicator-v3, .make-shine');
     for (const ind of Array.from(allIndicators)) {
       if (ind.closest(MSG_WRAPPER_SEL)) continue;
+      if (ind.closest('.virtualized-composer-messages-row')) continue;
       _orphanIndicators.push({
         cls: ind.className.substring(0, 200),
         text: (ind.textContent || '').trim().substring(0, 120),
@@ -2925,7 +3158,7 @@ export function extractionFunction(
         const parts: string[] = [];
         for (const s of Array.from(spans)) {
           if (s.classList.contains('cursor-icon') || s.classList.contains('ui-icon')) continue;
-          const t = (s.textContent || '').trim();
+          const t = thoughtTextFromNode(s);
           if (t) parts.push(t);
         }
         text = parts.join(' ');

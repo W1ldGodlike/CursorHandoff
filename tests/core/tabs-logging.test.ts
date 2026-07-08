@@ -1072,6 +1072,19 @@ describe('tabs DOMExtractor logging coverage', () => {
     assert.ok(!body.includes('logWarn'));
   });
 
+  it('extractionFunction parses virtualized composer rows (Cursor 3.10+)', () => {
+    const src = readFileSync(new URL('../../src/ide/parse/tabs.ts', import.meta.url), 'utf-8');
+    const body = src.slice(src.indexOf('export function extractionFunction'), src.indexOf('export class DOMExtractor'));
+    assert.match(body, /virtualized-composer-messages-row/);
+    assert.match(body, /data-react-transcript-row-kind/);
+    assert.match(body, /resolveMessageKind/);
+    assert.match(body, /toolCard && \(role === 'ai' \|\| !role\)/);
+    assert.match(body, /tool:edit-card/);
+    assert.match(body, /edit-file-/);
+    assert.match(body, /findEditToolCard/);
+    assert.match(body, /mergeEditToolElement/);
+  });
+
   it('start logs EXTRACT_START before scheduleNextPoll in source', () => {
     const zone = extractZoneSrc();
     const body = zone.slice(zone.indexOf('start(client'), zone.indexOf('stop():'));

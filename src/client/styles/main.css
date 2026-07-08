@@ -1754,6 +1754,19 @@ html[data-theme="light"] .markdown-body .md-diagram-wrap svg .cluster rect {
   text-overflow: ellipsis;
 }
 
+.el-tool--edit-file .tool-file-info {
+  gap: 6px;
+}
+
+.tool-file-ext {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+}
+
 .tool-additions { color: var(--accent-green); }
 .tool-deletions { color: var(--accent-red); }
 

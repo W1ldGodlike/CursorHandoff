@@ -45,6 +45,13 @@ const PAGE_HELPERS = `
   }
 
   function findToolCard(toolCallId, flatIndex) {
+    if (toolCallId && toolCallId.indexOf('edit-file-') === 0) {
+      const wantFn = toolCallId.slice('edit-file-'.length);
+      for (const card of document.querySelectorAll('.ui-tool-call-card')) {
+        const fn = (card.querySelector('.ui-edit-tool-call__filename')?.textContent || '').trim();
+        if (fn === wantFn) return card;
+      }
+    }
     for (const card of document.querySelectorAll('.ui-tool-call-card')) {
       const tid =
         card.querySelector('[data-tool-call-id]')?.getAttribute('data-tool-call-id')

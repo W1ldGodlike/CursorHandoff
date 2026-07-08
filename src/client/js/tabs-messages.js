@@ -61,6 +61,18 @@ function toolMessageHasDiffStats(msg) {
   return !!(msg.filename && (msg.additions != null || msg.deletions != null));
 }
 
+function isCompactEditFileTool(msg) {
+  return toolMessageHasDiffStats(msg) && /^edit$/i.test((msg.action || '').trim());
+}
+
+function fileExtLabel(filename) {
+  const base = (filename || '').split(/[/\\]/).pop() || '';
+  const ext = base.includes('.') ? base.split('.').pop() : '';
+  if (!ext) return '';
+  if (ext.length <= 4) return ext.toUpperCase();
+  return ext.slice(0, 4).toUpperCase();
+}
+
 function toolDiffBodyKey(db, filenameFallback, mode, expanded) {
   return JSON.stringify({
     bk: db.blockKind,
@@ -1370,7 +1382,7 @@ export function createToolEl(msg) {
   }
 
   const el = document.createElement('div');
-  el.className = 'chat-el el-tool';
+  el.className = 'chat-el el-tool' + (isCompactEditFileTool(msg) ? ' el-tool--edit-file' : '');
   el.dataset.id = msg.id;
 
   const line = document.createElement('div');
@@ -1381,12 +1393,14 @@ export function createToolEl(msg) {
   icon.textContent = msg.status === 'completed' ? '\u2713' : '\u2022';
   line.appendChild(icon);
 
+  const compactEdit = isCompactEditFileTool(msg);
+
   if (msg.summaryText) {
     const summary = document.createElement('span');
     summary.className = 'tool-summary';
     summary.textContent = msg.summaryText;
     line.appendChild(summary);
-  } else {
+  } else if (!compactEdit) {
     if (msg.action) {
       const action = document.createElement('span');
       action.className = 'tool-action';
@@ -1406,6 +1420,13 @@ export function createToolEl(msg) {
     fileInfo.className = 'tool-file-info';
 
     if (msg.filename) {
+      const ext = fileExtLabel(msg.filename);
+      if (compactEdit && ext) {
+        const badge = document.createElement('span');
+        badge.className = 'tool-file-ext';
+        badge.textContent = ext;
+        fileInfo.appendChild(badge);
+      }
       const fn = document.createElement('span');
       fn.className = 'tool-filename';
       fn.textContent = msg.filename;
