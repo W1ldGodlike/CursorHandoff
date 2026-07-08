@@ -14,19 +14,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Cursor 3.10 virtualized transcript mirror** — Parser no longer relies only on flat-index wrappers. It now reads nested `virtualized-composer-messages-row` content, resolves row kind from `data-react-transcript-row-kind`, and restores assistant/tool/thought extraction in web and Telegram mirrors.
-- **Edit tool rows in web/TG** — `Edit <file> +N -M` cards are extracted from virtualized tool cards, deduped by stable file ids, and preserved when wrappers are nested. This fixes missing edit rows and repeated duplicates during live polling.
-- **Thought summary noise on Cursor 3.10** — Step-group parsing strips injected CSS/style fragments from summary nodes and normalizes duplicate fragments, so activity lines no longer show raw selector blocks.
-- **Mirror continuity around nested tool cards** — Parent wrappers are no longer prematurely skipped when they contain nested virtualized tool cards; nearby human/assistant lines remain visible in order.
+- **Cursor 3.10 transcript extraction regression (critical)** — Restored agent message mirroring after Cursor moved content into `virtualized-composer-messages-row` layouts. Extraction now processes virtualized rows in DOM order, resolves kinds from `data-react-transcript-row-kind`, and no longer depends on legacy flat-index-only wrappers.  
+  **User-visible impact:** web and Telegram mirrors again receive assistant text, thought rows, and tool output instead of only `You:` messages.
+- **Nested virtualized tool-card handling** — Prevented parent-wrapper short-circuiting when a nested virtualized tool card is present. Parent wrappers are no longer dropped as false tool rows.  
+  **User-visible impact:** nearby user/assistant messages stay visible and correctly ordered instead of disappearing around edit cards.
+- **Edit card extraction in Cursor 3.10** — Added robust edit-card detection for virtualized tool cards (`ui-tool-call-card` / `ui-edit-tool-call`) including nested cases; filename fallback from header `title`; stats parsing from both dedicated nodes and combined `+N/-M` text blobs.  
+  **User-visible impact:** `Edit <file> +N -M` rows are visible again in mirrors.
+- **Edit row dedupe stability** — Replaced unstable poll-dependent ids with stable per-file ids (`edit-file-*`) and merge rules that keep the richer diff payload.  
+  **User-visible impact:** eliminated repeated duplicate edit lines and missing rows during rapid polling.
+- **Thought summary contamination from injected style blocks** — Sanitized step-summary parsing to remove embedded CSS/style fragments and collapse duplicated phrases from the new Cursor DOM shape.  
+  **User-visible impact:** thought/activity lines no longer leak raw selector/CSS text.
 
 ### Changed
 
-- **Web edit row presentation** — compact edit rows now show extension badges (for example `TS`, `JS`, `PY`) with filename and `+/-` stats, matching Cursor card semantics while keeping web feed density.
-- **Diff expand targeting** — one-shot `expand_tool_diff` lookup supports stable `edit-file-*` tool ids by filename in addition to `data-tool-call-id`, improving expand reliability on Cursor 3.10 card layouts.
+- **Web edit row presentation** — Compact edit rows now render extension badges (`TS`, `JS`, `PY`, …) next to filename and `+/-` stats for better scanability while preserving dense feed layout.
+- **Expand-diff targeting** — `expand_tool_diff` lookup now supports stable filename-based edit ids (`edit-file-*`) in addition to `data-tool-call-id`, improving expand reliability on Cursor 3.10 cards.
+- **Release note quality for parser fixes** — Added explicit regression context and user-facing behavior notes for 3.10 DOM changes to reduce ambiguity in future triage.
+
+### Tests
+
+- **Parser coverage updates** — Extended `tests/core/tabs-logging.test.ts` assertions for virtualized row parsing paths (`resolveMessageKind`, edit-card branch, stable edit ids, helper usage) to lock in Cursor 3.10 behavior.
+- **Build + full suite validation** — Verified release candidate with `npm run build` and `npm test` before packaging artifacts.
 
 ### Compatibility
 
-- **Pinned tested Cursor version** — package/release metadata now pins `testedCursorVersion` to **3.10.20** (`scripts/build/cursor-compat.json`), and release artifacts are built and published with that compatibility marker.
+- **Pinned tested Cursor version** — Updated packaged compatibility marker to **3.10.20** (`scripts/build/cursor-compat.json`), then rebuilt and published Standard + Complete VSIX and Wake artifact with the new marker.
+- **Docs synchronization** — Updated compatibility references in maintainer docs (`docs/development.md`, `AGENTS.md`) to match the packaged `testedCursorVersion`.
 
 ## [1.6.0] - 2026-07-05
 
