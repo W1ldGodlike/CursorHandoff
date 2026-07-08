@@ -142,3 +142,17 @@ User-facing behavior: [docs/telegram.md](docs/telegram.md). Socket table: [docs/
 - [docs/reference.md](docs/reference.md)
 - [docs/architecture.md](docs/architecture.md)
 - [docs/development.md](docs/development.md)
+
+## Cursor Cloud specific instructions
+
+The cloud VM is **headless Linux**. Dependencies are refreshed automatically on startup (`npm install`); Node 22 is available. Standard commands (`npm run build`, `npm test`, `npm run test:web`) are in the Commands table above.
+
+**Hard limitation — no real end-to-end here.** The product drives a *local GUI Cursor IDE* over CDP (`--remote-debugging-port=9222`). No Cursor/Electron GUI exists on this VM, so the server runs in a permanent **CDP-disconnected** state: startup logs repeat `CDP_CONNECT_FAIL` / `CDP_RECONNECT_SCHEDULE` — this is expected, not a bug. Driving an actual agent (tabs, composer, approvals) cannot be exercised here.
+
+**What you can run and test headless:**
+- `npm test` — jsdom-mocked, needs no Cursor/Telegram. 4 tests in `tests/workspace/` (`folderUriToPath`, `projectScore`, `workspace-uri`) assert **Windows** backslash paths and always fail on Linux (`uriPathToNative` branches on `process.platform === 'win32'`); treat these 4 as expected xfails, everything else passes.
+- Run the server standalone (no extension needed): `npm run build` then `WEBAPP_PASSWORD=<pw> node dist/core/main.js` → serves the mobile web client + socket.io on `http://127.0.0.1:3000`. Log in at `/` (redirects to `/login`) with the password to get an authenticated live session; `/health` gives liveness (`connected:false` without Cursor). This is the realistic smoke test of the web surface.
+
+**Not usable on Linux:** all `scripts/install/*.ps1`, `scripts/redeploy/*.ps1`, and the `redeploy` / `redeploy:check` / `redeploy:restart` npm scripts are PowerShell/Windows-only. CursorWake (`wake/`) is Windows-only. The redeploy stop-hook workflow (`data/redeploy-requested`) targets a local Windows dev box, not this VM.
+
+Telegram transport is off by default and needs an external bot token + supergroup + network egress to `api.telegram.org`; leave disabled unless a task requires it.
